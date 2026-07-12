@@ -70,16 +70,29 @@ class WikiPaths:
     root: Path
 
     def _load_raw_config(self) -> dict:
-        # Bootstrap from the default config location.  The config itself may
-        # then redirect state DB and generated-file paths elsewhere.
-        config_file = self.root / INTERNAL_DIR / CONFIG_FILE
-        if not config_file.exists():
+        # Bootstrap from the default config location, or from LLM_WIKI_CONFIG
+        # external runtime config when set.  The config itself may then redirect
+        # state DB and generated-file paths elsewhere.
+        config_file = self._resolve_config_file()
+        if config_file is None or not config_file.exists():
             return {}
         try:
             with config_file.open("r", encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
         except Exception:
             return {}
+
+    def _resolve_config_file(self) -> Path | None:
+        """Return the config file path to use.
+
+        ``LLM_WIKI_CONFIG`` is allowed to point at an external runtime config
+        file that may not exist yet (for example during setup/save).  Reading
+        callers must still check ``exists()`` before loading it.
+        """
+        path = external_config_path(require_exists=False)
+        if path is not None:
+            return path
+        return self.root / INTERNAL_DIR / CONFIG_FILE
 
     def _paths_config(self) -> dict:
         return self._load_raw_config().get("paths", {})
@@ -170,6 +183,10 @@ class WikiPaths:
 
     @property
     def config_file(self) -> Path:
+        """Return the config file path: ``LLM_WIKI_CONFIG`` if set, else mapped config."""
+        path = external_config_path(require_exists=False)
+        if path is not None:
+            return path
         return self.mapped_file("config")
 
     @property
@@ -190,7 +207,14 @@ class WikiPaths:
         return True
 
     def is_initialized(self) -> bool:
-        """A folder counts as initialized if its config file exists."""
+        """A folder counts as initialized if its active config file exists.
+
+        When ``LLM_WIKI_CONFIG`` is set, that external config file is the active
+        config; this keeps runtime state outside the vault.
+        """
+        path = external_config_path(require_exists=False)
+        if path is not None:
+            return path.is_file()
         return (self.root / INTERNAL_DIR / CONFIG_FILE).exists() or self.config_file.exists()
 
 
@@ -241,14 +265,51 @@ def save_config(paths: WikiPaths, config: dict) -> None:
 def find_wiki_root(start: Path | None = None) -> Path | None:
     """Walk upward from `start` looking for a `.wiki/config.yml`. Returns the
     project root if found, else None.
+
+    When LLM_WIKI_CONFIG is set to an external config file path, the wiki root
+    is inferred from that file's parent directory (one level up from the
+    directory containing the config file).
     """
     import os
     env_root = os.environ.get("WIKI_ROOT")
     if env_root:
         return Path(env_root).resolve()
 
+    # Support LLM_WIKI_CONFIG=/path/to/external/config.yml pointing to an
+    # external runtime config file. Prefer an explicit root in that config when
+    # present; otherwise fall back to the previous runtime-parent heuristic.
+    env_config_path = external_config_path(require_exists=True)
+    if env_config_path is not None:
+        try:
+            with env_config_path.open("r", encoding="utf-8") as f:
+                loaded = yaml.safe_load(f) or {}
+            paths_cfg = loaded.get("paths", {}) if isinstance(loaded, dict) else {}
+            explicit_root = paths_cfg.get("root") or paths_cfg.get("root_dir")
+            if explicit_root:
+                return Path(str(explicit_root)).expanduser().resolve()
+        except Exception:
+            pass
+        # Backward-compatible fallback for existing external runtime layouts.
+        return env_config_path.parent.parent
+
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
         if (candidate / INTERNAL_DIR / CONFIG_FILE).exists():
             return candidate
     return None
+
+
+def external_config_path(require_exists: bool = True) -> Path | None:
+    """Return the resolved path for ``LLM_WIKI_CONFIG``, or None.
+
+    ``require_exists=False`` is useful for setup/save paths where the external
+    config file is about to be created.
+    """
+    import os
+    env_config = os.environ.get("LLM_WIKI_CONFIG")
+    if not env_config:
+        return None
+    path = Path(env_config).expanduser().resolve()
+    if require_exists and not path.is_file():
+        return None
+    return path

@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+
+{% block title %}Changelog · LLM-Wiki{% endblock %}
+
+{% block extra_head %}
+<style>
+    .change-card {
+        border: 1px solid rgba(124, 140, 255, 0.15);
+        background: rgba(28, 31, 42, 0.4);
+        backdrop-filter: blur(8px);
+    }
+    .status-badge {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 2px 8px;
+        border-radius: 9999px;
+    }
+    .status-pending  { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+    .status-applied  { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+    .status-verified { background: rgba(96, 165, 250, 0.15); color: #60a5fa; }
+    .status-rolled_back { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+    .type-badge {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 2px 8px;
+        border-radius: 4px;
+    }
+    .type-config      { background: rgba(167, 139, 250, 0.15); color: #a78bfa; }
+    .type-prompt      { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+    .type-playbook    { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+    .type-path_mapping { background: rgba(96, 165, 250, 0.15); color: #60a5fa; }
+    .type-schema      { background: rgba(251, 146, 60, 0.15); color: #fb923c; }
+    pre { white-space: pre-wrap; word-break: break-all; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-8 max-w-5xl mx-auto">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-white">Changelog</h1>
+            <p class="text-sm text-text-dim mt-1">Operational, config, and playbook change history</p>
+        </div>
+        <button
+            onclick="showCreateModal()"
+            class="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition shadow-lg shadow-accent/10"
+        >+ Record Change</button>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="flex gap-3 items-center text-sm">
+        <span class="text-text-dim">Filter:</span>
+        <select id="filter-type" onchange="loadChanges()" class="bg-bg-soft border border-border text-text rounded px-2 py-1 text-xs">
+            <option value="">All types</option>
+            <option value="config">Config</option>
+            <option value="prompt">Prompt</option>
+            <option value="playbook">Playbook</option>
+            <option value="path_mapping">Path Mapping</option>
+            <option value="schema">Schema</option>
+        </select>
+        <select id="filter-status" onchange="loadChanges()" class="bg-bg-soft border border-border text-text rounded px-2 py-1 text-xs">
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="applied">Applied</option>
+            <option value="verified">Verified</option>
+            <option value="rolled_back">Rolled Back</option>
+        </select>
+        <span id="total-count" class="text-text-dim text-xs ml-auto"></span>
+    </div>
+
+    <!-- Changes list -->
+    <div id="changes-list" class="space-y-4">
+        <div class="text-center text-text-dim py-12 text-sm">Loading…</div>
+    </div>
+</div>
+
+<!-- Create Change Modal -->
+<div id="create-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+    <div class="bg-bg-card border border-border rounded-xl w-full max-w-lg mx-4 shadow-2xl">
+        <div class="flex items-center justify-between p-5 border-b border-border">
+            <h2 class="text-lg font-bold text-white">Record Change</h2>
+            <button onclick="hideCreateModal()" class="text-text-dim hover:text-white text-xl">&times;</button>
+        </div>
+        <form id="create-form" onsubmit="submitCreate(event)" class="p-5 space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs text-text-dim mb-1">Changed By *</label>
+                    <input type="text" name="changed_by" required
+                        class="w-full bg-bg-soft border border-border text-text rounded px-3 py-2 text-sm focus:border-accent outline-none"
+                        placeholder="Agent or username">
+                </div>
+                <div>
+                    <label class="block text-xs text-text-dim mb-1">Change Type *</label>
+                    <select name="change_type" required
+                        class="w-full bg-bg-soft border border-border text-text rounded px-3 py-2 text-sm focus:border-accent outline-none">
+                        <option value="config">Config</option>
+                        <option value="prompt">Prompt</option>
+                        <option value="playbook">Playbook</option>
+                        <option value="path_mapping">Path Mapping</option>
+                        <option value="schema">Schema</option>
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs text-text-dim mb-1">Reason *</label>
+                <input type="text" name="reason" required
+                    class="w-full bg-bg-soft border border-border text-text rounded px-3 py-2 text-sm focus:border-accent outline-none"
+                    placeholder="Why was this changed?">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs text-text-dim mb-1">Source File</label>
+                    <input type="text" name="source_file"
+                        class="w-full bg-bg-soft border border-border text-text rounded px-3 py-2 text-sm focus:border-accent outline-none"
+                        placeholder="e.g. config.yml, prompts.py">
+                </div>
+                <div>
+                    <label class="block text-xs text-text-dim mb-1">Affected Service</label>
+                    <input type="text" name="affected_service"
+                        class="w-full bg-bg-soft border border-border text-text rounded px-3 py-2 text-sm focus:border-accent outline-none"
+                        placeholder="e.g. ingest, mcp, webapp">
+                </div>
+            </div>
+            <div>
+                <label class="inline-flex items-center gap-2 text-xs text-text-dim cursor-pointer">
+                    <input type="checkbox" name="rollback_available" class="rounded border-border bg-bg-soft">
+                    Rollback Available
+                </label>
+            </div>
+            <div>
+                <label class="block text-xs text-text-dim mb-1">Linked Wiki Pages</label>
+                <input type="text" name="linked_wiki_pages"
+                    class="w-full bg-bg-soft border border-border text-text rounded px-3 py-2 text-sm focus:border-accent outline-none"
+                    placeholder="Comma-separated page paths, e.g. entities/openai.md, concepts/rag.md">
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
+                <button type="button" onclick="hideCreateModal()"
+                    class="px-4 py-2 text-text-dim hover:text-white text-sm transition">Cancel</button>
+                <button type="submit"
+                    class="px-5 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition shadow-lg shadow-accent/10">Record Change</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Verify Modal -->
+<div id="verify-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+    <div class="bg-bg-card border border-border rounded-xl w-full max-w-lg mx-4 shadow-2xl">
+        <div class="flex items-center justify-between p-5 border-b border-border">
+            <h2 class="text-lg font-bold text-white">Verify Change</h2>
+            <button onclick="hideVerifyModal()" class="text-text-dim hover:text-white text-xl">&times;</button>
+        </div>
+        <form id="verify-form" onsubmit="submitVerify(event)" class="p-5 space-y-4">
+            <input type="hidden" name="change_id" id="verify-change-id">
+            <div>
+                <label class="block text-xs text-text-dim mb-1">Verification Evidence *</label>
+                <textarea name="verification_evidence" required rows="4"
+                    class="w-full bg-bg-soft border border-border text-text rounded px-3 py-2 text-sm focus:border-accent outline-none resize-none"
+                    placeholder="How was this change verified?"></textarea>
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
+                <button type="button" onclick="hideVerifyModal()"
+                    class="px-4 py-2 text-text-dim hover:text-white text-sm transition">Cancel</button>
+                <button type="submit"
+                    class="px-5 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition shadow-lg shadow-accent/10">Mark Verified</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+async function loadChanges() {
+    const typeFilter = document.getElementById('filter-type').value;
+    const statusFilter = document.getElementById('filter-status').value;
+    let url = '/api/changelog?';
+    if (typeFilter) url += 'change_type=' + encodeURIComponent(typeFilter) + '&';
+    if (statusFilter) url += 'status=' + encodeURIComponent(statusFilter) + '&';
+
+    const res = await fetch(url);
+    const data = await res.json();
+    const container = document.getElementById('changes-list');
+    document.getElementById('total-count').textContent = data.total + ' change(s)';
+
+    if (!data.changes || data.changes.length === 0) {
+        container.innerHTML = '<div class="text-center text-text-dim py-12 text-sm">No changes recorded yet.</div>';
+        return;
+    }
+
+    container.innerHTML = data.changes.map(change => {
+        const safeStatus = escapeHtml(change.status || 'pending');
+        const safeType = escapeHtml(change.change_type || 'config');
+        const statusClass = 'status-' + safeStatus;
+        const typeClass = 'type-' + safeType;
+        const safeId = escapeHtml(change.change_id || '');
+        const rollback = change.rollback_available
+            ? '<span class="text-xs text-text-dim ml-2">🔄 rollback available</span>'
+            : '';
+        const verifyBtn = change.status !== 'verified'
+            ? `<button onclick="showVerifyModal('${safeId}')" class="text-xs text-accent hover:text-accent-hover ml-3">Verify</button>`
+            : '';
+        const linkedPages = (change.linked_wiki_pages || []).length > 0
+            ? `<div class="text-xs text-text-dim mt-1">Links: ${change.linked_wiki_pages.map(p => `<span class="text-accent">${escapeHtml(p)}</span>`).join(', ')}</div>`
+            : '';
+        const evidence = change.verification_evidence
+            ? `<div class="mt-2 text-xs text-text-dim"><span class="text-text-muted">Evidence:</span> ${escapeHtml(change.verification_evidence)}</div>`
+            : '';
+
+        return `
+        <div class="change-card rounded-xl p-5 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="type-badge ${typeClass}">${safeType}</span>
+                    <span class="status-badge ${statusClass}">${safeStatus}</span>
+                    ${rollback}
+                </div>
+                <div class="flex items-center gap-3">
+                    ${verifyBtn}
+                    <span class="text-xs text-text-dim">${escapeHtml(change.changed_at ? change.changed_at.slice(0, 16) : '')}</span>
+                </div>
+            </div>
+            <div class="text-sm font-semibold text-white">${escapeHtml(change.reason || '(no reason)')}</div>
+            <div class="text-xs text-text-dim">
+                by <span class="text-text">${escapeHtml(change.changed_by || 'unknown')}</span>
+                ${change.source_file ? ` · file: <span class="text-text">${escapeHtml(change.source_file)}</span>` : ''}
+                ${change.affected_service ? ` · service: <span class="text-text">${escapeHtml(change.affected_service)}</span>` : ''}
+            </div>
+            ${linkedPages}
+            ${evidence}
+        </div>`;
+    }).join('');
+}
+
+function showCreateModal() {
+    document.getElementById('create-modal').classList.remove('hidden');
+}
+function hideCreateModal() {
+    document.getElementById('create-modal').classList.add('hidden');
+    document.getElementById('create-form').reset();
+}
+
+function showVerifyModal(changeId) {
+    document.getElementById('verify-change-id').value = changeId;
+    document.getElementById('verify-modal').classList.remove('hidden');
+}
+function hideVerifyModal() {
+    document.getElementById('verify-modal').classList.add('hidden');
+    document.getElementById('verify-form').reset();
+}
+
+async function submitCreate(e) {
+    e.preventDefault();
+    const form = e.target;
+    const fd = new FormData(form);
+    const body = {
+        changed_by: fd.get('changed_by'),
+        change_type: fd.get('change_type'),
+        reason: fd.get('reason'),
+        source_file: fd.get('source_file') || '',
+        affected_service: fd.get('affected_service') || '',
+        rollback_available: fd.get('rollback_available') === 'on',
+        linked_wiki_pages: fd.get('linked_wiki_pages')
+            ? fd.get('linked_wiki_pages').split(',').map(s => s.trim()).filter(Boolean)
+            : [],
+        before_state: null,
+        after_state: null,
+        status: 'applied',
+    };
+    const res = await fetch('/api/changelog', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+    if (res.ok) {
+        hideCreateModal();
+        loadChanges();
+    } else {
+        const err = await res.json();
+        alert('Error: ' + (err.detail || res.statusText));
+    }
+}
+
+async function submitVerify(e) {
+    e.preventDefault();
+    const form = e.target;
+    const fd = new FormData(form);
+    const changeId = fd.get('change_id');
+    const res = await fetch('/api/changelog/verify/' + changeId, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({verification_evidence: fd.get('verification_evidence')}),
+    });
+    if (res.ok) {
+        hideVerifyModal();
+        loadChanges();
+    } else {
+        const err = await res.json();
+        alert('Error: ' + (err.detail || res.statusText));
+    }
+}
+
+// Close modals on Escape
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { hideCreateModal(); hideVerifyModal(); }
+});
+
+loadChanges();
+</script>
+{% endblock %}

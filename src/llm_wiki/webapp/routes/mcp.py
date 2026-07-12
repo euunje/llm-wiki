@@ -13,11 +13,58 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from ... import config as cfg
 from ... import search
 from ... import page_writer
+from . import graph as graph_module
 
 router = APIRouter()
 
 # Active SSE connection queues: connection_id -> asyncio.Queue
 _active_connections: dict[str, asyncio.Queue] = {}
+
+
+def _configured_page_dirs(paths: cfg.WikiPaths) -> list[tuple[str, Path]]:
+    """Return configured page directories as (name, absolute path) pairs.
+
+    Some deployments map page dirs outside ``paths.wiki`` (for example
+    synthesis -> ``30. Queries`` in Ja's vault).  MCP tools should use the
+    resolved config paths rather than ``paths.wiki / name``.
+    """
+    dirs: list[tuple[str, Path]] = []
+    for name in paths._page_dirs_config().keys():
+        if name == "assets":
+            continue
+        dirs.append((name, paths.page_dir(name)))
+    return dirs
+
+
+def _display_page_path(paths: cfg.WikiPaths, page_dir_name: str, file_path: Path) -> str:
+    """Return a stable relative path for MCP clients."""
+    try:
+        return file_path.relative_to(paths.root).as_posix()
+    except ValueError:
+        return f"{page_dir_name}/{file_path.name}"
+
+
+def _resolve_page_path(paths: cfg.WikiPaths, page_path_str: str) -> Path:
+    """Resolve a user-supplied MCP page path without allowing traversal."""
+    clean_path = page_path_str.replace("..", "").strip("/")
+    if not clean_path:
+        return paths.wiki / "__missing__"
+
+    parts = Path(clean_path).parts
+    if parts:
+        for name, dir_path in _configured_page_dirs(paths):
+            if parts[0] == name:
+                return dir_path.joinpath(*parts[1:])
+
+    root_candidate = (paths.root / clean_path).resolve()
+    try:
+        root_candidate.relative_to(paths.root.resolve())
+        if root_candidate.exists():
+            return root_candidate
+    except ValueError:
+        pass
+
+    return paths.wiki / clean_path
 
 
 def handle_mcp_request(paths: cfg.WikiPaths, request_dict: dict) -> dict:
@@ -67,6 +114,14 @@ def handle_mcp_request(paths: cfg.WikiPaths, request_dict: dict) -> dict:
                         },
                         "required": ["query"]
                     }
+                },
+                {
+                    "name": "get_graph_data",
+                    "description": "Return the wiki wikilink graph as structured node/edge data (nodes, edges, stats) equivalent to the /api/graph endpoint",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                    }
                 }
             ]
         }
@@ -79,12 +134,11 @@ def handle_mcp_request(paths: cfg.WikiPaths, request_dict: dict) -> dict:
         
         if tool_name == "list_wiki_pages":
             pages_list = []
-            for sub in ("sources", "entities", "concepts", "synthesis", "non_categories"):
-                dir_path = paths.wiki / sub
+            for sub, dir_path in _configured_page_dirs(paths):
                 if dir_path.exists():
                     for f in dir_path.glob("*.md"):
                         if not f.name.startswith("."):
-                            pages_list.append(f"{sub}/{f.name}")
+                            pages_list.append(_display_page_path(paths, sub, f))
             
             result_text = "Pages:\n" + "\n".join(f"- {p}" for p in pages_list)
             response["result"] = {
@@ -99,8 +153,7 @@ def handle_mcp_request(paths: cfg.WikiPaths, request_dict: dict) -> dict:
             
         elif tool_name == "get_page_content":
             page_path_str = args.get("path", "")
-            clean_path = page_path_str.replace("..", "").strip("/")
-            full_path = paths.wiki / clean_path
+            full_path = _resolve_page_path(paths, page_path_str)
             
             if not full_path.exists() or not full_path.is_file():
                 response["error"] = {
@@ -146,14 +199,13 @@ def handle_mcp_request(paths: cfg.WikiPaths, request_dict: dict) -> dict:
                     result_text = "\n\n".join(hits_text) if hits_text else "No search results found."
                 else:
                     matches = []
-                    for sub in ("sources", "entities", "concepts", "synthesis"):
-                        dir_path = paths.wiki / sub
+                    for sub, dir_path in _configured_page_dirs(paths):
                         if dir_path.exists():
                             for f in dir_path.glob("*.md"):
                                 try:
                                     txt = f.read_text(encoding="utf-8")
                                     if query_str.lower() in txt.lower():
-                                        matches.append(f"{sub}/{f.name}")
+                                        matches.append(_display_page_path(paths, sub, f))
                                 except Exception:
                                     pass
                     result_text = "Matching pages:\n" + "\n".join(f"- {m}" for m in matches) if matches else "No matches found."
@@ -172,7 +224,25 @@ def handle_mcp_request(paths: cfg.WikiPaths, request_dict: dict) -> dict:
                     "message": str(e)
                 }
             return response
-            
+
+        elif tool_name == "get_graph_data":
+            try:
+                graph_data = graph_module._build_graph_data(paths)
+                response["result"] = {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(graph_data)
+                        }
+                    ]
+                }
+            except Exception as e:
+                response["error"] = {
+                    "code": -32603,
+                    "message": str(e)
+                }
+            return response
+
     response["error"] = {
         "code": -32601,
         "message": "Method not found"

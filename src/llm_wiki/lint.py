@@ -119,17 +119,38 @@ class PageInventory:
 
 _NOISE_PAGES = {"index.md", "log.md"}
 
-# Directory prefix → page type
+# Logical page kinds scanned by lint/graph.  Runtime config may remap these
+# directories outside ``paths.wiki`` while keeping the logical kind names.
 _PAGE_TYPES = ("sources", "entities", "concepts", "synthesis")
 
 
+def _configured_page_type_dirs(paths: cfg.WikiPaths) -> list[tuple[str, Path]]:
+    """Return logical page type directories resolved through WikiPaths config."""
+    configured = paths._page_dirs_config()
+    names = [name for name in configured.keys() if name != "assets"]
+    # Preserve the historical default order, then append any custom page kinds.
+    ordered = [name for name in _PAGE_TYPES if name in names]
+    ordered.extend(name for name in names if name not in ordered)
+    return [(name, paths.page_dir(name)) for name in ordered]
+
+
+def _inventory_relpath(paths: cfg.WikiPaths, logical_name: str, md_path: Path) -> str:
+    """Return a stable inventory path for a markdown page."""
+    try:
+        return md_path.relative_to(paths.wiki).as_posix()
+    except ValueError:
+        try:
+            return md_path.relative_to(paths.root).as_posix()
+        except ValueError:
+            return f"{logical_name}/{md_path.name}"
+
+
 def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
-    """Walk wiki/ and build a cached PageInventory for all downstream checks."""
+    """Walk configured wiki page directories and build a PageInventory."""
     inv = PageInventory()
 
-    # 1. Walk wiki/ subdirectories
-    for subdir in _PAGE_TYPES:
-        d = paths.wiki / subdir
+    # 1. Walk configured page directories
+    for logical_name, d in _configured_page_type_dirs(paths):
         if not d.exists():
             continue
         for md_path in sorted(d.glob("*.md")):
@@ -140,13 +161,18 @@ def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
             except OSError:
                 continue
             parsed = page_writer.parse_page(content)
-            relpath = f"{subdir}/{md_path.name}"
+            relpath = _inventory_relpath(paths, logical_name, md_path)
             inv.pages[relpath] = parsed
 
-            # Also record the slug without .md, which is how wikilinks reference it
-            slug_no_ext = f"{subdir}/{md_path.stem}"
+            # Record root-relative slug plus logical-kind aliases.  The latter
+            # preserve legacy links such as [[concepts/foo]] even when a custom
+            # vault maps concepts to "20. Wiki/21. Concepts".
+            slug_no_ext = relpath[:-3] if relpath.endswith(".md") else relpath
             inv.all_slugs.add(slug_no_ext)
-            inv.all_slugs.add(f"{subdir}/{md_path.stem}.md")  # support both forms
+            inv.all_slugs.add(relpath)
+            logical_slug = f"{logical_name}/{md_path.stem}"
+            inv.all_slugs.add(logical_slug)
+            inv.all_slugs.add(f"{logical_slug}.md")
 
     # 2. Build forward + reverse link graphs
     for relpath, parsed in inv.pages.items():
