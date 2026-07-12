@@ -33,17 +33,33 @@ class WikiPaths:
 
     root: Path
 
+    def _load_raw_config(self) -> dict:
+        config_file = self.root / INTERNAL_DIR / CONFIG_FILE
+        if not config_file.exists():
+            return {}
+        try:
+            with config_file.open("r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
+
     @property
     def raw(self) -> Path:
-        return self.root / RAW_DIR
+        config = self._load_raw_config()
+        rel = config.get("paths", {}).get("raw_dir", RAW_DIR)
+        return (self.root / rel).resolve()
 
     @property
     def wiki(self) -> Path:
-        return self.root / WIKI_DIR
+        config = self._load_raw_config()
+        rel = config.get("paths", {}).get("wiki_dir", WIKI_DIR)
+        return (self.root / rel).resolve()
 
     @property
     def schema(self) -> Path:
-        return self.root / SCHEMA_DIR
+        config = self._load_raw_config()
+        rel = config.get("paths", {}).get("schema_dir", SCHEMA_DIR)
+        return (self.root / rel).resolve()
 
     @property
     def internal(self) -> Path:

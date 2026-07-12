@@ -95,7 +95,132 @@
                     <button type="button" id="browseBtn"
                             class="px-5 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded-lg text-sm font-semibold transition whitespace-nowrap active:scale-[0.98]">Browse...</button>
                 </div>
-                <p class="text-[11px] text-slate-500 mt-1">Files and directories (`wiki/`, `raw/`, `.wiki/`) will be generated inside this path.</p>
+                <p class="text-[11px] text-slate-500 mt-1">Select the root directory of your project or Obsidian Vault.</p>
+            </div>
+
+            <!-- Vault Configuration Mode Section -->
+            <div class="space-y-4">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400">Setup Mode & Folder Configuration</label>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Option A: Clean Scaffold -->
+                    <div id="setup-type-new" onclick="setSetupType('new')" 
+                         class="cursor-pointer border-2 border-brand-500 bg-brand-500/5 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-brand-400">
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <h4 class="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                                    <span>🆕</span> New Vault Setup
+                                </h4>
+                                <span id="setup-type-new-radio" class="w-4 h-4 rounded-full border-4 border-brand-500 bg-dark-800"></span>
+                            </div>
+                            <p class="text-xs text-slate-400 leading-relaxed">
+                                Start fresh. Standard system folders (`wiki/`, `raw/`, `schema/`) will be automatically created inside your vault directory.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Option B: Existing Vault Integration -->
+                    <div id="setup-type-existing" onclick="setSetupType('existing')" 
+                         class="cursor-pointer border border-dark-700 bg-dark-800/40 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-dark-600">
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <h4 class="text-sm font-bold text-slate-200 flex items-center gap-1.5">
+                                    <span>🔄</span> Existing Vault Mapping
+                                </h4>
+                                <span id="setup-type-existing-radio" class="w-4 h-4 rounded-full border border-dark-600 bg-dark-800"></span>
+                            </div>
+                            <p class="text-xs text-slate-400 leading-relaxed">
+                                Connect an existing Obsidian vault. Map your custom folders (e.g. `20. Wiki`, `00. Inbox`) to prevent cluttering.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dynamic Preview & Mapping Zone -->
+                <div class="border border-dark-700 rounded-xl bg-dark-900/30 p-4 mt-2">
+                    
+                    <!-- NEW SETUP PREVIEW -->
+                    <div id="new-setup-preview" class="space-y-3">
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Expected Folder Layout</h4>
+                        <p class="text-xs text-slate-400">We will create the following layout to house LLM-Wiki services:</p>
+                        <pre class="bg-dark-900/70 border border-dark-800 rounded-lg p-3 text-xs text-brand-300 font-mono select-none">
+📂 <span id="preview-root">[Vault Root]</span>/
+├── 📁 raw/            <span class="text-slate-500">← Inbox: drop your raw files (PDFs, PPTX) here</span>
+├── 📁 wiki/           <span class="text-slate-500">← Wiki output: AI-generated categorizations go here</span>
+└── 📁 schema/         <span class="text-slate-500">← Settings: AGENTS.md taxonomy configuration</span></pre>
+                        <!-- Hidden inputs holding default values -->
+                        <input type="hidden" id="wiki_dir" name="wiki_dir" value="wiki">
+                        <input type="hidden" id="raw_dir" name="raw_dir" value="raw">
+                        <input type="hidden" id="schema_dir" name="schema_dir" value="schema">
+                    </div>
+
+                    <!-- EXISTING SETUP MAPPER -->
+                    <div id="existing-setup-mapper" class="hidden space-y-4">
+                        <div class="flex justify-between items-center pb-2 border-b border-dark-800">
+                            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Map Custom Folders to Roles</h4>
+                            <button type="button" onclick="fetchVaultFolders()" class="text-[10px] text-brand-400 hover:text-brand-300 transition">🔄 Refresh Folders</button>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <!-- Left: detected folders -->
+                            <div class="col-span-1 border border-dark-700 bg-dark-900/40 p-3 rounded-lg flex flex-col">
+                                <span class="text-[10px] font-bold uppercase text-slate-400 block mb-2">📁 Detected Folders</span>
+                                <div id="detected-folders-list" class="flex flex-wrap lg:flex-col gap-1.5 overflow-y-auto max-h-[220px] p-1">
+                                    <span class="text-xs text-slate-500 italic">Enter project path to scan.</span>
+                                </div>
+                                <p class="text-[9px] text-slate-500 mt-2">💡 Drag a badge or use the icons next to it: 📥 maps to Inbox, 📂 maps to Wiki, and ⚙️ maps to Schema settings.</p>
+                            </div>
+
+                            <!-- Right: mapping slots -->
+                            <div class="col-span-2 space-y-3">
+                                <!-- Slot 1: Inbox -->
+                                <div id="slot-raw" class="p-3 border border-dark-700 bg-dark-800/20 rounded-lg transition"
+                                     ondragover="allowDrop(event)" ondrop="handleDrop(event, 'raw')" ondragleave="handleDragLeave(event)">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <span class="text-[11px] font-bold text-slate-200">📥 Inbox Folder (Raw Documents)</span>
+                                            <p class="text-[10px] text-slate-400 mt-0.5">Where raw files are dropped. The pipeline reads files from this folder.</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex gap-2 mt-2">
+                                        <input type="text" id="raw_dir_input" name="raw_dir_input" value="raw"
+                                               class="w-full bg-dark-800 border border-dark-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                                    </div>
+                                </div>
+
+                                <!-- Slot 2: Wiki -->
+                                <div id="slot-wiki" class="p-3 border border-dark-700 bg-dark-800/20 rounded-lg transition"
+                                     ondragover="allowDrop(event)" ondrop="handleDrop(event, 'wiki')" ondragleave="handleDragLeave(event)">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <span class="text-[11px] font-bold text-slate-200">📂 Wiki Folder (AI Notes Output)</span>
+                                            <p class="text-[10px] text-slate-400 mt-0.5">Where AI notes (Entities, Concepts, Synthesis) will be generated. Use `.` for root.</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex gap-2 mt-2">
+                                        <input type="text" id="wiki_dir_input" name="wiki_dir_input" value="wiki"
+                                               class="w-full bg-dark-800 border border-dark-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                                    </div>
+                                </div>
+
+                                <!-- Slot 3: Schema -->
+                                <div id="slot-schema" class="p-3 border border-dark-700 bg-dark-800/20 rounded-lg transition"
+                                     ondragover="allowDrop(event)" ondrop="handleDrop(event, 'schema')" ondragleave="handleDragLeave(event)">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <span class="text-[11px] font-bold text-slate-200">⚙️ Schema Folder (Taxonomy Rules)</span>
+                                            <p class="text-[10px] text-slate-400 mt-0.5">Where taxonomies, templates, and instructions (`AGENTS.md`) are saved.</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex gap-2 mt-2">
+                                        <input type="text" id="schema_dir_input" name="schema_dir_input" value="schema"
+                                               class="w-full bg-dark-800 border border-dark-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <hr class="border-dark-700">
@@ -228,6 +353,123 @@
     </div>
 
     <script>
+        let activeSetupType = 'new';
+
+        function setSetupType(type) {
+            activeSetupType = type;
+            const newPreview = document.getElementById('new-setup-preview');
+            const existingMapper = document.getElementById('existing-setup-mapper');
+            
+            const btnNew = document.getElementById('setup-type-new');
+            const btnExisting = document.getElementById('setup-type-existing');
+            
+            const radioNew = document.getElementById('setup-type-new-radio');
+            const radioExisting = document.getElementById('setup-type-existing-radio');
+            
+            if (type === 'new') {
+                newPreview.classList.remove('hidden');
+                existingMapper.classList.add('hidden');
+                
+                btnNew.className = "cursor-pointer border-2 border-brand-500 bg-brand-500/5 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-brand-400";
+                btnExisting.className = "cursor-pointer border border-dark-700 bg-dark-800/40 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-dark-600";
+                
+                radioNew.className = "w-4 h-4 rounded-full border-4 border-brand-500 bg-dark-800";
+                radioExisting.className = "w-4 h-4 rounded-full border border-dark-600 bg-dark-800";
+            } else {
+                newPreview.classList.add('hidden');
+                existingMapper.classList.remove('hidden');
+                
+                btnNew.className = "cursor-pointer border border-dark-700 bg-dark-800/40 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-dark-600";
+                btnExisting.className = "cursor-pointer border-2 border-brand-500 bg-brand-500/5 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-brand-400";
+                
+                radioNew.className = "w-4 h-4 rounded-full border border-dark-600 bg-dark-800";
+                radioExisting.className = "w-4 h-4 rounded-full border-4 border-brand-500 bg-dark-800";
+                
+                fetchVaultFolders();
+            }
+        }
+
+        async function fetchVaultFolders() {
+            const pathVal = document.getElementById('path').value;
+            if (!pathVal) return;
+            
+            // Set root folder name in preview Tree
+            const previewRoot = document.getElementById('preview-root');
+            if (previewRoot) {
+                previewRoot.textContent = pathVal.split('/').pop() || pathVal;
+            }
+            
+            try {
+                const response = await fetch(`/api/setup/list-dirs?path=${encodeURIComponent(pathVal)}`);
+                const result = await response.json();
+                if (result.status === 'success') {
+                    const listContainer = document.getElementById('detected-folders-list');
+                    if (!listContainer) return;
+                    listContainer.innerHTML = '';
+                    
+                    if (result.subdirs && result.subdirs.length > 0) {
+                        result.subdirs.forEach(folder => {
+                            const badge = document.createElement('div');
+                            badge.className = "flex items-center justify-between bg-dark-800 hover:bg-dark-700 border border-dark-700 rounded px-2.5 py-1.5 text-xs text-slate-200 transition duration-150 select-none group";
+                            badge.setAttribute('draggable', 'true');
+                            badge.dataset.folder = folder;
+                            
+                            badge.addEventListener('dragstart', (e) => {
+                                e.dataTransfer.setData("text", folder);
+                            });
+                            
+                            badge.innerHTML = `
+                                <span class="font-medium truncate mr-2">${folder}</span>
+                                <div class="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button type="button" onclick="quickMapFolder('${folder}', 'raw')" title="Map to Inbox" class="hover:bg-dark-600 p-1 rounded text-xs">📥</button>
+                                    <button type="button" onclick="quickMapFolder('${folder}', 'wiki')" title="Map to Wiki" class="hover:bg-dark-600 p-1 rounded text-xs">📂</button>
+                                    <button type="button" onclick="quickMapFolder('${folder}', 'schema')" title="Map to Schema" class="hover:bg-dark-600 p-1 rounded text-xs">⚙️</button>
+                                </div>
+                            `;
+                            listContainer.appendChild(badge);
+                        });
+                    } else {
+                        listContainer.innerHTML = '<span class="text-xs text-slate-500 italic p-1">No subfolders detected. Enter paths manually on the right.</span>';
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load subfolders:", err);
+            }
+        }
+
+        function quickMapFolder(folder, slot) {
+            const input = document.getElementById(slot + '_dir_input');
+            if (input) {
+                input.value = folder;
+                // Add tiny pulse animation to show success
+                const slotContainer = document.getElementById('slot-' + slot);
+                if (slotContainer) {
+                    slotContainer.classList.add('border-brand-500', 'bg-brand-500/5');
+                    setTimeout(() => {
+                        slotContainer.classList.remove('border-brand-500', 'bg-brand-500/5');
+                    }, 400);
+                }
+            }
+        }
+
+        function allowDrop(ev) {
+            ev.preventDefault();
+            ev.currentTarget.classList.add('border-brand-500', 'bg-brand-500/5');
+        }
+
+        function handleDragLeave(ev) {
+            ev.currentTarget.classList.remove('border-brand-500', 'bg-brand-500/5');
+        }
+
+        function handleDrop(ev, type) {
+            ev.preventDefault();
+            ev.currentTarget.classList.remove('border-brand-500', 'bg-brand-500/5');
+            const folder = ev.dataTransfer.getData("text");
+            if (folder) {
+                quickMapFolder(folder, type);
+            }
+        }
+
         const providerSelect = document.getElementById('llm_provider');
         const modelInput = document.getElementById('llm_model');
         const hostInput = document.getElementById('llm_host');
@@ -357,6 +599,7 @@
             if (currentModalPath) {
                 document.getElementById('path').value = currentModalPath;
                 closeWebFolderExplorer();
+                fetchVaultFolders();
             }
         });
 
@@ -371,6 +614,7 @@
                 
                 if (result.status === 'success' && result.path) {
                     document.getElementById('path').value = result.path;
+                    fetchVaultFolders();
                 } else if (result.status === 'error') {
                     // Fail fallback -> Open web directory browser
                     console.warn(result.message);
@@ -471,6 +715,17 @@
             submitBtn.setAttribute('disabled', 'true');
             spinner.classList.remove('hidden');
 
+            let wikiDir, rawDir, schemaDir;
+            if (activeSetupType === 'new') {
+                wikiDir = 'wiki';
+                rawDir = 'raw';
+                schemaDir = 'schema';
+            } else {
+                wikiDir = document.getElementById('wiki_dir_input').value.trim() || '.';
+                rawDir = document.getElementById('raw_dir_input').value.trim() || 'raw';
+                schemaDir = document.getElementById('schema_dir_input').value.trim() || 'schema';
+            }
+
             const payload = {
                 path: document.getElementById('path').value,
                 llm_provider: providerSelect.value,
@@ -478,7 +733,10 @@
                 llm_host: hostInput.value,
                 llm_temperature: parseFloat(tempRange.value),
                 llm_thinking: document.getElementById('llm_thinking').checked,
-                api_key: document.getElementById('api_key').value || null
+                api_key: document.getElementById('api_key').value || null,
+                wiki_dir: wikiDir,
+                raw_dir: rawDir,
+                schema_dir: schemaDir
             };
 
             try {
@@ -504,6 +762,13 @@
                 submitBtn.removeAttribute('disabled');
                 spinner.classList.add('hidden');
             }
+        });
+
+        // Initialize folder scanning
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchVaultFolders();
+            document.getElementById('path').addEventListener('change', fetchVaultFolders);
+            document.getElementById('path').addEventListener('input', fetchVaultFolders);
         });
     </script>
 </body>

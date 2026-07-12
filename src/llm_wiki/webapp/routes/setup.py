@@ -29,6 +29,9 @@ class SetupConfigModel(BaseModel):
     llm_temperature: float = 0.3
     llm_thinking: bool = True
     api_key: str | None = None
+    wiki_dir: str = "wiki"
+    raw_dir: str = "raw"
+    schema_dir: str = "schema"
 
 
 class TestConnectionModel(BaseModel):
@@ -218,11 +221,17 @@ async def execute_setup(request: Request, data: SetupConfigModel) -> JSONRespons
     
     # 1. Run scaffold to initialize directories, templates, config, and DB
     try:
-        paths = scaffold.scaffold(target_path, force=True)
+        paths = scaffold.scaffold(
+            target_path,
+            force=True,
+            wiki_dir=data.wiki_dir,
+            raw_dir=data.raw_dir,
+            schema_dir=data.schema_dir
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scaffolding failed: {str(e)}")
         
-    # 2. Update config.yml with user LLM preferences
+    # 2. Update config.yml with user LLM preferences and custom paths
     try:
         config = cfg.load_config(paths)
         config["llm"] = {
@@ -231,6 +240,11 @@ async def execute_setup(request: Request, data: SetupConfigModel) -> JSONRespons
             "host": data.llm_host,
             "temperature": data.llm_temperature,
             "thinking": data.llm_thinking,
+        }
+        config["paths"] = {
+            "wiki_dir": data.wiki_dir,
+            "raw_dir": data.raw_dir,
+            "schema_dir": data.schema_dir
         }
         cfg.save_config(paths, config)
     except Exception as e:
