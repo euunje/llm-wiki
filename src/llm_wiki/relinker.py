@@ -66,13 +66,23 @@ def relink_references(wiki_dir: Path, old_slug: str, new_folder: str) -> int:
     return modified_count
 
 
+def _mapped_folder(paths, folder: str) -> Path:
+    return {
+        "sources": paths.sources,
+        "entities": paths.entities,
+        "concepts": paths.concepts,
+        "synthesis": paths.synthesis,
+        "non_categories": paths.non_categories,
+    }.get(folder, paths.wiki / folder)
+
+
 def promote_file(paths, old_slug: str, new_folder: str) -> bool:
-    """Move a file from non_categories/ to new_folder/ and update database / backlinks."""
-    old_path = paths.wiki / "non_categories" / f"{old_slug}.md"
+    """Move a file from the configured review folder to a mapped page folder."""
+    old_path = paths.non_categories / f"{old_slug}.md"
     if not old_path.exists():
         return False
     
-    new_dir = paths.wiki / new_folder
+    new_dir = _mapped_folder(paths, new_folder)
     new_dir.mkdir(parents=True, exist_ok=True)
     new_path = new_dir / f"{old_slug}.md"
     

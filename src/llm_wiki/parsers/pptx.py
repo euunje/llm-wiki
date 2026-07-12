@@ -39,7 +39,7 @@ class PowerpointParser(DocumentParser):
         from .. import config as cfg
         root = cfg.find_wiki_root(path) or path.parent
         paths = cfg.WikiPaths(root=root)
-        assets_dir = paths.wiki / "assets"
+        assets_dir = paths.assets
         assets_dir.mkdir(parents=True, exist_ok=True)
 
         slide_chunks: list[str] = []

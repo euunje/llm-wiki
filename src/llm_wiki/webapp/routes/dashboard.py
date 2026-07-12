@@ -76,10 +76,10 @@ def _parse_log_entries(log_path: Path, limit: int = 15) -> list[dict]:
 def _collect_stats(paths: cfg.WikiPaths) -> dict:
     """Gather everything the dashboard displays in a single dict."""
     # Page counts by type
-    sources_pages = _count_md(paths.wiki / "sources")
-    entities_pages = _count_md(paths.wiki / "entities")
-    concepts_pages = _count_md(paths.wiki / "concepts")
-    synthesis_pages = _count_md(paths.wiki / "synthesis")
+    sources_pages = _count_md(paths.sources)
+    entities_pages = _count_md(paths.entities)
+    concepts_pages = _count_md(paths.concepts)
+    synthesis_pages = _count_md(paths.synthesis)
     total_pages = sources_pages + entities_pages + concepts_pages + synthesis_pages
 
     # Raw files

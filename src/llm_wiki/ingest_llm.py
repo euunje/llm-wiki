@@ -214,9 +214,9 @@ def _resolve_slug(
     existing page vs creating a new one.
     """
     if kind == "entity":
-        search_dirs = [paths.wiki / "entities", paths.wiki / "non_categories"]
+        search_dirs = [paths.entities, paths.non_categories]
     else:
-        search_dirs = [paths.wiki / "concepts", paths.wiki / "non_categories"]
+        search_dirs = [paths.concepts, paths.non_categories]
 
     # Determine entity type for canonical_name (fuzzy match)
     match_kind = "any"
@@ -503,9 +503,9 @@ def ingest_source(
             callbacks.on_drafting_page("entity", slug, operation)
 
             # Resolve actual final path (checking standard and non_categories)
-            final_path = paths.wiki / "entities" / f"{slug}.md"
+            final_path = paths.entities / f"{slug}.md"
             if not final_path.exists():
-                non_cat_path = paths.wiki / "non_categories" / f"{slug}.md"
+                non_cat_path = paths.non_categories / f"{slug}.md"
                 if non_cat_path.exists():
                     final_path = non_cat_path
 
@@ -646,9 +646,9 @@ def ingest_source(
             callbacks.on_drafting_page("concept", slug, operation)
 
             # Resolve actual final path (checking standard and non_categories)
-            final_path = paths.wiki / "concepts" / f"{slug}.md"
+            final_path = paths.concepts / f"{slug}.md"
             if not final_path.exists():
-                non_cat_path = paths.wiki / "non_categories" / f"{slug}.md"
+                non_cat_path = paths.non_categories / f"{slug}.md"
                 if non_cat_path.exists():
                     final_path = non_cat_path
 
@@ -781,7 +781,7 @@ def ingest_source(
 
         # 6d. Pass 3 — source summary page
         callbacks.on_drafting_page("source", source_slug, "created")
-        source_final = paths.wiki / "sources" / f"{source_slug}.md"
+        source_final = paths.sources / f"{source_slug}.md"
         source_staged = staging / f"sources__{source_slug}.md"
 
         try:

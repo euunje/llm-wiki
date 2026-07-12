@@ -225,7 +225,7 @@ async def query_save(
         )
 
     today = page_writer.today_iso()
-    target_path = paths.wiki / "synthesis" / f"{safe_slug}.md"
+    target_path = paths.synthesis / f"{safe_slug}.md"
 
     if target_path.exists():
         return JSONResponse(

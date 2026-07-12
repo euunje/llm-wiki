@@ -188,10 +188,10 @@ def status() -> None:
             return 0
         return sum(1 for p in folder.glob("*.md") if not p.name.startswith("."))
 
-    sources_pages = _count_md(paths.wiki / "sources")
-    entities_pages = _count_md(paths.wiki / "entities")
-    concepts_pages = _count_md(paths.wiki / "concepts")
-    synthesis_pages = _count_md(paths.wiki / "synthesis")
+    sources_pages = _count_md(paths.sources)
+    entities_pages = _count_md(paths.entities)
+    concepts_pages = _count_md(paths.concepts)
+    synthesis_pages = _count_md(paths.synthesis)
 
     raw_files = (
         sum(1 for p in paths.raw.rglob("*") if p.is_file() and not p.name.startswith("."))
@@ -1152,7 +1152,7 @@ def lint(
     if save:
         today = lint_module.page_writer.today_iso()  # reuse helper
         slug = f"lint-report-{today}"
-        target_path = paths.wiki / "synthesis" / f"{slug}.md"
+        target_path = paths.synthesis / f"{slug}.md"
         content = lint_module.render_report_markdown(report, paths)
         lint_module.page_writer.write_page(target_path, content)
         # Rebuild index so the new page shows up

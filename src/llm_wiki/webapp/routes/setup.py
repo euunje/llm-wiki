@@ -32,12 +32,31 @@ class SetupConfigModel(BaseModel):
     wiki_dir: str = "wiki"
     raw_dir: str = "raw"
     schema_dir: str = "schema"
+    internal_dir: str = ".wiki"
+    sources_dir: str | None = None
+    entities_dir: str | None = None
+    concepts_dir: str | None = None
+    synthesis_dir: str | None = None
+    non_categories_dir: str | None = None
+    assets_dir: str | None = None
+    index_file: str | None = None
+    log_file: str | None = None
+    agents_file: str | None = None
+    config_file: str | None = None
+    state_db: str | None = None
+    obsidian_dir: str | None = None
+    obsidian_create: bool = True
 
 
 class TestConnectionModel(BaseModel):
     llm_provider: str
     llm_host: str
     api_key: str | None = None
+
+
+class CreateDirModel(BaseModel):
+    parent_path: str
+    name: str
 
 
 @router.get("/setup", response_class=HTMLResponse)
@@ -71,7 +90,13 @@ async def list_dirs(path: str = "") -> JSONResponse:
         p = Path(os.path.expanduser(path)).resolve()
         
     if not p.exists() or not p.is_dir():
-        p = Path.home()
+        # For role pickers, defaults may point to folders that do not exist yet
+        # (e.g. wiki/sources). Start at the nearest existing parent so the user
+        # can create the missing child in-place instead of being thrown home.
+        nearest = p
+        while not nearest.exists() and nearest != nearest.parent:
+            nearest = nearest.parent
+        p = nearest if nearest.exists() and nearest.is_dir() else Path.home()
         
     try:
         subdirs = []
@@ -97,6 +122,31 @@ async def list_dirs(path: str = "") -> JSONResponse:
             "subdirs": [],
             "error": str(e)
         })
+
+
+@router.post("/api/setup/create-dir")
+async def create_dir(data: CreateDirModel) -> JSONResponse:
+    """Create a child directory from the web folder picker."""
+    parent = Path(os.path.expanduser(data.parent_path)).resolve()
+    name = data.name.strip()
+
+    if not parent.exists() or not parent.is_dir():
+        raise HTTPException(status_code=400, detail="Parent folder does not exist or is not a directory.")
+    if not name:
+        raise HTTPException(status_code=400, detail="Folder name is required.")
+    if name in {".", ".."} or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="Folder name must be a single child directory name.")
+
+    target = (parent / name).resolve()
+    if target.parent != parent:
+        raise HTTPException(status_code=400, detail="Folder path escapes the selected parent.")
+
+    try:
+        target.mkdir(parents=False, exist_ok=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create folder: {e}")
+
+    return JSONResponse({"status": "success", "path": str(target)})
 
 
 @router.post("/api/setup/browse-directory")
@@ -226,7 +276,21 @@ async def execute_setup(request: Request, data: SetupConfigModel) -> JSONRespons
             force=True,
             wiki_dir=data.wiki_dir,
             raw_dir=data.raw_dir,
-            schema_dir=data.schema_dir
+            schema_dir=data.schema_dir,
+            internal_dir=data.internal_dir,
+            sources_dir=data.sources_dir,
+            entities_dir=data.entities_dir,
+            concepts_dir=data.concepts_dir,
+            synthesis_dir=data.synthesis_dir,
+            non_categories_dir=data.non_categories_dir,
+            assets_dir=data.assets_dir,
+            index_file=data.index_file,
+            log_file=data.log_file,
+            agents_file=data.agents_file,
+            config_file=data.config_file,
+            state_db=data.state_db,
+            obsidian_dir=data.obsidian_dir,
+            obsidian_create=data.obsidian_create,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scaffolding failed: {str(e)}")
@@ -244,7 +308,27 @@ async def execute_setup(request: Request, data: SetupConfigModel) -> JSONRespons
         config["paths"] = {
             "wiki_dir": data.wiki_dir,
             "raw_dir": data.raw_dir,
-            "schema_dir": data.schema_dir
+            "schema_dir": data.schema_dir,
+            "internal_dir": data.internal_dir,
+            "page_dirs": {
+                "sources": data.sources_dir,
+                "entities": data.entities_dir,
+                "concepts": data.concepts_dir,
+                "synthesis": data.synthesis_dir,
+                "non_categories": data.non_categories_dir,
+                "assets": data.assets_dir,
+            },
+            "files": {
+                "index": data.index_file,
+                "log": data.log_file,
+                "agents": data.agents_file,
+                "config": data.config_file,
+                "state_db": data.state_db,
+            },
+            "obsidian": {
+                "create": data.obsidian_create,
+                "dir": data.obsidian_dir,
+            },
         }
         cfg.save_config(paths, config)
     except Exception as e:

@@ -24,7 +24,7 @@ class PromotionModel(BaseModel):
 @router.get("/inbox", response_class=HTMLResponse)
 async def inbox_view(request: Request) -> HTMLResponse:
     paths: cfg.WikiPaths = request.app.state.wiki_paths
-    non_cat_dir = paths.wiki / "non_categories"
+    non_cat_dir = paths.non_categories
     
     items = []
     if non_cat_dir.exists():
@@ -69,7 +69,7 @@ async def promote_document(request: Request, slug: str, body: PromotionModel) ->
 @router.delete("/api/inbox/delete/{slug}")
 async def delete_document(request: Request, slug: str) -> JSONResponse:
     paths: cfg.WikiPaths = request.app.state.wiki_paths
-    doc_path = paths.wiki / "non_categories" / f"{slug}.md"
+    doc_path = paths.non_categories / f"{slug}.md"
     
     if not doc_path.exists():
         raise HTTPException(status_code=404, detail="Document not found.")

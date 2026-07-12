@@ -218,21 +218,21 @@ def _list_pages_in(directory: Path) -> list[tuple[str, str]]:
 
 
 def rebuild_index(paths: cfg.WikiPaths, today: str) -> None:
-    """Rebuild wiki/index.md from the current wiki/ contents."""
-    sources = _list_pages_in(paths.wiki / "sources")
-    entities = _list_pages_in(paths.wiki / "entities")
-    concepts = _list_pages_in(paths.wiki / "concepts")
-    synthesis = _list_pages_in(paths.wiki / "synthesis")
+    """Rebuild the configured index file from the current mapped page dirs."""
+    sources = _list_pages_in(paths.sources)
+    entities = _list_pages_in(paths.entities)
+    concepts = _list_pages_in(paths.concepts)
+    synthesis = _list_pages_in(paths.synthesis)
 
     lines = [INDEX_HEADER.format(today=today)]
 
-    def _section(title: str, pages: list[tuple[str, str]], subdir: str) -> None:
+    def _section(title: str, pages: list[tuple[str, str]], link_prefix: str) -> None:
         lines.append(f"## {title}\n")
         if not pages:
             lines.append(f"*No {title.lower()} pages yet.*\n")
         else:
             for slug, page_title in pages:
-                lines.append(f"- [[{subdir}/{slug}|{page_title}]]")
+                lines.append(f"- [[{link_prefix}/{slug}|{page_title}]]")
             lines.append("")
         lines.append("")
 
@@ -247,6 +247,7 @@ def rebuild_index(paths: cfg.WikiPaths, today: str) -> None:
         f"{len(concepts)} concepts · {len(synthesis)} synthesis pages\n"
     )
 
+    paths.index.parent.mkdir(parents=True, exist_ok=True)
     paths.index.write_text("\n".join(lines), encoding="utf-8")
 
 

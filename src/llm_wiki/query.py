@@ -199,7 +199,7 @@ def _save_synthesis_page(
         parsed.body = f"{title_line}\n\n{answer.strip()}"
 
     final_page = parsed.to_markdown()
-    final_path = paths.wiki / "synthesis" / f"{slug}.md"
+    final_path = paths.synthesis / f"{slug}.md"
     page_writer.write_page(final_path, final_page)
 
     # Rebuild index & log
