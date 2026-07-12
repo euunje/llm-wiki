@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -94,6 +94,31 @@ CREATE TABLE IF NOT EXISTS job_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_job_seq ON job_events(job_id, seq);
+
+-- Prompt versioning table
+CREATE TABLE IF NOT EXISTS prompt_versions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt_key      TEXT NOT NULL,           -- 'extract' | 'draft_entity' | 'draft_concept'
+    version_tag     TEXT NOT NULL,           -- 'v1.0', 'v1.1'
+    content         TEXT NOT NULL,           -- Complete prompt text
+    status          TEXT NOT NULL DEFAULT 'draft', -- draft | published
+    created_at      TEXT NOT NULL,
+    published_at    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_key ON prompt_versions(prompt_key, status);
+
+-- Ingest log table
+CREATE TABLE IF NOT EXISTS ingest_logs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id       INTEGER NOT NULL,
+    prompt_version  TEXT NOT NULL,
+    status          TEXT NOT NULL,           -- success | failure
+    error_message   TEXT,
+    raw_response    TEXT,                    -- Saved LLM output for verification
+    processed_at    TEXT NOT NULL,
+    FOREIGN KEY (source_id) REFERENCES sources(id)
+);
 """
 
 
@@ -118,6 +143,22 @@ def init_db(db_path: Path) -> None:
                     "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
                 )
         conn.commit()
+
+        # Seed default prompts if prompt_versions is empty
+        cur = conn.execute("SELECT COUNT(*) FROM prompt_versions")
+        if cur.fetchone()[0] == 0:
+            import datetime
+            from .prompts import DEFAULT_PROMPTS
+            now = datetime.datetime.utcnow().isoformat() + "Z"
+            for key, content in DEFAULT_PROMPTS.items():
+                conn.execute(
+                    """
+                    INSERT INTO prompt_versions (prompt_key, version_tag, content, status, created_at, published_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (key, "v1.0", content, "published", now, now)
+                )
+            conn.commit()
 
 
 @contextmanager

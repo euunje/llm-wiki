@@ -41,13 +41,22 @@ async def ingest_page(request: Request) -> HTMLResponse:
 async def ingest_upload(
     request: Request, files: list[UploadFile] = File(...)
 ) -> JSONResponse:
+    import os
+    from pathlib import Path
     paths: cfg.WikiPaths = request.app.state.wiki_paths
-    paths.raw.mkdir(parents=True, exist_ok=True)
+    
+    data_lake = Path("/data/raw_docs")
+    if data_lake.exists() and os.access(data_lake, os.W_OK):
+        dest_dir = data_lake
+    else:
+        dest_dir = paths.raw
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        
     results = []
     for up in files:
         if not up.filename:
             continue
-        dest = paths.raw / up.filename
+        dest = dest_dir / up.filename
         content = await up.read()
         dest.write_bytes(content)
         outcome = ingest_raw.add_file(paths, dest, copy=False)
@@ -160,3 +169,21 @@ async def api_jobs(request: Request) -> JSONResponse:
             ]
         }
     )
+
+
+@router.post("/api/reprocess/{source_id}")
+async def api_reprocess(request: Request, source_id: int) -> JSONResponse:
+    paths: cfg.WikiPaths = request.app.state.wiki_paths
+    row = ingest_raw.get_source(paths, source_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"No source with id {source_id}")
+        
+    from ... import db as db_module
+    with db_module.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE sources SET status = 'pending' WHERE id = ?", (source_id,)
+        )
+        
+    manager = jobs_module.get_manager(paths)
+    job_id = manager.enqueue(source_id)
+    return JSONResponse({"ok": True, "job_id": job_id})

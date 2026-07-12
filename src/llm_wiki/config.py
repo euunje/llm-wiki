@@ -126,6 +126,11 @@ def find_wiki_root(start: Path | None = None) -> Path | None:
     """Walk upward from `start` looking for a `.wiki/config.yml`. Returns the
     project root if found, else None.
     """
+    import os
+    env_root = os.environ.get("WIKI_ROOT")
+    if env_root:
+        return Path(env_root).resolve()
+
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
         if (candidate / INTERNAL_DIR / CONFIG_FILE).exists():

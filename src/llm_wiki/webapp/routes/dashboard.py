@@ -166,3 +166,45 @@ async def dashboard(request: Request) -> HTMLResponse:
             "page": "dashboard",
         },
     )
+
+
+@router.get("/logs", response_class=HTMLResponse)
+async def logs_view(request: Request, status: str | None = None) -> HTMLResponse:
+    paths: cfg.WikiPaths = request.app.state.wiki_paths
+    
+    with db.connect(paths.state_db) as conn:
+        # Check if table exists (in case schema has not run/migrated)
+        try:
+            if status:
+                rows = conn.execute(
+                    """
+                    SELECT l.*, s.relpath as source_path
+                    FROM ingest_logs l
+                    JOIN sources s ON l.source_id = s.id
+                    WHERE l.status = ?
+                    ORDER BY l.id DESC
+                    """,
+                    (status,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT l.*, s.relpath as source_path
+                    FROM ingest_logs l
+                    JOIN sources s ON l.source_id = s.id
+                    ORDER BY l.id DESC
+                    """
+                ).fetchall()
+            logs = [dict(row) for row in rows]
+        except Exception:
+            logs = []
+        
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "logs.html",
+        {
+            "logs": logs,
+            "status": status,
+            "page": "logs",
+        },
+    )

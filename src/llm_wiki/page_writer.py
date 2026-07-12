@@ -165,6 +165,21 @@ def add_source_to_frontmatter(
     return page
 
 
+def prepare_page_frontmatter(
+    page: ParsedPage,
+    status: str,
+    confidence: str | float,
+    processed_at: str,
+    source_file: str,
+) -> ParsedPage:
+    """Ensure the page has status, confidence, processed_at, and source_file in its frontmatter."""
+    page.frontmatter["status"] = status
+    page.frontmatter["confidence"] = confidence
+    page.frontmatter["processed_at"] = processed_at
+    page.frontmatter["source_file"] = source_file
+    return page
+
+
 # ---------------------------------------------------------------------------
 # index.md rebuild
 # ---------------------------------------------------------------------------

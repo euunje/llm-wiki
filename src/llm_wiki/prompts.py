@@ -97,32 +97,36 @@ Rules:
 """
 
 
-def build_extraction_messages(source_title: str, source_text: str) -> list[ChatMessage]:
+def build_extraction_messages(source_title: str, source_text: str, db_path: Path | None = None, use_draft: bool = False) -> list[ChatMessage]:
     """Pass 1 — extract structured information from a source document."""
+    sys_prompt = get_prompt("system", db_path, use_draft)
+    extract_instr = get_prompt("extract", db_path, use_draft)
     user_content = (
-        f"{EXTRACTION_INSTRUCTIONS}\n\n"
+        f"{extract_instr}\n\n"
         f"---SOURCE TITLE---\n{source_title}\n\n"
         f"---SOURCE TEXT---\n{source_text}\n"
     )
     return [
-        ChatMessage(role="system", content=SYSTEM_PROMPT),
+        ChatMessage(role="system", content=sys_prompt),
         ChatMessage(role="user", content=user_content),
     ]
 
 
 def build_extraction_retry_messages(
-    source_title: str, source_text: str, bad_response: str
+    source_title: str, source_text: str, bad_response: str, db_path: Path | None = None, use_draft: bool = False
 ) -> list[ChatMessage]:
     """Retry prompt after a JSON parse failure."""
+    sys_prompt = get_prompt("system", db_path, use_draft)
+    extract_instr = get_prompt("extract", db_path, use_draft)
     user_content = (
         f"Your previous response was not valid JSON. Return ONLY a valid JSON "
         f"object matching the schema — no markdown fences, no preamble.\n\n"
-        f"{EXTRACTION_INSTRUCTIONS}\n\n"
+        f"{extract_instr}\n\n"
         f"---SOURCE TITLE---\n{source_title}\n\n"
         f"---SOURCE TEXT---\n{source_text}\n"
     )
     return [
-        ChatMessage(role="system", content=SYSTEM_PROMPT),
+        ChatMessage(role="system", content=sys_prompt),
         ChatMessage(role="user", content=user_content),
         ChatMessage(role="assistant", content=bad_response[:2000]),
         ChatMessage(
@@ -195,9 +199,13 @@ def build_draft_page_messages(
     excerpts: str,
     related: list[str],
     today: str,
+    db_path: Path | None = None,
+    use_draft: bool = False,
 ) -> list[ChatMessage]:
     """Pass 2 — draft a single new entity or concept page."""
-    template = NEW_ENTITY_PAGE_TEMPLATE if kind == "entity" else NEW_CONCEPT_PAGE_TEMPLATE
+    sys_prompt = get_prompt("system", db_path, use_draft)
+    template_key = "new_entity" if kind == "entity" else "new_concept"
+    template = get_prompt(template_key, db_path, use_draft)
     related_str = "\n".join(f"  - [[{r}]]" for r in related) if related else "  (none)"
     user_content = template.format(
         name=name,
@@ -209,7 +217,7 @@ def build_draft_page_messages(
         today=today,
     )
     return [
-        ChatMessage(role="system", content=SYSTEM_PROMPT),
+        ChatMessage(role="system", content=sys_prompt),
         ChatMessage(role="user", content=user_content),
     ]
 
@@ -258,9 +266,13 @@ def build_merge_page_messages(
     description: str,
     excerpts: str,
     today: str,
+    db_path: Path | None = None,
+    use_draft: bool = False,
 ) -> list[ChatMessage]:
     """Pass 2b — merge new information into an existing page."""
-    user_content = MERGE_PAGE_TEMPLATE.format(
+    sys_prompt = get_prompt("system", db_path, use_draft)
+    template = get_prompt("merge_page", db_path, use_draft)
+    user_content = template.format(
         name=name,
         existing_content=existing_content,
         source_title=source_title,
@@ -270,7 +282,7 @@ def build_merge_page_messages(
         today=today,
     )
     return [
-        ChatMessage(role="system", content=SYSTEM_PROMPT),
+        ChatMessage(role="system", content=sys_prompt),
         ChatMessage(role="user", content=user_content),
     ]
 
@@ -324,8 +336,12 @@ def build_source_page_messages(
     entity_slugs: list[str],
     concept_slugs: list[str],
     today: str,
+    db_path: Path | None = None,
+    use_draft: bool = False,
 ) -> list[ChatMessage]:
     """Pass 3 — draft the sources/<slug>.md summary page."""
+    sys_prompt = get_prompt("system", db_path, use_draft)
+    template = get_prompt("source_page", db_path, use_draft)
     takeaways_str = "\n".join(f"- {t}" for t in key_takeaways)
     entity_links = (
         "\n".join(f"- [[entities/{s}]]" for s in entity_slugs)
@@ -337,7 +353,7 @@ def build_source_page_messages(
         if concept_slugs
         else "  (none)"
     )
-    user_content = SOURCE_PAGE_TEMPLATE.format(
+    user_content = template.format(
         source_title=source_title,
         source_slug=source_slug,
         file_path=file_path,
@@ -350,7 +366,7 @@ def build_source_page_messages(
         today=today,
     )
     return [
-        ChatMessage(role="system", content=SYSTEM_PROMPT),
+        ChatMessage(role="system", content=sys_prompt),
         ChatMessage(role="user", content=user_content),
     ]
 
@@ -384,3 +400,43 @@ If there is no contradiction, respond with exactly the word: NONE
 Otherwise, respond with a brief description of the contradiction. Do not
 include preamble like "I found" — just state the conflict directly.
 """
+
+import sqlite3
+from pathlib import Path
+
+DEFAULT_PROMPTS = {
+    "system": SYSTEM_PROMPT,
+    "extract": EXTRACTION_INSTRUCTIONS,
+    "new_entity": NEW_ENTITY_PAGE_TEMPLATE,
+    "new_concept": NEW_CONCEPT_PAGE_TEMPLATE,
+    "merge_page": MERGE_PAGE_TEMPLATE,
+    "source_page": SOURCE_PAGE_TEMPLATE,
+}
+
+def get_prompt(prompt_key: str, db_path: Path | None = None, use_draft: bool = False) -> str:
+    if db_path is None or not db_path.exists():
+        return DEFAULT_PROMPTS.get(prompt_key, "")
+    
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if use_draft:
+                cur = conn.execute(
+                    "SELECT content FROM prompt_versions WHERE prompt_key = ? AND status = 'draft' ORDER BY id DESC LIMIT 1",
+                    (prompt_key,)
+                )
+                row = cur.fetchone()
+                if row:
+                    return row["content"]
+            
+            cur = conn.execute(
+                "SELECT content FROM prompt_versions WHERE prompt_key = ? AND status = 'published' ORDER BY id DESC LIMIT 1",
+                (prompt_key,)
+            )
+            row = cur.fetchone()
+            if row:
+                return row["content"]
+    except Exception:
+        pass
+    
+    return DEFAULT_PROMPTS.get(prompt_key, "")

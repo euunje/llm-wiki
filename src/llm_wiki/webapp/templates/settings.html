@@ -1,0 +1,514 @@
+{% extends "base.html" %}
+
+{% block title %}Settings · LLM-Wiki{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl font-bold text-white">System Settings</h1>
+        <p class="text-sm text-[#9ca3af]">Configure your LLM, chunking settings, prompt templates, and integrations.</p>
+    </div>
+
+    <!-- Settings Subtabs -->
+    <div class="border-b border-[#2a2e3a]">
+        <nav class="flex space-x-6" aria-label="Tabs">
+            <button onclick="switchTab('general')" id="tab-btn-general" class="border-b-2 border-[#7c8cff] pb-4 px-1 text-sm font-medium text-white">
+                General & Chunking
+            </button>
+            <button onclick="switchTab('prompts')" id="tab-btn-prompts" class="border-[#2a2e3a] pb-4 px-1 text-sm font-medium text-[#9ca3af] hover:text-white border-b-2">
+                Prompts & Versioning
+            </button>
+            <button onclick="switchTab('mcp')" id="tab-btn-mcp" class="border-[#2a2e3a] pb-4 px-1 text-sm font-medium text-[#9ca3af] hover:text-white border-b-2">
+                Model Context Protocol (MCP)
+            </button>
+        </nav>
+    </div>
+
+    <!-- GENERAL SETTINGS TAB -->
+    <div id="tab-general" class="space-y-6">
+        <form id="general-settings-form" class="space-y-6">
+            <div class="bg-[#1c1f2a] rounded-lg border border-[#2a2e3a] p-6 space-y-6">
+                <h2 class="text-lg font-medium text-white">LLM Configuration</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-sm font-medium text-[#9ca3af] mb-2">Provider</label>
+                        <select name="llm_provider" id="settings_llm_provider" onchange="toggleSettingsApiKey()" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff]">
+                            <option value="ollama" {% if config.llm.provider == 'ollama' %}selected{% endif %}>Ollama</option>
+                            <option value="openai-local" {% if config.llm.provider == 'openai-local' %}selected{% endif %}>Local OpenAI (LM Studio, LiteLLM)</option>
+                            <option value="openai" {% if config.llm.provider == 'openai' %}selected{% endif %}>OpenAI</option>
+                            <option value="anthropic" {% if config.llm.provider == 'anthropic' %}selected{% endif %}>Anthropic Claude</option>
+                            <option value="gemini" {% if config.llm.provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-[#9ca3af] mb-2">Model</label>
+                        <div id="settingsModelInputContainer">
+                            <input type="text" name="llm_model" id="settings_llm_model" value="{{ config.llm.model }}" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff]">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-[#9ca3af] mb-2">API Host URL</label>
+                        <input type="text" name="llm_host" id="settings_llm_host" value="{{ config.llm.host }}" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff]">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-[#9ca3af] mb-2">Temperature</label>
+                        <input type="number" step="0.1" name="llm_temperature" value="{{ config.llm.temperature }}" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff]">
+                    </div>
+                    <div id="settingsApiKeyContainer">
+                        <label class="block text-sm font-medium text-[#9ca3af] mb-2">API Key</label>
+                        {% set api_key_val = env.OPENAI_API_KEY or env.ANTHROPIC_API_KEY or env.GEMINI_API_KEY or "" %}
+                        <input type="password" name="llm_api_key" value="{{ api_key_val }}" placeholder="Enter API Key" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff]">
+                    </div>
+                    <div class="col-span-1 md:col-span-2 flex items-center justify-between pb-2 border-b border-[#2a2e3a] mt-2 mb-2">
+                        <button type="button" id="settingsTestConnBtn" onclick="testSettingsConnection()"
+                                class="text-xs font-semibold text-[#7c8cff] hover:text-[#9aa7ff] transition duration-150 flex items-center gap-1.5 bg-[#7c8cff]/10 hover:bg-[#7c8cff]/20 px-3 py-1.5 rounded border border-[#7c8cff]/20 active:scale-[0.98]">
+                            <span>🔌 Test Connection & Load Models</span>
+                            <svg id="settingsTestSpinner" class="animate-spin h-3.5 w-3.5 text-[#7c8cff] hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </button>
+                        <span id="settingsConnectionStatus" class="text-[11px] font-medium hidden"></span>
+                    </div>
+                </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" name="llm_thinking" id="llm_thinking" {% if config.llm.thinking %}checked{% endif %} class="rounded bg-[#0f1117] border-[#2a2e3a] text-[#7c8cff] focus:ring-[#7c8cff]">
+                    <label for="llm_thinking" class="text-sm text-[#9ca3af]">Enable Qwen3 Thinking Mode</label>
+                </div>
+            </div>
+
+            <div class="bg-[#1c1f2a] rounded-lg border border-[#2a2e3a] p-6 space-y-6">
+                <h2 class="text-lg font-medium text-white">Granular Chunking Settings</h2>
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm font-medium text-[#9ca3af]">Chunk Size (characters)</label>
+                            <span class="text-sm text-[#7c8cff] font-mono" id="chunk-size-val">{{ (config.chunking or {}).chunk_size | default(1500) }}</span>
+                        </div>
+                        <input type="range" name="chunk_size" min="500" max="5000" step="100" value="{{ (config.chunking or {}).chunk_size | default(1500) }}" oninput="document.getElementById('chunk-size-val').textContent=this.value" class="w-full accent-[#7c8cff]">
+                    </div>
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm font-medium text-[#9ca3af]">Overlap Size (characters)</label>
+                            <span class="text-sm text-[#7c8cff] font-mono" id="overlap-val">{{ (config.chunking or {}).overlap | default(200) }}</span>
+                        </div>
+                        <input type="range" name="overlap" min="50" max="1000" step="50" value="{{ (config.chunking or {}).overlap | default(200) }}" oninput="document.getElementById('overlap-val').textContent=this.value" class="w-full accent-[#7c8cff]">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-[#9ca3af] mb-2">Chunking Strategy</label>
+                        <select name="chunking_strategy" class="bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff]">
+                            <option value="sliding" {% if (config.chunking or {}).strategy == 'sliding' or not (config.chunking or {}).strategy %}selected{% endif %}>Sliding Window (TXT, Docx, HTML)</option>
+                            <option value="page" {% if (config.chunking or {}).strategy == 'page' %}selected{% endif %}>Page-based (PDF, PPTX)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-[#1c1f2a] rounded-lg border border-[#2a2e3a] p-6 space-y-6">
+                <h2 class="text-lg font-medium text-white">Environment Configuration (.env)</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {% for key, val in env.items() %}
+                    <div>
+                        <label class="block text-sm font-medium text-[#9ca3af] mb-2">{{ key }}</label>
+                        <input type="text" name="env_{{ key }}" value="{{ val }}" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff]">
+                    </div>
+                    {% endfor %}
+                    <div>
+                        <label class="block text-sm font-medium text-[#9ca3af] mb-2">Add New Env Key</label>
+                        <input type="text" name="new_env_key" placeholder="KEY_NAME" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff] mb-2">
+                        <input type="text" name="new_env_value" placeholder="VALUE" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff]">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end">
+                <button type="button" onclick="saveGeneralSettings()" class="bg-[#7c8cff] hover:bg-[#9aa7ff] text-[#0f1117] font-semibold px-6 py-2.5 rounded-md transition duration-200">
+                    Save Config & Restart
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- PROMPTS TAB -->
+    <div id="tab-prompts" class="hidden space-y-6">
+        <div class="bg-[#1c1f2a] rounded-lg border border-[#2a2e3a] p-6 space-y-6">
+            <div class="flex justify-between items-center">
+                <h2 class="text-lg font-medium text-white">Prompt Template Editor</h2>
+                <div>
+                    <label class="text-sm font-medium text-[#9ca3af] mr-2">Selected Prompt:</label>
+                    <select id="prompt-selector" onchange="loadPromptEditor()" class="bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-1.5 text-[#e7e9f0]">
+                        <option value="system">System Prompt</option>
+                        <option value="extract">Pass 1: Extract Template</option>
+                        <option value="new_entity">Pass 2: New Entity Template</option>
+                        <option value="new_concept">Pass 2: New Concept Template</option>
+                        <option value="merge_page">Pass 2b: Merge Page Template</option>
+                        <option value="source_page">Pass 3: Source Page Template</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs text-[#6b7280]">Draft versions are saved instantly. Publish to put into production.</span>
+                        <span class="text-sm text-[#7c8cff]" id="prompt-version-badge">Version: v1.0</span>
+                    </div>
+                    <textarea id="prompt-editor-content" rows="16" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md p-4 text-[#e7e9f0] font-mono text-sm focus:outline-none focus:border-[#7c8cff]"></textarea>
+                </div>
+
+                <div class="flex justify-between items-center">
+                    <div class="flex gap-2">
+                        <button type="button" onclick="savePromptDraft()" class="bg-[#2a2e3a] hover:bg-[#3f4454] text-white font-semibold px-4 py-2 rounded-md transition">
+                            Save as Draft
+                        </button>
+                        <button type="button" onclick="publishPrompt()" class="bg-[#7c8cff] hover:bg-[#9aa7ff] text-[#0f1117] font-semibold px-4 py-2 rounded-md transition">
+                            Publish Version
+                        </button>
+                    </div>
+                    <div class="text-xs text-[#9ca3af]" id="prompt-status-msg"></div>
+                </div>
+            </div>
+
+            <!-- Version History / Rollback Table -->
+            <div class="border-t border-[#2a2e3a] pt-6 space-y-4">
+                <h3 class="text-base font-medium text-white">Version History & Rollback</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-[#0f1117] text-[#9ca3af] uppercase text-xs">
+                            <tr>
+                                <th class="px-4 py-3">Version</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3">Created At</th>
+                                <th class="px-4 py-3">Published At</th>
+                                <th class="px-4 py-3 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="prompt-version-history" class="divide-y divide-[#2a2e3a]">
+                            <!-- Dynamically loaded -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MCP TAB -->
+    <div id="tab-mcp" class="hidden space-y-6">
+        <div class="bg-[#1c1f2a] rounded-lg border border-[#2a2e3a] p-6 space-y-6">
+            <h2 class="text-lg font-medium text-white">Model Context Protocol Integration</h2>
+            <p class="text-sm text-[#9ca3af]">
+                Expose your personal wiki knowledge to Claude Desktop, Cursor, or any MCP client. 
+                Our web app runs a standard stdio/SSE server.
+            </p>
+
+            <div class="space-y-4">
+                <h3 class="text-sm font-semibold text-white">1. Configure Claude Desktop</h3>
+                <p class="text-xs text-[#9ca3af]">Copy the configuration snippet below into your Claude Desktop configuration file.</p>
+                <div class="bg-[#0f1117] rounded-md p-4 text-xs font-mono text-white relative">
+                    <pre id="mcp-config-json">{
+  "mcpServers": {
+    "llm-wiki": {
+      "command": "docker",
+      "args": ["exec", "-i", "llm-wiki-app", "wiki", "mcp-stdio"]
+    }
+  }
+}</pre>
+                </div>
+                <p class="text-xs text-[#6b7280]">
+                    File Location:<br>
+                    - macOS: <code class="bg-[#0f1117] px-1 py-0.5 rounded font-mono text-white">~/Library/Application Support/Claude/claude_desktop_config.json</code><br>
+                    - Windows: <code class="bg-[#0f1117] px-1 py-0.5 rounded font-mono text-white">%APPDATA%\Claude\claude_desktop_config.json</code>
+                </p>
+            </div>
+
+            <div class="space-y-2 border-t border-[#2a2e3a] pt-6">
+                <h3 class="text-sm font-semibold text-white">2. Tools Provided</h3>
+                <ul class="text-xs text-[#9ca3af] list-disc list-inside space-y-1">
+                    <li><strong class="text-white">list_wiki_pages</strong>: Retrieve list of files and their categories.</li>
+                    <li><strong class="text-white">get_page_content</strong>: Retrieve the content of a specific page.</li>
+                    <li><strong class="text-white">search_wiki</strong>: Find matching documents via semantic search index.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function toggleSettingsApiKey() {
+        const provider = document.getElementById('settings_llm_provider').value;
+        const container = document.getElementById('settingsApiKeyContainer');
+        const input = container.querySelector('input[name="llm_api_key"]');
+        
+        container.classList.remove('hidden');
+        if (provider === 'openai' || provider === 'anthropic' || provider === 'gemini') {
+            input.placeholder = "Enter API Key";
+            input.setAttribute('required', 'true');
+        } else {
+            const label = provider === 'ollama' ? 'Ollama' : 'Local OpenAI';
+            input.placeholder = `Enter API Key (Optional for ${label})`;
+            input.removeAttribute('required');
+        }
+        
+        // Restore model input to text box to avoid select element getting stuck
+        const modelContainer = document.getElementById('settingsModelInputContainer');
+        const currentModel = document.getElementById('settings_llm_model')?.value || "";
+        if (modelContainer) {
+            modelContainer.innerHTML = `<input type="text" name="llm_model" id="settings_llm_model" value="${currentModel}" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff]">`;
+        }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        toggleSettingsApiKey();
+    });
+
+    async function testSettingsConnection() {
+        const provider = document.getElementById('settings_llm_provider').value;
+        const host = document.getElementById('settings_llm_host').value;
+        const apiKey = document.getElementsByName('llm_api_key')[0]?.value || null;
+        
+        const btn = document.getElementById('settingsTestConnBtn');
+        const spinner = document.getElementById('settingsTestSpinner');
+        const status = document.getElementById('settingsConnectionStatus');
+        
+        spinner.classList.remove('hidden');
+        status.className = "text-[11px] font-medium text-slate-400";
+        status.textContent = "Connecting...";
+        status.classList.remove('hidden');
+        btn.setAttribute('disabled', 'true');
+        
+        try {
+            const response = await fetch('/api/setup/test-connection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    llm_provider: provider,
+                    llm_host: host,
+                    api_key: apiKey
+                })
+            });
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                status.className = "text-[11px] font-medium text-green-400";
+                status.textContent = result.message;
+                
+                // Convert Model input to select dropdown
+                const container = document.getElementById('settingsModelInputContainer');
+                const previousModelVal = document.getElementById('settings_llm_model')?.value || "";
+                if (result.models && result.models.length > 0) {
+                    let selectHtml = `<select name="llm_model" id="settings_llm_model" class="w-full bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-2 text-[#e7e9f0] focus:outline-none focus:border-[#7c8cff]">`;
+                    result.models.forEach(model => {
+                        const selectedAttr = (model === previousModelVal) ? "selected" : "";
+                        selectHtml += `<option value="${model}" ${selectedAttr}>${model}</option>`;
+                    });
+                    selectHtml += `</select>`;
+                    container.innerHTML = selectHtml;
+                }
+            } else {
+                status.className = "text-[11px] font-medium text-rose-400";
+                status.textContent = result.message;
+            }
+        } catch (err) {
+            status.className = "text-[11px] font-medium text-rose-400";
+            status.textContent = "Failed to connect: " + err.message;
+        } finally {
+            spinner.classList.add('hidden');
+            btn.removeAttribute('disabled');
+        }
+    }
+
+    function switchTab(tabId) {
+        // Hide all tabs
+        document.getElementById('tab-general').classList.add('hidden');
+        document.getElementById('tab-prompts').classList.add('hidden');
+        document.getElementById('tab-mcp').classList.add('hidden');
+
+        // Reset tab buttons style
+        const buttons = ['general', 'prompts', 'mcp'];
+        buttons.forEach(b => {
+            const btn = document.getElementById('tab-btn-' + b);
+            btn.classList.remove('border-[#7c8cff]', 'text-white');
+            btn.classList.add('border-[#2a2e3a]', 'text-[#9ca3af]');
+        });
+
+        // Show selected tab
+        document.getElementById('tab-' + tabId).classList.remove('hidden');
+        const activeBtn = document.getElementById('tab-btn-' + tabId);
+        activeBtn.classList.remove('border-[#2a2e3a]', 'text-[#9ca3af]');
+        activeBtn.classList.add('border-[#7c8cff]', 'text-white');
+
+        if (tabId === 'prompts') {
+            loadPromptEditor();
+        }
+    }
+
+    async function saveGeneralSettings() {
+        const form = document.getElementById('general-settings-form');
+        const formData = new FormData(form);
+        const data = {
+            config: {
+                llm: {
+                    provider: formData.get('llm_provider'),
+                    model: formData.get('llm_model'),
+                    host: formData.get('llm_host'),
+                    temperature: parseFloat(formData.get('llm_temperature')),
+                    thinking: formData.get('llm_thinking') === 'on'
+                },
+                chunking: {
+                    chunk_size: parseInt(formData.get('chunk_size')),
+                    overlap: parseInt(formData.get('overlap')),
+                    strategy: formData.get('chunking_strategy')
+                }
+            },
+            env: {}
+        };
+
+        // Add API Key to env dictionary
+        const provider = formData.get('llm_provider');
+        const apiKey = formData.get('llm_api_key');
+        if ((provider === 'openai' || provider === 'openai-local') && apiKey) {
+            data.env['OPENAI_API_KEY'] = apiKey;
+        } else if (provider === 'anthropic' && apiKey) {
+            data.env['ANTHROPIC_API_KEY'] = apiKey;
+        } else if (provider === 'gemini' && apiKey) {
+            data.env['GEMINI_API_KEY'] = apiKey;
+        }
+
+        // Parse environment variables
+        for (let [key, val] of formData.entries()) {
+            if (key.startsWith('env_')) {
+                const envKey = key.substring(4);
+                data.env[envKey] = val;
+            }
+        }
+
+        // Add new env key if present
+        const newKey = formData.get('new_env_key');
+        const newVal = formData.get('new_env_value');
+        if (newKey && newKey.trim()) {
+            data.env[newKey.trim()] = newVal;
+        }
+
+        try {
+            const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            });
+            if (res.ok) {
+                alert('Settings saved successfully. Server restarting...');
+                location.reload();
+            } else {
+                const err = await res.json();
+                alert('Error saving settings: ' + err.detail);
+            }
+        } catch (e) {
+            alert('Failed to save settings: ' + e);
+        }
+    }
+
+    async function loadPromptEditor() {
+        const key = document.getElementById('prompt-selector').value;
+        try {
+            const res = await fetch(`/api/settings/prompts/${key}`);
+            const data = await res.json();
+            
+            document.getElementById('prompt-editor-content').value = data.content;
+            document.getElementById('prompt-version-badge').textContent = `Version: ${data.version_tag} (${data.status})`;
+            
+            // Load version history list
+            const historyBody = document.getElementById('prompt-version-history');
+            historyBody.innerHTML = '';
+            
+            data.history.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-[#2a2e3a] hover:bg-[#161922] transition';
+                
+                const rollbackBtn = item.status !== 'published' ? 
+                    `<button onclick="rollbackPrompt('${item.prompt_key}', '${item.version_tag}')" class="text-[#7c8cff] hover:text-[#9aa7ff] text-xs font-semibold">Rollback</button>` : 
+                    `<span class="text-green-400 text-xs font-semibold">Active</span>`;
+
+                tr.innerHTML = `
+                    <td class="px-4 py-3 font-mono text-xs text-white">${item.version_tag}</td>
+                    <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium ${item.status === 'published' ? 'bg-green-900/30 text-green-400' : (item.status === 'draft' ? 'bg-yellow-900/30 text-yellow-400' : 'bg-gray-800 text-[#9ca3af]')}">${item.status}</span></td>
+                    <td class="px-4 py-3 text-xs text-[#9ca3af]">${item.created_at}</td>
+                    <td class="px-4 py-3 text-xs text-[#9ca3af]">${item.published_at || '-'}</td>
+                    <td class="px-4 py-3 text-right">${rollbackBtn}</td>
+                `;
+                historyBody.appendChild(tr);
+            });
+
+        } catch (e) {
+            console.error('Failed to load prompts: ', e);
+        }
+    }
+
+    async function savePromptDraft() {
+        const key = document.getElementById('prompt-selector').value;
+        const content = document.getElementById('prompt-editor-content').value;
+        const statusMsg = document.getElementById('prompt-status-msg');
+        statusMsg.textContent = 'Saving draft...';
+
+        try {
+            const res = await fetch(`/api/settings/prompts/${key}/draft`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ content })
+            });
+            if (res.ok) {
+                statusMsg.textContent = 'Draft saved successfully.';
+                loadPromptEditor();
+            } else {
+                statusMsg.textContent = 'Failed to save draft.';
+            }
+        } catch (e) {
+            statusMsg.textContent = 'Error: ' + e;
+        }
+    }
+
+    async function publishPrompt() {
+        const key = document.getElementById('prompt-selector').value;
+        const statusMsg = document.getElementById('prompt-status-msg');
+        statusMsg.textContent = 'Publishing...';
+
+        try {
+            const res = await fetch(`/api/settings/prompts/${key}/publish`, {
+                method: 'POST'
+            });
+            if (res.ok) {
+                statusMsg.textContent = 'Version published successfully!';
+                loadPromptEditor();
+            } else {
+                statusMsg.textContent = 'Failed to publish.';
+            }
+        } catch (e) {
+            statusMsg.textContent = 'Error: ' + e;
+        }
+    }
+
+    async function rollbackPrompt(key, version) {
+        if (!confirm(`Are you sure you want to rollback ${key} to ${version}?`)) {
+            return;
+        }
+        try {
+            const res = await fetch(`/api/settings/prompts/${key}/rollback?version=${version}`, {
+                method: 'POST'
+            });
+            if (res.ok) {
+                alert('Rollback successful!');
+                loadPromptEditor();
+            } else {
+                alert('Failed to rollback.');
+            }
+        } catch (e) {
+            alert('Error during rollback: ' + e);
+        }
+    }
+</script>
+{% endblock %}

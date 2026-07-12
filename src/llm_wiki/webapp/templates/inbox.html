@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Inbox · LLM-Wiki{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl font-bold text-white">Document Inbox (Review Buffer)</h1>
+        <p class="text-sm text-[#9ca3af]">Review low confidence or ambiguous extractions before adding them to your core wiki folders.</p>
+    </div>
+
+    {% if not items %}
+    <div class="bg-[#1c1f2a] rounded-lg border border-[#2a2e3a] p-12 text-center">
+        <span class="text-4xl">🎉</span>
+        <h3 class="mt-4 text-lg font-medium text-white">Inbox is clean!</h3>
+        <p class="mt-2 text-sm text-[#9ca3af]">No documents are currently pending review in <code class="bg-[#0f1117] px-1 py-0.5 rounded font-mono text-white">non_categories/</code>.</p>
+    </div>
+    {% else %}
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[70vh]">
+        <!-- Inbox Sidebar List (Left) -->
+        <div class="lg:col-span-4 bg-[#1c1f2a] rounded-lg border border-[#2a2e3a] flex flex-col overflow-hidden h-full">
+            <div class="p-4 border-b border-[#2a2e3a]">
+                <h2 class="text-sm font-semibold text-[#e7e9f0] uppercase tracking-wider">Pending Pages ({{ items | length }})</h2>
+            </div>
+            <div class="flex-1 overflow-y-auto divide-y divide-[#2a2e3a]">
+                {% for item in items %}
+                <button onclick="selectInboxItem('{{ item.slug }}')" id="item-btn-{{ item.slug }}" class="w-full text-left p-4 hover:bg-[#161922] transition flex flex-col gap-1 items-start {% if loop.first %}bg-[#161922]{% endif %}">
+                    <span class="text-sm font-semibold text-white">{{ item.title }}</span>
+                    <span class="text-xs text-[#9ca3af] font-mono">Slug: {{ item.slug }}</span>
+                    
+                    <div class="flex items-center gap-2 mt-2">
+                        <span class="px-2 py-0.5 rounded text-xs font-semibold {% if item.confidence == 'low' or (item.confidence | float < 0.5) %}bg-red-950 text-red-400{% else %}bg-yellow-950 text-yellow-400{% endif %}">
+                            Confidence: {{ item.confidence }}
+                        </span>
+                    </div>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Preview & Control Panel (Right) -->
+        <div class="lg:col-span-8 bg-[#1c1f2a] rounded-lg border border-[#2a2e3a] flex flex-col overflow-hidden h-full">
+            <div class="p-4 border-b border-[#2a2e3a] flex justify-between items-center bg-[#161922]">
+                <div>
+                    <h2 class="text-base font-semibold text-white" id="preview-title">{{ items[0].title }}</h2>
+                    <p class="text-xs text-[#9ca3af] font-mono" id="preview-slug">non_categories/{{ items[0].slug }}.md</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <select id="action-category" class="bg-[#0f1117] border border-[#2a2e3a] rounded-md px-3 py-1.5 text-sm text-[#e7e9f0]">
+                        <option value="entities">entities/</option>
+                        <option value="concepts">concepts/</option>
+                        <option value="synthesis">synthesis/</option>
+                    </select>
+                    <button onclick="promoteSelectedItem()" class="bg-[#7c8cff] hover:bg-[#9aa7ff] text-[#0f1117] font-semibold px-4 py-1.5 rounded-md text-sm transition">
+                        Move & Approve
+                    </button>
+                    <button onclick="deleteSelectedItem()" class="bg-red-900/30 hover:bg-red-900/60 border border-red-800 text-red-200 font-semibold px-4 py-1.5 rounded-md text-sm transition">
+                        Delete
+                    </button>
+                </div>
+            </div>
+
+            <!-- Content Split Pane -->
+            <div class="flex-1 grid grid-cols-1 md:grid-cols-2 overflow-hidden">
+                <!-- Metadata Details (Left Side of Pane) -->
+                <div class="p-6 border-r border-[#2a2e3a] overflow-y-auto space-y-6">
+                    <div>
+                        <h3 class="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-2">Extraction Metadata</h3>
+                        <div class="bg-[#0f1117] rounded p-4 space-y-3 text-sm">
+                            <div>
+                                <span class="text-[#6b7280]">Source summary file:</span>
+                                <div class="font-mono text-xs text-[#7c8cff] mt-1" id="preview-meta-source-file">{{ items[0].source_file | default('N/A') }}</div>
+                            </div>
+                            <div>
+                                <span class="text-[#6b7280]">Processed at:</span>
+                                <div class="text-[#e7e9f0] mt-1" id="preview-meta-processed-at">{{ items[0].processed_at | default('N/A') }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h3 class="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-2">Wikilink & Backlink Relinking</h3>
+                        <p class="text-xs text-[#6b7280]">
+                            Approving this page will automatically scan all documents in the wiki and update any wikilink references targeting this document.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Markdown Content (Right Side of Pane) -->
+                <div class="p-6 overflow-y-auto bg-[#0f1117]">
+                    <h3 class="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-4 border-b border-[#2a2e3a] pb-2">Page Preview</h3>
+                    <div id="preview-body" class="prose prose-invert prose-sm max-w-none text-[#e7e9f0] whitespace-pre-wrap font-mono text-xs">
+                        {{ items[0].body }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    let activeSlug = "{{ items[0].slug if items else '' }}";
+    const itemsData = {
+        {% for item in items %}
+        "{{ item.slug }}": {
+            title: "{{ item.title | escape }}",
+            slug: "{{ item.slug | escape }}",
+            confidence: "{{ item.confidence | escape }}",
+            source_file: "{{ item.source_file | escape }}",
+            processed_at: "{{ item.processed_at | escape }}",
+            body: `{{ item.body | escape }}`
+        },
+        {% endfor %}
+    };
+
+    function selectInboxItem(slug) {
+        // Update styling
+        const oldActive = document.getElementById('item-btn-' + activeSlug);
+        if (oldActive) oldActive.classList.remove('bg-[#161922]');
+        
+        activeSlug = slug;
+        const newActive = document.getElementById('item-btn-' + activeSlug);
+        if (newActive) newActive.classList.add('bg-[#161922]');
+
+        // Update preview pane
+        const item = itemsData[slug];
+        document.getElementById('preview-title').textContent = item.title;
+        document.getElementById('preview-slug').textContent = `non_categories/${item.slug}.md`;
+        document.getElementById('preview-meta-source-file').textContent = item.source_file || 'N/A';
+        document.getElementById('preview-meta-processed-at').textContent = item.processed_at || 'N/A';
+        document.getElementById('preview-body').textContent = item.body;
+    }
+
+    async function promoteSelectedItem() {
+        if (!activeSlug) return;
+        const folder = document.getElementById('action-category').value;
+        try {
+            const res = await fetch(`/api/inbox/promote/${activeSlug}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folder })
+            });
+            if (res.ok) {
+                alert('Document approved and moved successfully!');
+                location.reload();
+            } else {
+                const err = await res.json();
+                alert('Error promoting: ' + err.detail);
+            }
+        } catch (e) {
+            alert('Failed to promote document: ' + e);
+        }
+    }
+
+    async function deleteSelectedItem() {
+        if (!activeSlug) return;
+        if (!confirm('Are you sure you want to delete this draft and remove it from non_categories/?')) return;
+        try {
+            const res = await fetch(`/api/inbox/delete/${activeSlug}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                alert('Document deleted.');
+                location.reload();
+            } else {
+                const err = await res.json();
+                alert('Error deleting: ' + err.detail);
+            }
+        } catch (e) {
+            alert('Failed to delete document: ' + e);
+        }
+    }
+</script>
+{% endblock %}

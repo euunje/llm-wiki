@@ -71,12 +71,15 @@
             <nav class="flex-1 p-3 space-y-1">
                 {% set nav_items = [
                     ('/', 'Dashboard', '🏠', 'dashboard'),
-                    ('/sources', 'Sources', '📥', 'sources'),
+                    ('/sources', 'Sources', '📂', 'sources'),
+                    ('/inbox', 'Inbox', '📥', 'inbox'),
                     ('/ingest', 'Ingest', '⚡', 'ingest'),
                     ('/jobs', 'Jobs', '🧵', 'jobs'),
                     ('/query', 'Query', '💬', 'query'),
                     ('/lint', 'Lint', '🔍', 'lint'),
                     ('/graph', 'Graph', '🕸️', 'graph'),
+                    ('/logs', 'Logs', '🗒️', 'logs'),
+                    ('/settings', 'Settings', '⚙️', 'settings'),
                 ] %}
                 {% for href, label, icon, key in nav_items %}
                     {% if page == key %}

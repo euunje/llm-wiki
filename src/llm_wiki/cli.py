@@ -1200,13 +1200,10 @@ def serve(
     interface, and lint dashboard. It runs locally and binds to 127.0.0.1
     by default — no external access, no auth required.
     """
-    paths = _resolve_root_or_die()
-
-    # Verify the project looks healthy before launching
-    if not paths.wiki.exists():
-        _err(f"Wiki folder not found at {paths.wiki}")
-        _hint("Run `wiki init` first to scaffold the project.")
-        raise typer.Exit(code=1)
+    root = cfg.find_wiki_root()
+    if root is None:
+        root = Path.cwd().resolve()
+    paths = cfg.WikiPaths(root=root)
 
     # Lazy import — avoid loading FastAPI/uvicorn unless we're actually serving
     try:
@@ -1260,11 +1257,42 @@ def serve(
             app_instance,
             host=host,
             port=port,
-            log_level="warning",  # quiet — we don't need every request logged
-            access_log=False,
+            log_level="info",
+            access_log=True,
         )
     except KeyboardInterrupt:
         console.print("\n[dim]Stopped.[/dim]")
+
+
+@app.command("mcp-stdio")
+def mcp_stdio() -> None:
+    """Start the Model Context Protocol stdio server to expose wiki knowledge."""
+    import sys
+    import json
+    
+    paths = _resolve_root_or_die()
+    from .webapp.routes.mcp import handle_mcp_request
+    
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+            res = handle_mcp_request(paths, req)
+            sys.stdout.write(json.dumps(res) + "\n")
+            sys.stdout.flush()
+        except Exception as e:
+            err_res = {
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32700,
+                    "message": f"Parse error: {e}"
+                },
+                "id": None
+            }
+            sys.stdout.write(json.dumps(err_res) + "\n")
+            sys.stdout.flush()
 
 
 def main() -> None:

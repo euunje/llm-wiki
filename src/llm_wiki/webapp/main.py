@@ -49,6 +49,15 @@ def create_app(paths: cfg.WikiPaths) -> FastAPI:
     app.state.wiki_paths = paths
     app.state.version = __version__
 
+    from fastapi.responses import RedirectResponse
+    @app.middleware("http")
+    async def check_setup_middleware(request: Request, call_next):
+        path = request.url.path
+        if not app.state.wiki_paths.is_initialized():
+            if not path.startswith("/setup") and not path.startswith("/api/setup") and not path.startswith("/static"):
+                return RedirectResponse(url="/setup")
+        return await call_next(request)
+
     # Templates
     template_dir = _get_template_dir()
     templates = Jinja2Templates(directory=str(template_dir))
@@ -60,7 +69,7 @@ def create_app(paths: cfg.WikiPaths) -> FastAPI:
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     # Routes — import lazily to avoid circular dependencies
-    from .routes import dashboard, graph, ingest, lint, query, sources
+    from .routes import dashboard, graph, ingest, lint, query, sources, inbox, settings, mcp, setup
 
     app.include_router(dashboard.router)
     app.include_router(sources.router)
@@ -68,5 +77,29 @@ def create_app(paths: cfg.WikiPaths) -> FastAPI:
     app.include_router(lint.router)
     app.include_router(query.router)
     app.include_router(ingest.router)
+    app.include_router(inbox.router)
+    app.include_router(settings.router)
+    app.include_router(mcp.router)
+    app.include_router(setup.router)
 
     return app
+
+
+import os
+
+def create_app_from_env() -> FastAPI:
+    """Build a FastAPI app by resolving wiki path from WIKI_ROOT env variable."""
+    wiki_root = os.environ.get("WIKI_ROOT")
+    if not wiki_root:
+        # Fallback to finding root or defaulting to current directory
+        root = cfg.find_wiki_root() or Path.cwd()
+        paths = cfg.WikiPaths(root=root)
+    else:
+        paths = cfg.WikiPaths(root=Path(wiki_root))
+
+    if not paths.is_initialized():
+        # Auto-scaffold if not initialized
+        from ..scaffold import scaffold
+        scaffold(paths.root)
+
+    return create_app(paths)

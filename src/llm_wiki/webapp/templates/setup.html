@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup LLM-Wiki Project</title>
+    
+    <!-- Modern Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Plus Jakarta Sans', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+              outfit: ['Outfit', 'sans-serif'],
+            },
+            colors: {
+              brand: {
+                50: '#f0f3ff',
+                100: '#e1e7ff',
+                200: '#c7d2ff',
+                300: '#a3b4ff',
+                400: '#7c8cff',
+                500: '#5865f2',
+                600: '#3f47d9',
+                700: '#3236b8',
+                800: '#2b2d94',
+                900: '#272979',
+              },
+              dark: {
+                950: '#090a0f',
+                900: '#0e1017',
+                800: '#141722',
+                700: '#1b2030',
+                600: '#242a3e',
+                500: '#3b4460',
+              }
+            }
+          }
+        }
+      }
+    </script>
+    
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: radial-gradient(circle at top left, #141727 0%, #090a0f 60%);
+        }
+        .glow-card {
+            box-shadow: 0 0 40px -10px rgba(88, 101, 242, 0.15);
+            border: 1px solid rgba(88, 101, 242, 0.1);
+            backdrop-filter: blur(12px);
+        }
+        .gradient-text {
+            background: linear-gradient(135deg, #a3b4ff 0%, #7c8cff 50%, #5865f2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        /* Custom ranges/sliders styling */
+        input[type="range"] {
+            accent-color: #5865f2;
+        }
+    </style>
+</head>
+<body class="min-h-full flex items-center justify-center p-6 text-slate-100">
+    
+    <!-- Background subtle lights -->
+    <div class="absolute top-10 left-10 w-96 h-96 bg-brand-500/5 rounded-full blur-[100px] pointer-events-none"></div>
+    <div class="absolute bottom-10 right-10 w-96 h-96 bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none"></div>
+
+    <div class="w-full max-w-2xl bg-dark-900/90 rounded-2xl p-8 glow-card relative z-10">
+        
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <span class="text-5xl mb-3 block">📚</span>
+            <h1 class="text-3xl font-bold font-outfit tracking-tight mb-2">Welcome to <span class="gradient-text">LLM-Wiki</span></h1>
+            <p class="text-slate-400 text-sm max-w-md mx-auto">Scaffold and configure your local knowledge base project to begin parsing your documents with LLMs.</p>
+        </div>
+
+        <!-- Setup Form -->
+        <form id="setupForm" class="space-y-6">
+            
+            <!-- Step 1: Project Location -->
+            <div class="space-y-2">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400">Project Directory</label>
+                <div class="flex gap-2">
+                    <input type="text" id="path" name="path" value="{{ current_dir }}" required
+                           class="flex-1 bg-dark-800 border border-dark-700 rounded-lg px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition duration-150">
+                    <button type="button" id="browseBtn"
+                            class="px-5 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded-lg text-sm font-semibold transition whitespace-nowrap active:scale-[0.98]">Browse...</button>
+                </div>
+                <p class="text-[11px] text-slate-500 mt-1">Files and directories (`wiki/`, `raw/`, `.wiki/`) will be generated inside this path.</p>
+            </div>
+
+            <hr class="border-dark-700">
+
+            <!-- Step 2: LLM Configuration -->
+            <div>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">LLM Integration Settings</h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <!-- LLM Provider -->
+                    <div class="space-y-1">
+                        <label for="llm_provider" class="block text-xs text-slate-400 font-medium">Provider</label>
+                        <select id="llm_provider" name="llm_provider"
+                                class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
+                            <option value="ollama" selected>Ollama (Local-first)</option>
+                            <option value="openai-local">Local OpenAI (LM Studio, LiteLLM)</option>
+                            <option value="openai">OpenAI (Cloud)</option>
+                            <option value="anthropic">Anthropic Claude (Cloud)</option>
+                            <option value="gemini">Google Gemini (Cloud)</option>
+                        </select>
+                    </div>
+
+                    <!-- LLM Model -->
+                    <div class="space-y-1">
+                        <label for="llm_model" class="block text-xs text-slate-400 font-medium">Model Name</label>
+                        <div id="modelInputContainer">
+                            <input type="text" id="llm_model" name="llm_model" value="qwen3:14b" required
+                                   class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                    <!-- API Key (Conditional) -->
+                    <div id="apiKeyContainer" class="space-y-1">
+                        <label for="api_key" class="block text-xs text-slate-400 font-medium">API Key</label>
+                        <input type="password" id="api_key" name="api_key" placeholder="Enter API Key (Optional for Ollama)"
+                               class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
+                    </div>
+
+                    <!-- LLM Host -->
+                    <div id="hostContainer" class="space-y-1 col-span-1">
+                        <label for="llm_host" class="block text-xs text-slate-400 font-medium">API Host URL</label>
+                        <input type="text" id="llm_host" name="llm_host" value="http://localhost:11434" required
+                               class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
+                    </div>
+                </div>
+
+                <!-- Test Connection Row -->
+                <div class="flex items-center justify-between pb-4 border-b border-dark-800 mb-4">
+                    <button type="button" id="testConnBtn"
+                            class="text-xs font-semibold text-brand-400 hover:text-brand-300 transition duration-150 flex items-center gap-1.5 bg-brand-500/10 hover:bg-brand-500/20 px-3 py-1.5 rounded border border-brand-500/20 active:scale-[0.98]">
+                        <span>🔌 Test Connection & Load Models</span>
+                        <svg id="testSpinner" class="animate-spin h-3.5 w-3.5 text-brand-400 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                    <span id="connectionStatus" class="text-[11px] font-medium hidden"></span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Temperature -->
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-xs">
+                            <label for="llm_temperature" class="text-slate-400 font-medium">Temperature</label>
+                            <span id="tempVal" class="text-brand-400 font-semibold">0.3</span>
+                        </div>
+                        <input type="range" id="llm_temperature" name="llm_temperature" min="0" max="1" step="0.1" value="0.3"
+                               class="w-full h-1 bg-dark-700 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- Thinking Mode -->
+                    <div class="flex items-center space-x-3 pt-4">
+                        <input type="checkbox" id="llm_thinking" name="llm_thinking" checked
+                               class="w-4 h-4 rounded text-brand-600 bg-dark-800 border-dark-700 focus:ring-brand-500">
+                        <label for="llm_thinking" class="text-xs text-slate-300 font-medium cursor-pointer">Enable Thinking Mode (e.g. Qwen3/Reasoning)</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Banner -->
+            <div id="errorBanner" class="hidden bg-rose-950/40 border border-rose-800/40 text-rose-200 px-4 py-3 rounded-lg text-xs space-y-1">
+                <span class="font-semibold block">⚠️ Initialization Error:</span>
+                <span id="errorMessage">Please check your configuration values and try again.</span>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="pt-4">
+                <button type="submit" id="submitBtn"
+                        class="w-full bg-brand-500 hover:bg-brand-600 text-white font-semibold font-outfit py-3.5 rounded-lg text-sm tracking-wide shadow-lg shadow-brand-500/20 hover:shadow-brand-600/30 active:scale-[0.99] transition duration-150 flex items-center justify-center gap-2">
+                    <span>Initialize & Launch Wiki</span>
+                    <svg id="spinner" class="animate-spin h-4 w-4 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Web-based Folder Explorer Modal -->
+    <div id="folderModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm hidden">
+        <div class="bg-dark-900 border border-dark-700 w-full max-w-lg rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
+            <!-- Modal Header -->
+            <div class="p-4 border-b border-dark-800 flex justify-between items-center bg-dark-950">
+                <h3 class="text-sm font-semibold font-outfit uppercase tracking-wider text-slate-300">Select Project Folder</h3>
+                <button type="button" id="closeFolderBtn" class="text-slate-400 hover:text-slate-200 text-xl font-bold">&times;</button>
+            </div>
+            <!-- Current Path Bar -->
+            <div class="p-3 bg-dark-950 border-b border-dark-800 text-xs font-mono text-brand-400 break-all flex items-center gap-2">
+                <span class="text-slate-500">Current:</span>
+                <span id="modalCurrentPath">/Users/eunjae</span>
+            </div>
+            <!-- Folders List -->
+            <div id="modalFoldersList" class="flex-1 overflow-y-auto p-3 space-y-1 min-h-[250px] max-h-[350px] bg-dark-900 text-sm">
+                <!-- Dynamically populated -->
+            </div>
+            <!-- Modal Footer -->
+            <div class="p-4 border-t border-dark-800 bg-dark-950 flex justify-between items-center gap-3">
+                <button type="button" id="modalParentBtn" class="px-3.5 py-2 bg-dark-800 hover:bg-dark-700 border border-dark-700 rounded-lg text-xs font-semibold text-slate-300 active:scale-[0.98] transition">
+                    ⬆️ Up One Level
+                </button>
+                <div class="flex gap-2">
+                    <button type="button" id="modalCancelBtn" class="px-4 py-2 bg-dark-800 hover:bg-dark-700 border border-dark-700 rounded-lg text-sm text-slate-300 font-semibold active:scale-[0.98] transition">Cancel</button>
+                    <button type="button" id="modalSelectBtn" class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-brand-500/10 active:scale-[0.98] transition">Select Folder</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const providerSelect = document.getElementById('llm_provider');
+        const modelInput = document.getElementById('llm_model');
+        const hostInput = document.getElementById('llm_host');
+        const apiKeyContainer = document.getElementById('apiKeyContainer');
+        const hostContainer = document.getElementById('hostContainer');
+        const tempRange = document.getElementById('llm_temperature');
+        const tempVal = document.getElementById('tempVal');
+        const setupForm = document.getElementById('setupForm');
+        const errorBanner = document.getElementById('errorBanner');
+        const errorMessage = document.getElementById('errorMessage');
+        const submitBtn = document.getElementById('submitBtn');
+        const spinner = document.getElementById('spinner');
+        
+        const browseBtn = document.getElementById('browseBtn');
+        const testConnBtn = document.getElementById('testConnBtn');
+        const testSpinner = document.getElementById('testSpinner');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const modelList = document.getElementById('model_list');
+        
+        // Modal elements
+        const folderModal = document.getElementById('folderModal');
+        const closeFolderBtn = document.getElementById('closeFolderBtn');
+        const modalCurrentPath = document.getElementById('modalCurrentPath');
+        const modalFoldersList = document.getElementById('modalFoldersList');
+        const modalParentBtn = document.getElementById('modalParentBtn');
+        const modalCancelBtn = document.getElementById('modalCancelBtn');
+        const modalSelectBtn = document.getElementById('modalSelectBtn');
+
+        let currentModalPath = '';
+        let currentParentPath = null;
+
+        // Dynamic Recommended Settings
+        const RECOMMENDED = {
+            ollama: {
+                model: 'qwen3:14b',
+                host: 'http://localhost:11434',
+                apiKeyRequired: false
+            },
+            'openai-local': {
+                model: 'lmstudio-community/qwen2.5-7b-instruct',
+                host: 'http://localhost:1234/v1',
+                apiKeyRequired: false
+            },
+            openai: {
+                model: 'gpt-4o',
+                host: 'https://api.openai.com/v1',
+                apiKeyRequired: true
+            },
+            anthropic: {
+                model: 'claude-3-5-sonnet-20241022',
+                host: 'https://api.anthropic.com/v1',
+                apiKeyRequired: true
+            },
+            gemini: {
+                model: 'gemini-1.5-pro',
+                host: 'https://generativelanguage.googleapis.com',
+                apiKeyRequired: true
+            }
+        };
+
+        // Open Web Folder Explorer Modal
+        function openWebFolderExplorer(startingPath) {
+            folderModal.classList.remove('hidden');
+            loadDirectories(startingPath || document.getElementById('path').value);
+        }
+
+        function closeWebFolderExplorer() {
+            folderModal.classList.add('hidden');
+        }
+
+        async function loadDirectories(path) {
+            modalFoldersList.innerHTML = '<div class="text-xs text-slate-500 p-4 text-center">Loading directories...</div>';
+            try {
+                const url = `/api/setup/list-dirs?path=${encodeURIComponent(path || '')}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    currentModalPath = data.current_path;
+                    currentParentPath = data.parent_path;
+                    modalCurrentPath.textContent = data.current_path;
+                    
+                    modalFoldersList.innerHTML = '';
+                    
+                    if (data.subdirs && data.subdirs.length > 0) {
+                        data.subdirs.forEach(dir => {
+                            const item = document.createElement('div');
+                            item.className = "flex items-center gap-2 p-2.5 rounded-lg hover:bg-dark-800 text-slate-200 cursor-pointer transition";
+                            item.innerHTML = `<span>📁</span> <span class="font-medium truncate">${dir}</span>`;
+                            item.addEventListener('click', () => {
+                                const newPath = currentModalPath.endsWith('/') ? currentModalPath + dir : currentModalPath + '/' + dir;
+                                loadDirectories(newPath);
+                            });
+                            modalFoldersList.appendChild(item);
+                        });
+                    } else {
+                        modalFoldersList.innerHTML = '<div class="text-xs text-slate-500 p-4 text-center">No subdirectories found or permission denied.</div>';
+                    }
+                    
+                    // Enable/disable up one level button
+                    if (currentParentPath) {
+                        modalParentBtn.removeAttribute('disabled');
+                        modalParentBtn.classList.remove('opacity-50');
+                    } else {
+                        modalParentBtn.setAttribute('disabled', 'true');
+                        modalParentBtn.classList.add('opacity-50');
+                    }
+                } else {
+                    modalFoldersList.innerHTML = `<div class="text-xs text-rose-400 p-4 text-center">Error: ${data.error || 'Failed to list folders'}</div>`;
+                }
+            } catch (err) {
+                modalFoldersList.innerHTML = `<div class="text-xs text-rose-400 p-4 text-center">Network Error: ${err.message}</div>`;
+            }
+        }
+
+        // Modal Action Bindings
+        modalParentBtn.addEventListener('click', () => {
+            if (currentParentPath) {
+                loadDirectories(currentParentPath);
+            }
+        });
+
+        modalCancelBtn.addEventListener('click', closeWebFolderExplorer);
+        closeFolderBtn.addEventListener('click', closeWebFolderExplorer);
+
+        modalSelectBtn.addEventListener('click', () => {
+            if (currentModalPath) {
+                document.getElementById('path').value = currentModalPath;
+                closeWebFolderExplorer();
+            }
+        });
+
+        // Browse Directory button click handler (with OS-native dialogue fallback)
+        browseBtn.addEventListener('click', async () => {
+            browseBtn.setAttribute('disabled', 'true');
+            browseBtn.textContent = 'Opening picker...';
+            try {
+                // Try OS native file picker first
+                const response = await fetch('/api/setup/browse-directory', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.status === 'success' && result.path) {
+                    document.getElementById('path').value = result.path;
+                } else if (result.status === 'error') {
+                    // Fail fallback -> Open web directory browser
+                    console.warn(result.message);
+                    openWebFolderExplorer(document.getElementById('path').value);
+                }
+            } catch (err) {
+                console.error("OS picker exception", err);
+                openWebFolderExplorer(document.getElementById('path').value);
+            } finally {
+                browseBtn.removeAttribute('disabled');
+                browseBtn.textContent = 'Browse...';
+            }
+        });
+
+        // Test Connection & Load Models handler
+        testConnBtn.addEventListener('click', async () => {
+            testSpinner.classList.remove('hidden');
+            connectionStatus.className = "text-[11px] font-medium text-slate-400";
+            connectionStatus.textContent = "Connecting...";
+            connectionStatus.classList.remove('hidden');
+            testConnBtn.setAttribute('disabled', 'true');
+
+            const payload = {
+                llm_provider: providerSelect.value,
+                llm_host: hostInput.value,
+                api_key: document.getElementById('api_key').value || null
+            };
+
+            try {
+                const response = await fetch('/api/setup/test-connection', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    connectionStatus.className = "text-[11px] font-medium text-emerald-400";
+                    connectionStatus.textContent = result.message;
+                    
+                    // Convert Model input to a dropdown select element
+                    const container = document.getElementById('modelInputContainer');
+                    const previousModelVal = document.getElementById('llm_model')?.value || "";
+                    if (result.models && result.models.length > 0) {
+                        let selectHtml = `<select id="llm_model" name="llm_model" class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">`;
+                        result.models.forEach(model => {
+                            const selectedAttr = (model === previousModelVal) ? "selected" : "";
+                            selectHtml += `<option value="${model}" ${selectedAttr}>${model}</option>`;
+                        });
+                        selectHtml += `</select>`;
+                        container.innerHTML = selectHtml;
+                    }
+                } else {
+                    connectionStatus.className = "text-[11px] font-medium text-rose-400";
+                    connectionStatus.textContent = result.message;
+                }
+            } catch (err) {
+                connectionStatus.className = "text-[11px] font-medium text-rose-400";
+                connectionStatus.textContent = "Failed to connect: " + err.message;
+            } finally {
+                testSpinner.classList.add('hidden');
+                testConnBtn.removeAttribute('disabled');
+            }
+        });
+
+        // Provider change triggers updates
+        providerSelect.addEventListener('change', (e) => {
+            const selected = RECOMMENDED[e.target.value];
+            if (selected) {
+                // Restore model input as text field
+                const container = document.getElementById('modelInputContainer');
+                container.innerHTML = `<input type="text" id="llm_model" name="llm_model" value="${selected.model}" required
+                                           class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">`;
+                
+                hostInput.value = selected.host;
+                
+                apiKeyContainer.classList.remove('hidden');
+                if (selected.apiKeyRequired) {
+                    document.getElementById('api_key').setAttribute('required', 'true');
+                    document.getElementById('api_key').placeholder = "Enter API Key";
+                } else {
+                    document.getElementById('api_key').removeAttribute('required');
+                    document.getElementById('api_key').placeholder = `Enter API Key (Optional for ${e.target.value === 'ollama' ? 'Ollama' : 'Local OpenAI'})`;
+                }
+                hostContainer.className = "space-y-1 col-span-1";
+            }
+        });
+
+        // Temperature slider change
+        tempRange.addEventListener('input', (e) => {
+            tempVal.textContent = e.target.value;
+        });
+
+        // Handle Form Submission
+        setupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorBanner.classList.add('hidden');
+            submitBtn.setAttribute('disabled', 'true');
+            spinner.classList.remove('hidden');
+
+            const payload = {
+                path: document.getElementById('path').value,
+                llm_provider: providerSelect.value,
+                llm_model: document.getElementById('llm_model').value,
+                llm_host: hostInput.value,
+                llm_temperature: parseFloat(tempRange.value),
+                llm_thinking: document.getElementById('llm_thinking').checked,
+                api_key: document.getElementById('api_key').value || null
+            };
+
+            try {
+                const response = await fetch('/api/setup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    // Success -> redirect to dashboard
+                    window.location.href = '/';
+                } else {
+                    throw new Error(result.detail || 'Failed to complete project setup.');
+                }
+            } catch (err) {
+                errorBanner.classList.remove('hidden');
+                errorMessage.textContent = err.message;
+            } finally {
+                submitBtn.removeAttribute('disabled');
+                spinner.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>

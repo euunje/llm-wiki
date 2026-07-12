@@ -11,11 +11,13 @@ import re
 from pathlib import Path
 
 from .base import (
+    DocumentParser,
     ParsedDocument,
     ParserError,
     compute_hash,
     fallback_title_from_path,
     normalize_text,
+    chunk_text_sliding,
 )
 
 
@@ -49,28 +51,38 @@ def _extract_txt_title(text: str) -> str | None:
     return None
 
 
+class TextParser(DocumentParser):
+    def can_parse(self, suffix: str) -> bool:
+        return suffix.lower() in {".md", ".markdown", ".txt"}
+
+    def parse(self, path: Path, chunk_size: int = 1500, overlap: int = 200) -> ParsedDocument:
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            raise ParserError(f"Cannot read {path}: {e}") from e
+
+        ext = path.suffix.lower()
+        if ext in {".md", ".markdown"}:
+            file_type = "md"
+            title = _extract_md_title(raw) or fallback_title_from_path(path)
+        else:
+            file_type = "txt"
+            title = _extract_txt_title(raw) or fallback_title_from_path(path)
+
+        text = normalize_text(raw)
+        chunks = chunk_text_sliding(text, chunk_size, overlap)
+        return ParsedDocument(
+            source_path=path,
+            file_type=file_type,
+            title=title,
+            text=text,
+            content_hash=compute_hash(text),
+            bytes=path.stat().st_size,
+            metadata={},
+            chunks=chunks,
+        )
+
+
 def parse(path: Path) -> ParsedDocument:
     """Parse a .md, .markdown, or .txt file."""
-    try:
-        raw = path.read_text(encoding="utf-8", errors="replace")
-    except OSError as e:
-        raise ParserError(f"Cannot read {path}: {e}") from e
-
-    ext = path.suffix.lower()
-    if ext in {".md", ".markdown"}:
-        file_type = "md"
-        title = _extract_md_title(raw) or fallback_title_from_path(path)
-    else:
-        file_type = "txt"
-        title = _extract_txt_title(raw) or fallback_title_from_path(path)
-
-    text = normalize_text(raw)
-    return ParsedDocument(
-        source_path=path,
-        file_type=file_type,
-        title=title,
-        text=text,
-        content_hash=compute_hash(text),
-        bytes=path.stat().st_size,
-        metadata={},
-    )
+    return TextParser().parse(path)

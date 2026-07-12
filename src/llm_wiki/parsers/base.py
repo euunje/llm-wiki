@@ -25,6 +25,7 @@ class ParsedDocument:
     content_hash: str           # sha256 of normalized text
     bytes: int                  # File size on disk
     metadata: dict[str, Any] = field(default_factory=dict)
+    chunks: list[str] = field(default_factory=list)
 
     @property
     def text_length(self) -> int:
@@ -83,3 +84,43 @@ def fallback_title_from_path(path: Path) -> str:
         else:
             words.append(word.capitalize())
     return " ".join(words) or path.name
+
+
+from abc import ABC, abstractmethod
+
+class DocumentParser(ABC):
+    @abstractmethod
+    def can_parse(self, suffix: str) -> bool:
+        """Return True if this parser supports the extension (e.g. '.pdf')."""
+        pass
+
+    @abstractmethod
+    def parse(self, path: Path, chunk_size: int = 1500, overlap: int = 200) -> ParsedDocument:
+        """Parse raw file and return structured document."""
+        pass
+
+
+def chunk_text_sliding(text: str, chunk_size: int, overlap: int) -> list[str]:
+    """Split text into chunks of roughly `chunk_size` characters, with `overlap` characters overlap, matching word boundaries."""
+    if not text:
+        return []
+    if len(text) <= chunk_size:
+        return [text]
+        
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        if end >= len(text):
+            chunks.append(text[start:])
+            break
+            
+        # Try to find a space near the end to avoid breaking words
+        space_idx = text.rfind(" ", start, end)
+        if space_idx != -1 and space_idx > start + chunk_size // 2:
+            end = space_idx
+            
+        chunks.append(text[start:end].strip())
+        start = max(start + 1, end - overlap)
+        
+    return chunks

@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  llm-wiki:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: llm-wiki:latest
+    container_name: llm-wiki-app
+    ports:
+      - "8000:8000"
+    environment:
+      - WIKI_ROOT=/app/workspace
+      - ENV_FILE_PATH=/app/workspace/.env
+    volumes:
+      # Map the full user workspace folder containing the wiki and .wiki state
+      - ${HOST_WIKI_PATH:-.}:/app/workspace
+      # Mount separate data lake raw folder outside Obsidian Vault
+      - ${HOST_RAW_DOCS_PATH:-./data/raw_docs}:/data/raw_docs
+    restart: unless-stopped
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: llm-wiki-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

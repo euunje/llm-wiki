@@ -214,9 +214,9 @@ def _resolve_slug(
     existing page vs creating a new one.
     """
     if kind == "entity":
-        search_dirs = [paths.wiki / "entities"]
+        search_dirs = [paths.wiki / "entities", paths.wiki / "non_categories"]
     else:
-        search_dirs = [paths.wiki / "concepts"]
+        search_dirs = [paths.wiki / "concepts", paths.wiki / "non_categories"]
 
     # Determine entity type for canonical_name (fuzzy match)
     match_kind = "any"
@@ -360,7 +360,11 @@ def ingest_source(
     # 2. Parse the source
     callbacks.on_parsing()
     try:
-        parsed = parsers.parse(file_path)
+        # Load chunk size and overlap from settings or use defaults
+        config = cfg.load_config(paths)
+        chunk_size = config.get("chunking", {}).get("chunk_size", 1500)
+        overlap = config.get("chunking", {}).get("overlap", 200)
+        parsed = parsers.parse(file_path, chunk_size=chunk_size, overlap=overlap)
     except parsers.ParserError as e:
         result = IngestResult(
             source_id=source_id,
@@ -371,6 +375,7 @@ def ingest_source(
         _mark_source_status(paths, source_id, "error")
         _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
         callbacks.on_error(result.error)
+        _record_ingest_log(paths, source_id, "failure", error_message=result.error)
         return result
 
     # Truncate very long sources
@@ -380,7 +385,7 @@ def ingest_source(
 
     # 3. Pass 1 — extraction
     callbacks.on_extracting()
-    extraction_messages = prompts.build_extraction_messages(parsed.title, source_text)
+    extraction_messages = prompts.build_extraction_messages(parsed.title, source_text, db_path=paths.state_db)
     try:
         raw_response = client.chat(
             extraction_messages,
@@ -397,6 +402,7 @@ def ingest_source(
         )
         callbacks.on_error(result.error)
         # Don't mark as error — user needs to fix Ollama, then retry
+        _record_ingest_log(paths, source_id, "failure", error_message=result.error)
         return result
     except LLMError as e:
         result = IngestResult(
@@ -408,6 +414,7 @@ def ingest_source(
         _mark_source_status(paths, source_id, "error")
         _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
         callbacks.on_error(result.error)
+        _record_ingest_log(paths, source_id, "failure", error_message=result.error)
         return result
 
     try:
@@ -417,7 +424,7 @@ def ingest_source(
         callbacks.on_extraction_failed(str(e))
         try:
             retry_messages = prompts.build_extraction_retry_messages(
-                parsed.title, source_text, raw_response
+                parsed.title, source_text, raw_response, db_path=paths.state_db
             )
             raw_response = client.chat(
                 retry_messages,
@@ -436,6 +443,7 @@ def ingest_source(
             _mark_source_status(paths, source_id, "error")
             _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
             callbacks.on_error(result.error)
+            _record_ingest_log(paths, source_id, "failure", error_message=result.error, raw_response=raw_response)
             return result
 
     # Sanitize the source slug
@@ -494,7 +502,14 @@ def ingest_source(
             operation = "updated" if exists else "created"
             callbacks.on_drafting_page("entity", slug, operation)
 
+            # Resolve actual final path (checking standard and non_categories)
             final_path = paths.wiki / "entities" / f"{slug}.md"
+            if not final_path.exists():
+                non_cat_path = paths.wiki / "non_categories" / f"{slug}.md"
+                if non_cat_path.exists():
+                    final_path = non_cat_path
+
+            # Initially staged as entities, but we may change it to non_categories based on confidence
             staged_path = staging / f"entities__{slug}.md"
 
             try:
@@ -511,6 +526,7 @@ def ingest_source(
                         description=ent.description,
                         excerpts=excerpt,
                         today=today,
+                        db_path=paths.state_db,
                     )
                 else:
                     messages = prompts.build_draft_page_messages(
@@ -522,6 +538,7 @@ def ingest_source(
                         excerpts=excerpt,
                         related=_related_for(slug, "entity"),
                         today=today,
+                        db_path=paths.state_db,
                     )
 
                 # Stream the response
@@ -554,14 +571,56 @@ def ingest_source(
                         "confidence": "medium",
                     }
                     parsed_page.body = content
+                
+                # Determine classification confidence and folder
+                raw_conf = parsed_page.frontmatter.get("confidence", "medium")
+                confidence_val = raw_conf
+                try:
+                    confidence_val = float(raw_conf)
+                except (ValueError, TypeError):
+                    pass
+                
+                is_low_confidence = False
+                if isinstance(confidence_val, float):
+                    if confidence_val < 0.70:
+                        is_low_confidence = True
+                elif isinstance(confidence_val, str):
+                    if confidence_val.lower() in ("low", "ambiguous", "pending"):
+                        is_low_confidence = True
+                
+                status = "approved"
+                folder = "entities"
+                if is_low_confidence:
+                    status = "pending_review"
+                    folder = "non_categories"
+                
+                if exists:
+                    folder = final_path.parent.name
+                    if folder == "non_categories":
+                        status = "pending_review"
+                else:
+                    final_path = paths.wiki / folder / f"{slug}.md"
+                    staged_path = staging / f"{folder}__{slug}.md"
+                
                 # Always ensure source is in sources list
                 page_writer.add_source_to_frontmatter(parsed_page, source_slug, today)
+                
+                # Update frontmatter fields
+                import datetime
+                processed_at = datetime.datetime.utcnow().isoformat() + "Z"
+                page_writer.prepare_page_frontmatter(
+                    parsed_page,
+                    status=status,
+                    confidence=confidence_val,
+                    processed_at=processed_at,
+                    source_file=f"sources/{source_slug}.md",
+                )
+                
                 content = parsed_page.to_markdown()
-
                 staged_path.write_text(content, encoding="utf-8")
                 change = PageChange(
                     slug=slug,
-                    path=f"entities/{slug}.md",
+                    path=f"{folder}/{slug}.md",
                     kind="entity",
                     operation=operation,
                 )
@@ -578,6 +637,7 @@ def ingest_source(
                 _mark_source_status(paths, source_id, "error")
                 _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
                 callbacks.on_error(result.error)
+                _record_ingest_log(paths, source_id, "failure", error_message=result.error)
                 return result
 
         # 6c. Draft/merge each concept page
@@ -585,7 +645,13 @@ def ingest_source(
             operation = "updated" if exists else "created"
             callbacks.on_drafting_page("concept", slug, operation)
 
+            # Resolve actual final path (checking standard and non_categories)
             final_path = paths.wiki / "concepts" / f"{slug}.md"
+            if not final_path.exists():
+                non_cat_path = paths.wiki / "non_categories" / f"{slug}.md"
+                if non_cat_path.exists():
+                    final_path = non_cat_path
+
             staged_path = staging / f"concepts__{slug}.md"
 
             try:
@@ -602,6 +668,7 @@ def ingest_source(
                         description=con.description,
                         excerpts=excerpt,
                         today=today,
+                        db_path=paths.state_db,
                     )
                 else:
                     messages = prompts.build_draft_page_messages(
@@ -613,6 +680,7 @@ def ingest_source(
                         excerpts=excerpt,
                         related=_related_for(slug, "concept"),
                         today=today,
+                        db_path=paths.state_db,
                     )
 
                 full = ""
@@ -642,13 +710,56 @@ def ingest_source(
                         "confidence": "medium",
                     }
                     parsed_page.body = content
+                
+                # Determine classification confidence and folder
+                raw_conf = parsed_page.frontmatter.get("confidence", "medium")
+                confidence_val = raw_conf
+                try:
+                    confidence_val = float(raw_conf)
+                except (ValueError, TypeError):
+                    pass
+                
+                is_low_confidence = False
+                if isinstance(confidence_val, float):
+                    if confidence_val < 0.70:
+                        is_low_confidence = True
+                elif isinstance(confidence_val, str):
+                    if confidence_val.lower() in ("low", "ambiguous", "pending"):
+                        is_low_confidence = True
+                
+                status = "approved"
+                folder = "concepts"
+                if is_low_confidence:
+                    status = "pending_review"
+                    folder = "non_categories"
+                
+                if exists:
+                    folder = final_path.parent.name
+                    if folder == "non_categories":
+                        status = "pending_review"
+                else:
+                    final_path = paths.wiki / folder / f"{slug}.md"
+                    staged_path = staging / f"{folder}__{slug}.md"
+                
+                # Always ensure source is in sources list
                 page_writer.add_source_to_frontmatter(parsed_page, source_slug, today)
+                
+                # Update frontmatter fields
+                import datetime
+                processed_at = datetime.datetime.utcnow().isoformat() + "Z"
+                page_writer.prepare_page_frontmatter(
+                    parsed_page,
+                    status=status,
+                    confidence=confidence_val,
+                    processed_at=processed_at,
+                    source_file=f"sources/{source_slug}.md",
+                )
+                
                 content = parsed_page.to_markdown()
-
                 staged_path.write_text(content, encoding="utf-8")
                 change = PageChange(
                     slug=slug,
-                    path=f"concepts/{slug}.md",
+                    path=f"{folder}/{slug}.md",
                     kind="concept",
                     operation=operation,
                 )
@@ -665,6 +776,7 @@ def ingest_source(
                 _mark_source_status(paths, source_id, "error")
                 _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
                 callbacks.on_error(result.error)
+                _record_ingest_log(paths, source_id, "failure", error_message=result.error)
                 return result
 
         # 6d. Pass 3 — source summary page
@@ -673,10 +785,11 @@ def ingest_source(
         source_staged = staging / f"sources__{source_slug}.md"
 
         try:
+            download_url = f"/api/raw-download/{source_id}"
             messages = prompts.build_source_page_messages(
                 source_title=parsed.title,
                 source_slug=source_slug,
-                file_path=source_row["relpath"],
+                file_path=download_url,
                 file_type=parsed.file_type,
                 summary=extraction.summary,
                 key_takeaways=extraction.key_takeaways,
@@ -684,6 +797,7 @@ def ingest_source(
                 entity_slugs=[s for _, s, _ in entity_plans],
                 concept_slugs=[s for _, s, _ in concept_plans],
                 today=today,
+                db_path=paths.state_db,
             )
 
             full = ""
@@ -698,6 +812,12 @@ def ingest_source(
                     full = stop.value
 
             content = page_writer.strip_llm_noise(full)
+            
+            # Replace local path mentions with download link
+            local_path_str = source_row["relpath"]
+            if local_path_str in content:
+                content = content.replace(local_path_str, f"[Download Original file]({download_url})")
+
             parsed_page = page_writer.parse_page(content)
             if not parsed_page.frontmatter:
                 parsed_page.frontmatter = {
@@ -733,6 +853,7 @@ def ingest_source(
             _mark_source_status(paths, source_id, "error")
             _record_ingest_run(paths, source_id, started, mode, 0, 0, result.error)
             callbacks.on_error(result.error)
+            _record_ingest_log(paths, source_id, "failure", error_message=result.error)
             return result
 
         # 7. Commit: move staged files to final locations
@@ -770,6 +891,7 @@ def ingest_source(
             pages_updated,
             error=None,
         )
+        _record_ingest_log(paths, source_id, "success", raw_response=raw_response)
 
         result = IngestResult(
             source_id=source_id,
@@ -834,3 +956,44 @@ def ingest_pending(
             break
 
     return results
+
+
+def _get_active_prompt_version(db_path: Path, prompt_key: str = "extract") -> str:
+    import sqlite3
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT version_tag FROM prompt_versions WHERE prompt_key = ? AND status = 'published' ORDER BY id DESC LIMIT 1",
+                (prompt_key,)
+            ).fetchone()
+            if row:
+                return row["version_tag"]
+    except Exception:
+        pass
+    return "v1.0"
+
+
+def _record_ingest_log(
+    paths: cfg.WikiPaths,
+    source_id: int,
+    status: str,
+    error_message: str | None = None,
+    raw_response: str | None = None,
+):
+    import datetime
+    import sqlite3
+    processed_at = datetime.datetime.utcnow().isoformat() + "Z"
+    prompt_ver = _get_active_prompt_version(paths.state_db, "extract")
+    try:
+        with sqlite3.connect(paths.state_db) as conn:
+            conn.execute(
+                """
+                INSERT INTO ingest_logs (source_id, prompt_version, status, error_message, raw_response, processed_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (source_id, prompt_ver, status, error_message, raw_response, processed_at)
+            )
+            conn.commit()
+    except Exception:
+        pass
