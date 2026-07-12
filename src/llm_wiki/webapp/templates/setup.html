@@ -74,7 +74,7 @@
     <div class="absolute top-10 left-10 w-96 h-96 bg-brand-500/5 rounded-full blur-[100px] pointer-events-none"></div>
     <div class="absolute bottom-10 right-10 w-96 h-96 bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none"></div>
 
-    <div class="w-full max-w-2xl bg-dark-900/90 rounded-2xl p-8 glow-card relative z-10">
+    <div class="w-full max-w-4xl bg-dark-900/90 rounded-2xl p-8 glow-card relative z-10">
         
         <!-- Header -->
         <div class="text-center mb-8">
@@ -419,11 +419,11 @@
                             });
                             
                             badge.innerHTML = `
-                                <span class="font-medium truncate mr-2">${folder}</span>
-                                <div class="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button type="button" onclick="quickMapFolder('${folder}', 'raw')" title="Map to Inbox" class="hover:bg-dark-600 p-1 rounded text-xs">📥</button>
-                                    <button type="button" onclick="quickMapFolder('${folder}', 'wiki')" title="Map to Wiki" class="hover:bg-dark-600 p-1 rounded text-xs">📂</button>
-                                    <button type="button" onclick="quickMapFolder('${folder}', 'schema')" title="Map to Schema" class="hover:bg-dark-600 p-1 rounded text-xs">⚙️</button>
+                                <span class="font-medium truncate mr-1 flex-1">${folder}</span>
+                                <div class="flex items-center gap-1 flex-shrink-0">
+                                    <button type="button" onclick="quickMapFolder('${folder}', 'raw')" title="Map to Inbox" class="bg-dark-900/50 hover:bg-dark-600 p-1 rounded text-xs transition active:scale-[0.9]">📥</button>
+                                    <button type="button" onclick="quickMapFolder('${folder}', 'wiki')" title="Map to Wiki" class="bg-dark-900/50 hover:bg-dark-600 p-1 rounded text-xs transition active:scale-[0.9]">📂</button>
+                                    <button type="button" onclick="quickMapFolder('${folder}', 'schema')" title="Map to Schema" class="bg-dark-900/50 hover:bg-dark-600 p-1 rounded text-xs transition active:scale-[0.9]">⚙️</button>
                                 </div>
                             `;
                             listContainer.appendChild(badge);
