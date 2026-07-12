@@ -1,14 +1,14 @@
 # LLM-Wiki
 
-> A local, LLM-maintained personal knowledge base. Drop documents in, watch an LLM compile them into a living, interlinked Obsidian wiki you can search and query.
+> 로컬에서 동작하고 LLM이 유지보수하는 개인 지식 베이스입니다. 문서를 넣어 두면, LLM이 이를 검색하고 질의할 수 있는 살아 있는 Obsidian 위키로 점진적으로 정리해 줍니다.
 
-Feel free to fork and don't forget to give it a Star ⭐️ for better reach!
+포크해도 좋고, 더 많은 사람에게 알려질 수 있도록 Star ⭐️도 남겨 주세요!
 
 -------------------------
-Hello, I'm Nihar Shrotri, working as an AI Consultant.
-I'm currently pursuing my PhD in Artificial Intelligence and Machine Learning
+안녕하세요, 저는 AI 컨설턴트로 일하고 있는 Nihar Shrotri입니다.
+현재 인공지능 및 머신러닝 박사 과정을 밟고 있습니다.
 
-Let's connect on LinkedIn for a Chat: https://www.linkedin.com/in/niharshrotri/
+LinkedIn에서 편하게 연락 주세요: https://www.linkedin.com/in/niharshrotri/
 -------------------------
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -16,70 +16,70 @@ Let's connect on LinkedIn for a Chat: https://www.linkedin.com/in/niharshrotri/
 [![Ollama](https://img.shields.io/badge/LLM-Qwen3--14B-purple.svg)](https://ollama.com/library/qwen3)
 [![Local-first](https://img.shields.io/badge/runs-100%25_local-green.svg)](#)
 
-Built on the pattern Andrej Karpathy described in his [LLM Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f): instead of retrieving from raw documents at query time (classic RAG), an LLM incrementally **compiles** your sources into a structured, cross-linked markdown wiki that sits between you and the raw documents. The wiki is a **persistent, compounding artifact** — the cross-references are already there, the contradictions have already been flagged, the synthesis already reflects everything you've read.
+이 프로젝트는 Andrej Karpathy가 [LLM Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)에서 설명한 패턴을 바탕으로 합니다. 기존 RAG처럼 질의 시점에 원본 문서에서 바로 검색하는 대신, LLM이 소스를 점진적으로 **컴파일**해서 원본 문서와 사용자 사이에 구조화된 상호 연결 마크다운 위키를 만듭니다. 이 위키는 **지속적으로 누적되는 산출물**입니다. 상호 참조는 이미 연결되어 있고, 모순은 이미 표시되어 있으며, 합성된 내용은 지금까지 읽은 모든 정보를 반영합니다.
 
-You never write the wiki yourself. The LLM does all the grunt work: summarizing, cross-referencing, filing, bookkeeping. You bring the sources and ask the questions.
+직접 위키를 작성할 필요는 없습니다. 요약, 상호 참조, 분류, 기록 관리는 모두 LLM이 맡습니다. 사용자는 자료를 넣고 질문만 하면 됩니다.
 
-Runs 100% locally on Apple Silicon or anywhere Ollama works. No API keys, no cloud, no data leaving your machine.
+Apple Silicon 또는 Ollama가 동작하는 어떤 환경에서도 100% 로컬로 실행됩니다. API 키도, 클라우드도, 외부로 나가는 데이터도 없습니다.
 
-## What it does
+## 동작 방식
 
 ```bash
-# Drop files in (PDFs, markdown, HTML, DOCX, text)
+# 파일 추가(PDF, markdown, HTML, DOCX, text)
 wiki add ~/Documents/papers --recursive
 
-# Watch Qwen3 read them and build an interlinked wiki
+# Qwen3가 문서를 읽고 상호 연결된 위키를 생성하는 과정 보기
 wiki ingest
 
-# Ask questions — it searches the compiled wiki and cites its sources
-wiki query "what's the main argument about X?"
+# 질문하기 - 컴파일된 위키를 검색하고 출처를 함께 인용함
+wiki query "X에 대한 핵심 주장은 무엇인가요?"
 
-# Health-check the knowledge base
+# 지식 베이스 상태 점검
 wiki lint --fix
 
-# Browse the whole thing in Obsidian (graph view, backlinks, everything)
+# Obsidian에서 전체 내용을 탐색(graph view, backlinks 등)
 open wiki/
 ```
 
-Every ingest produces a cluster of `sources/`, `entities/`, and `concepts/` pages with YAML frontmatter and `[[wikilinks]]` between them. Every query pulls the top-ranked pages via hybrid BM25 + vector + LLM-rerank search, then synthesizes a cited answer. Every lint run catches broken links, orphan pages, malformed frontmatter, and (optionally, using the LLM) contradictions between pages.
+각 ingest는 YAML frontmatter와 `[[wikilinks]]`로 연결된 `sources/`, `entities/`, `concepts/` 페이지 묶음을 생성합니다. 각 query는 하이브리드 BM25 + vector + LLM rerank 검색으로 상위 페이지를 찾은 뒤, 근거가 포함된 답변을 생성합니다. 각 lint 실행은 끊어진 링크, 고아 페이지, 잘못된 frontmatter, 소스의 잡음, 그리고 옵션에 따라 LLM이 찾아내는 페이지 간 모순까지 검사합니다.
 
-## Features
+## 기능
 
-### Core capabilities
-- **Incremental ingest** — drop a file, run `wiki ingest`, get 8–15 cross-linked wiki pages
-- **Structured extraction** — Qwen3 identifies entities (people, orgs, models), concepts, and key takeaways per source
-- **Smart merging** — re-ingesting related sources updates existing entity/concept pages instead of overwriting them, preserving provenance
-- **Hybrid search** — BM25 full-text + vector embeddings + LLM reranking (all local, via [QMD](https://github.com/tobi/qmd))
-- **3-way query scope** — `Wiki` (thematic answers from LLM-compiled pages), `Raw` (exact lookups in original documents), or `Hybrid` (both)
-- **Intent classification** — casual messages ("hi", "thanks") skip retrieval and get a quick reply, saving ~30 seconds per chitchat turn
-- **Cited synthesis** — queries return markdown answers with `[[wikilinks]]` pointing to the pages that support each claim
-- **Write-back** — save good answers as new `synthesis/` pages with `--save-as`, so your explorations compound in the knowledge base
-- **Wiki linting** — automated health checks for broken links, orphans, malformed frontmatter, noise in sources, and (with `--deep`) LLM-powered contradiction detection between pages
-- **Auto-fix** — most stylistic issues resolve with one command
-- **Auto-reindex** — search index refreshes automatically after ingest and lint; new pages are queryable immediately
+### 핵심 기능
+- **점진적 ingest** - 파일을 넣고 `wiki ingest`를 실행하면 8–15개의 상호 연결된 위키 페이지가 생성됩니다.
+- **구조화된 추출** - Qwen3가 각 소스에서 엔티티(사람, 조직, 모델), 개념, 핵심 요점을 식별합니다.
+- **스마트 병합** - 관련 소스를 다시 ingest하면 기존 엔티티/개념 페이지를 덮어쓰지 않고 업데이트해 계보를 보존합니다.
+- **하이브리드 검색** - BM25 전문 검색 + vector embedding + LLM reranking을 모두 로컬에서 수행합니다([QMD](https://github.com/tobi/qmd) 사용).
+- **3방향 질의 범위** - `Wiki`(LLM이 컴파일한 페이지 기반의 주제별 답변), `Raw`(원본 문서에서의 정확한 조회), `Hybrid`(둘 다) 중 선택할 수 있습니다.
+- **의도 분류** - "hi", "thanks" 같은 가벼운 메시지는 retrieval을 건너뛰고 빠르게 응답하여, 잡담 한 번당 약 30초를 아낍니다.
+- **인용 포함 합성** - 질의 결과는 각 주장에 근거가 되는 페이지를 가리키는 `[[wikilinks]]`가 포함된 마크다운 답변으로 반환됩니다.
+- **Write-back** - 좋은 답변을 `--save-as`로 `synthesis/` 페이지로 저장해 탐색 결과가 지식 베이스에 누적되도록 할 수 있습니다.
+- **위키 lint** - 끊어진 링크, 고아 페이지, 잘못된 frontmatter, 소스 내 잡음, 그리고 `--deep` 사용 시 페이지 간 모순까지 자동 점검합니다.
+- **자동 수정** - 대부분의 스타일 문제는 한 번의 명령으로 해결됩니다.
+- **자동 reindex** - ingest와 lint 이후 검색 인덱스가 자동으로 갱신되어 새 페이지를 바로 조회할 수 있습니다.
 
-### Web UI
-A full web interface at `http://127.0.0.1:8000` after `wiki serve`:
-- **Dashboard** — project stats and recent activity
-- **Sources** — list, inspect, delete, or re-ingest sources with one click
-- **Ingest** — drag-and-drop upload, live progress log, persistent jobs that **survive tab close and server restart**
-- **Jobs** — history of all ingest runs with live progress bars and error details
-- **Query** — chat-style interface with streaming synthesis, scope toggle, save-as-synthesis button
-- **Lint** — interactive lint report with one-click auto-fix
-- **Graph** — D3 force-directed visualization of the full wiki, color-coded by page type
+### 웹 UI
+`wiki serve` 실행 후 `http://127.0.0.1:8000`에서 전체 웹 인터페이스를 사용할 수 있습니다.
+- **Dashboard** - 프로젝트 통계와 최근 활동을 보여줍니다.
+- **Sources** - 소스를 한 번에 목록 조회, 검토, 삭제, 재-ingest 할 수 있습니다.
+- **Ingest** - 드래그 앤 드롭 업로드, 실시간 진행 로그, 탭을 닫거나 서버를 재시작해도 살아 있는 영속 작업을 지원합니다.
+- **Jobs** - 모든 ingest 실행 이력과 실시간 진행률, 오류 상세를 확인할 수 있습니다.
+- **Query** - 스트리밍 합성, 범위 토글, synthesis 저장 버튼이 있는 채팅형 인터페이스입니다.
+- **Lint** - 한 번의 클릭으로 자동 수정할 수 있는 대화형 lint 리포트입니다.
+- **Graph** - 페이지 유형별로 색이 구분된, 전체 위키의 D3 force-directed 시각화입니다.
 
-### Supported input formats
+### 지원 입력 형식
 `.pdf` · `.md` · `.html` · `.docx` · `.txt`
 
-### Obsidian integration
-The `wiki/` folder is a ready-made Obsidian vault with:
-- Color-coded graph view (sources, entities, concepts, synthesis each get their own color)
-- YAML frontmatter compatible with the Dataview plugin
-- All cross-references as native `[[wikilinks]]` so backlinks, outgoing-links, and graph traversal all work
+### Obsidian 연동
+`wiki/` 폴더는 다음을 갖춘 즉시 사용 가능한 Obsidian vault입니다.
+- 색상으로 구분된 그래프 뷰(sources, entities, concepts, synthesis가 각각 고유 색상을 가짐)
+- Dataview 플러그인과 호환되는 YAML frontmatter
+- 모든 상호 참조를 네이티브 `[[wikilinks]]`로 저장하여 backlinks, outgoing links, graph traversal이 모두 동작
 
-## Architecture
+## 아키텍처
 
-Three layers, per Karpathy:
+Karpathy의 설명을 따라 3개 계층으로 구성됩니다.
 
 ```
 ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
@@ -96,129 +96,128 @@ Three layers, per Karpathy:
                     └───────────────┘   └───────────────┘
 ```
 
-- **`raw/`** — your source documents. Immutable. The agent reads but never modifies.
-- **`wiki/`** — LLM-maintained markdown. One folder per page type (`sources/`, `entities/`, `concepts/`, `synthesis/`) plus auto-generated `index.md` and `log.md`. Open this in Obsidian.
-- **`schema/AGENTS.md`** — the conventions file. Tells the LLM how to format pages, when to merge vs create, how to cite, how to handle contradictions. Edit as your preferences evolve.
-- **`.wiki/`** — internal state: SQLite ingest history, QMD search index, config. Git-ignored.
+- **`raw/`** - 원본 문서입니다. 변경 불가이며, 에이전트는 읽기만 하고 수정하지 않습니다.
+- **`wiki/`** - LLM이 유지보수하는 마크다운입니다. 페이지 유형별 폴더(`sources/`, `entities/`, `concepts/`, `synthesis/`)와 자동 생성되는 `index.md`, `log.md`가 있습니다. Obsidian에서 열면 됩니다.
+- **`schema/AGENTS.md`** - 규칙 문서입니다. LLM이 페이지를 어떻게 포맷할지, 언제 merge와 create를 구분할지, 어떻게 인용할지, 모순을 어떻게 다룰지 알려 줍니다. 선호가 바뀌면 이 파일을 수정하면 됩니다.
+- **`.wiki/`** - 내부 상태 저장소입니다. SQLite ingest 이력, QMD 검색 인덱스, 설정이 들어 있으며 git ignore 대상입니다.
 
-### The ingest pipeline
+### ingest 파이프라인
 
-Each source goes through three LLM passes:
+각 소스는 세 단계의 LLM 패스를 거칩니다.
 
-1. **Extraction** (thinking mode on) — Qwen3 reads the source and returns structured JSON: summary, key takeaways, named entities, concepts, tags.
-2. **Page drafting** (streaming, thinking mode off) — one call per entity/concept. Draft a new page from scratch, or *merge* new information into an existing page (preserving prior content, updating dates, appending to `sources:` frontmatter).
-3. **Source summary** — write the `sources/<slug>.md` page listing every wiki page touched by this source for provenance.
+1. **추출**(thinking mode on) - Qwen3가 소스를 읽고 요약, 핵심 요점, 명명된 엔티티, 개념, 태그를 포함한 구조화된 JSON을 반환합니다.
+2. **페이지 작성**(streaming, thinking mode off) - 엔티티/개념마다 한 번씩 호출합니다. 새 페이지를 처음부터 작성하거나, 기존 페이지에 새 정보를 *병합*합니다(기존 내용 유지, 날짜 갱신, `sources:` frontmatter에 추가).
+3. **소스 요약** - `sources/<slug>.md` 페이지를 작성해 이 소스가 건드린 모든 위키 페이지를 provenance 용도로 나열합니다.
 
-After the three passes: `index.md` is rebuilt, `log.md` is appended, and QMD's search index is updated automatically.
+세 단계가 끝나면 `index.md`가 다시 생성되고, `log.md`가 추가되며, QMD의 검색 인덱스가 자동으로 갱신됩니다.
 
-### The query pipeline
+### 질의 파이프라인
 
-1. **Hybrid search** via QMD — BM25 full-text + vector similarity + LLM reranker, all local
-2. **Top-K page hydration** — load full content of the top 5–8 hits
-3. **Synthesis** — Qwen3 writes a cited markdown answer using `[[wikilinks]]` to reference the pages
-4. **(Optional) save-back** — `--save-as` files the answer as a new `synthesis/` page
+1. **하이브리드 검색** - QMD를 통해 BM25 전문 검색 + vector 유사도 + LLM reranker를 로컬에서 실행합니다.
+2. **Top-K 페이지 적재** - 상위 5~8개 결과의 전체 내용을 불러옵니다.
+3. **합성** - Qwen3가 `[[wikilinks]]`를 사용해 페이지를 참조하는 근거 포함 마크다운 답변을 작성합니다.
+4. **(선택) 저장** - `--save-as`로 답변을 새 `synthesis/` 페이지로 저장할 수 있습니다.
 
-## Stack
+## 스택
 
-| Layer | Component | Why |
+| 계층 | 구성 요소 | 이유 |
 |---|---|---|
-| LLM | [Ollama](https://ollama.com) + [Qwen3-14B](https://ollama.com/library/qwen3:14b) Q4_K_M | Strong reasoning, 40K context, thinking mode, 9.3GB on disk |
-| Search | [QMD](https://github.com/tobi/qmd) (BM25 + vector + rerank) | All local, SQLite-backed, handles the heavy lifting |
-| Embeddings | EmbeddingGemma-300M (via QMD) | Small footprint, high quality |
-| Reranker | Qwen3-Reranker-0.6B (via QMD) | Fast cross-encoder rerank |
-| CLI | [Typer](https://typer.tiangolo.com) + [Rich](https://rich.readthedocs.io) | Great UX, colored output, progress bars |
-| Parsers | pypdf, python-docx, beautifulsoup4, lxml | Cover the main document formats |
-| Vault | [Obsidian](https://obsidian.md) | Best-in-class graph view and backlink UX — you don't have to build it |
+| LLM | [Ollama](https://ollama.com) + [Qwen3-14B](https://ollama.com/library/qwen3:14b) Q4_K_M | 강한 추론 성능, 40K 컨텍스트, thinking mode, 디스크 9.3GB |
+| 검색 | [QMD](https://github.com/tobi/qmd) (BM25 + vector + rerank) | 완전 로컬, SQLite 기반, 무거운 작업을 처리 |
+| Embeddings | EmbeddingGemma-300M (QMD 통해 사용) | 작은 크기, 높은 품질 |
+| Reranker | Qwen3-Reranker-0.6B (QMD 통해 사용) | 빠른 cross-encoder rerank |
+| CLI | [Typer](https://typer.tiangolo.com) + [Rich](https://rich.readthedocs.io) | 좋은 UX, 컬러 출력, 진행률 바 |
+| 파서 | pypdf, python-docx, beautifulsoup4, lxml | 주요 문서 형식을 지원 |
+| Vault | [Obsidian](https://obsidian.md) | 최고 수준의 graph view와 backlink UX를 기본 제공 |
 
-No cloud services. No API keys. No data leaves your machine.
+클라우드 서비스는 없습니다. API 키도 필요 없습니다. 데이터는 기기 밖으로 나가지 않습니다.
 
-## Requirements
+## 요구 사항
 
 - **Python 3.11+**
-- **Node.js 18+** (for QMD)
-- **Ollama** with the `qwen3:14b` model pulled (~9.3GB)
-- **QMD** (`npm install -g @tobilu/qmd`)
-- **Homebrew SQLite** on macOS (`brew install sqlite`)
-- **~15GB free disk space** for models and embeddings
-- **~12GB RAM** recommended (16GB+ for comfort)
-- **Obsidian** (optional but strongly recommended for browsing)
+- **Node.js 18+**(QMD용)
+- **Ollama**와 `qwen3:14b` 모델 사전 다운로드(~9.3GB)
+- **QMD**(`npm install -g @tobilu/qmd`)
+- **macOS의 Homebrew SQLite**(`brew install sqlite`)
+- 모델과 embedding을 위한 **약 15GB의 여유 디스크 공간**
+- **약 12GB RAM** 권장(편하게 쓰려면 16GB+)
+- **Obsidian**(선택 사항이지만 탐색용으로 강력 추천)
 
-Tested on macOS (Apple Silicon, M3 Pro 18GB). Should work on Linux; Windows untested.
+macOS(Apple Silicon, M3 Pro 18GB)에서 테스트했습니다. Linux에서는 동작해야 하며, Windows는 미검증입니다.
 
-## Installation
+## 설치
 
 ```bash
-# Clone
+# 저장소 복제
 git clone https://github.com/YOUR-USERNAME/llm-wiki.git
 cd llm-wiki
 
-# Create a virtual environment (uv is faster than pip, either works)
+# 가상 환경 생성(uv가 pip보다 빠르지만 둘 다 가능)
 uv venv
 source .venv/bin/activate
 uv pip install -e .
 
-# Pull the LLM (one-time, ~9.3GB)
+# LLM 다운로드(1회, 약 9.3GB)
 ollama pull qwen3:14b
 
-# Install QMD (the search backend)
+# QMD 설치(검색 백엔드)
 npm install -g @tobilu/qmd
 
-# Verify
+# 확인
 wiki version
 wiki --help
 ```
 
-## Quick start
+## 빠른 시작
 
 ```bash
-# 1. Create a wiki in a folder of your choosing
+# 1. 원하는 폴더에 위키 생성
 mkdir my-wiki && cd my-wiki
 wiki init
 
-# 2. Drop some source documents in raw/, or use:
+# 2. source 문서를 raw/에 넣거나 아래처럼 추가
 wiki add ~/Documents/papers --recursive
 
-# 3. Run ingest (interactive by default — shows you entities/concepts
-#    before filing, with a y/n prompt per source)
+# 3. ingest 실행(기본은 대화형 - filing 전에 entities/concepts를 보여주고 소스별로 y/n을 묻습니다)
 wiki ingest
 
-# First query triggers QMD to download its embedding + reranker models
-# (~2GB, one-time). Subsequent queries are fast.
+# 첫 query 시 QMD가 embedding + reranker 모델을 다운로드합니다
+# (~2GB, 1회). 이후 query는 빠릅니다.
 
-# 4. Ask questions
-wiki query "what are the main themes across these documents?"
+# 4. 질문하기
+wiki query "이 문서들 전반의 핵심 주제는 무엇인가요?"
 
-# 5. Save a good answer as a synthesis page
-wiki query "compare X vs Y" --save-as x-vs-y-comparison
+# 5. 좋은 답변을 synthesis 페이지로 저장
+wiki query "X와 Y를 비교해줘" --save-as x-vs-y-comparison
 
-# 6. Health-check and auto-fix
+# 6. 상태 점검 및 자동 수정
 wiki lint --fix
 
-# 7. Browse the vault in Obsidian
-open wiki/   # then "Open folder as vault"
+# 7. Obsidian에서 vault 열기
+open wiki/   # 그다음 "Open folder as vault"
 ```
 
-## Commands
+## 명령어
 
-| Command | Purpose |
+| 명령어 | 용도 |
 |---|---|
-| `wiki init [path]` | Scaffold a new wiki project |
-| `wiki add <file-or-folder> [-r]` | Copy sources into `raw/` and register for ingest |
-| `wiki sources list` | List all tracked sources with status |
-| `wiki sources show <id>` | Show metadata + text preview for one source |
-| `wiki sources rm <id>` | Remove a source from tracking |
-| `wiki ingest [source_id]` | Run the 3-pass LLM ingest pipeline |
-| `wiki query "<question>" [--scope wiki\|raw\|hybrid] [--save-as <slug>]` | Search + synthesize a cited answer |
-| `wiki reindex` | Force rebuild of the QMD search index |
-| `wiki lint [--deep] [--fix]` | Health-check the wiki |
-| `wiki status` | Show project stats, paths, config, backend health |
-| `wiki serve [--port N]` | Launch the web UI at `http://127.0.0.1:8000` |
+| `wiki init [path]` | 새 위키 프로젝트 스캐폴드 생성 |
+| `wiki add <file-or-folder> [-r]` | 소스를 `raw/`로 복사하고 ingest 대상으로 등록 |
+| `wiki sources list` | 추적 중인 모든 소스와 상태를 표시 |
+| `wiki sources show <id>` | 특정 소스의 메타데이터와 텍스트 미리보기 표시 |
+| `wiki sources rm <id>` | 소스 추적에서 제거 |
+| `wiki ingest [source_id]` | 3단계 LLM ingest 파이프라인 실행 |
+| `wiki query "<question>" [--scope wiki\|raw\|hybrid] [--save-as <slug>]` | 검색 후 근거가 포함된 답변 합성 |
+| `wiki reindex` | QMD 검색 인덱스를 강제로 다시 생성 |
+| `wiki lint [--deep] [--fix]` | 위키 상태 점검 |
+| `wiki status` | 프로젝트 통계, 경로, 설정, 백엔드 상태 표시 |
+| `wiki serve [--port N]` | `http://127.0.0.1:8000`에서 웹 UI 실행 |
 
-Run `wiki <command> --help` for full options on any command. See [USAGE.md](./USAGE.md) for a full walkthrough.
+모든 명령어의 전체 옵션은 `wiki <command> --help`로 확인할 수 있습니다. 전체 사용 흐름은 [USAGE.md](./USAGE.md)를 참고하세요.
 
-## Example output
+## 예시 출력
 
-A real ingest against `notes.txt` (28 words about Qwen3):
+`notes.txt`(Qwen3에 대한 28단어 메모)를 ingest한 실제 예시입니다.
 
 ```
 Source #1  raw/notes.txt
@@ -254,9 +253,9 @@ created source  quick-notes-on-qwen
 ✓ Ingested Quick Notes on Qwen — 6 created, 0 updated
 ```
 
-That's **6 cross-linked pages from a 28-word input**, each with YAML frontmatter, `[[wikilinks]]` between them, and provenance back to the source. Open Obsidian's graph view and you'll see the cluster light up.
+이렇게 **28단어 입력에서 6개의 상호 연결된 페이지**가 생성됩니다. 각 페이지에는 YAML frontmatter, 서로를 가리키는 `[[wikilinks]]`, 그리고 소스로 되돌아가는 provenance가 들어 있습니다. Obsidian의 graph view를 열면 해당 클러스터가 시각적으로 드러납니다.
 
-A real query against 11 ingested pages:
+11개 페이지를 ingest한 뒤의 실제 query 예시입니다.
 
 ```
 > wiki query "how does multi-head attention differ from self-attention?"
@@ -289,9 +288,9 @@ Multi-head attention and self-attention are related but distinct mechanisms:
 [... etc.]
 ```
 
-Every claim is cited. Every citation points to a page that actually exists.
+모든 주장은 인용됩니다. 모든 인용은 실제로 존재하는 페이지를 가리킵니다.
 
-## Lint example
+## lint 예시
 
 ```
 > wiki lint
@@ -329,46 +328,46 @@ Every claim is cited. Every citation points to a page that actually exists.
 ✓ No issues found. Your wiki is in good shape!
 ```
 
-## Project status
+## 프로젝트 상태
 
-**Current version: v0.8.1** — production-ready for personal use.
+**현재 버전: v0.8.1** - 개인용으로는 실사용 가능한 상태입니다.
 
-| Stage | Scope | Status |
+| 단계 | 범위 | 상태 |
 |---|---|---|
-| 1 | Scaffolding, CLI, Obsidian vault config | ✅ Done |
-| 2 | Parsers (PDF, MD, HTML, DOCX, TXT), dedupe, `wiki add` | ✅ Done |
-| 3 | LLM ingest pipeline (3 passes, streaming, merge-path) | ✅ Done |
-| 4 | QMD search + `wiki query` with citation + save-back | ✅ Done |
-| 5 | Lint checks + auto-fix + deep contradiction detection | ✅ Done |
-| 6 | FastAPI + HTMX web UI (7 pages: Dashboard, Sources, Ingest, Jobs, Query, Lint, Graph) | ✅ Done |
-| 7 (v0.7.0) | Source CRUD, intent classification, 3-way scope toggle | ✅ Done |
-| 8 (v0.8.0) | Persistent ingest jobs (survive tab close, server restart) | ✅ Done |
-| 8.1 | Auto-reindex after ingest and lint | ✅ Done |
+| 1 | 스캐폴딩, CLI, Obsidian vault 설정 | ✅ 완료 |
+| 2 | 파서(PDF, MD, HTML, DOCX, TXT), dedupe, `wiki add` | ✅ 완료 |
+| 3 | LLM ingest 파이프라인(3 pass, streaming, merge 경로) | ✅ 완료 |
+| 4 | QMD 검색 + 인용이 포함된 `wiki query` + save-back | ✅ 완료 |
+| 5 | lint 검사 + 자동 수정 + 심층 모순 탐지 | ✅ 완료 |
+| 6 | FastAPI + HTMX 웹 UI(7개 페이지: Dashboard, Sources, Ingest, Jobs, Query, Lint, Graph) | ✅ 완료 |
+| 7 (v0.7.0) | Source CRUD, 의도 분류, 3방향 scope 전환 | ✅ 완료 |
+| 8 (v0.8.0) | 영속 ingest 작업(탭 닫기, 서버 재시작에도 유지) | ✅ 완료 |
+| 8.1 | ingest 및 lint 후 자동 reindex | ✅ 완료 |
 
-### Possible future work
-- Hugging Face Spaces deployment (smaller model, API-compatible)
-- Dashboard showing live active-job count
-- Static HTML export for sharing the wiki
-- Multi-user / team features
-- Mobile-friendly web UI
-- Fine-tuned query expansion model
-- Confidence scoring per extracted claim
-- OCR support for scanned PDFs
-- EPUB support
+### 향후 가능 작업
+- Hugging Face Spaces 배포(더 작은 모델, API 호환)
+- 활성 작업 수를 실시간으로 보여주는 Dashboard
+- 위키 공유용 정적 HTML 내보내기
+- 다중 사용자 / 팀 기능
+- 모바일 친화적 웹 UI
+- 미세 조정된 query expansion 모델
+- 추출된 주장별 confidence scoring
+- 스캔된 PDF용 OCR 지원
+- EPUB 지원
 
-## Credits
+## 크레딧
 
-- **[Andrej Karpathy](https://karpathy.ai/)** — for the LLM-Wiki pattern described in [this gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f). This project is a direct implementation of the idea.
-- **[QMD](https://github.com/tobi/qmd)** by Tobi Lütke — the hybrid search backend that does all the heavy lifting for query-time retrieval.
-- **[Qwen3](https://qwenlm.github.io/blog/qwen3/)** by Alibaba Cloud — the local LLM doing the reading, writing, and synthesis.
-- **[Ollama](https://ollama.com)** — the runtime that makes local LLM inference painless on Apple Silicon.
-- **[Obsidian](https://obsidian.md)** — saved me from writing my own graph view.
+- **[Andrej Karpathy](https://karpathy.ai/)** - [이 gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)에 설명된 LLM-Wiki 패턴의 제안자입니다. 이 프로젝트는 그 아이디어를 직접 구현한 것입니다.
+- **[QMD](https://github.com/tobi/qmd)** by Tobi Lütke - query-time retrieval에서 핵심 역할을 하는 하이브리드 검색 백엔드입니다.
+- **[Qwen3](https://qwenlm.github.io/blog/qwen3/)** by Alibaba Cloud - 읽기, 쓰기, 합성을 담당하는 로컬 LLM입니다.
+- **[Ollama](https://ollama.com)** - Apple Silicon에서 로컬 LLM 추론을 쉽게 해 주는 런타임입니다.
+- **[Obsidian](https://obsidian.md)** - 직접 graph view를 만들 필요가 없게 해 준 도구입니다.
 
-## License
+## 라이선스
 
-MIT — see [LICENSE](LICENSE).
+MIT - [LICENSE](LICENSE)를 참고하세요.
 
 ---
 
-*"The tedious part of maintaining a knowledge base is not the reading or the thinking — it's the bookkeeping. Humans abandon wikis because the maintenance burden grows faster than the value. LLMs don't get bored, don't forget to update a cross-reference, and can touch 15 files in one pass."*
+*"지식 베이스를 유지하는 데 가장 지루한 부분은 읽기나 사고가 아니라 기록 관리입니다. 사람은 유지보수 부담이 가치보다 빠르게 커지면 위키를 포기합니다. LLM은 지루해하지도 않고, 상호 참조 업데이트를 잊지도 않으며, 한 번에 15개 파일을 처리할 수 있습니다."*
 — Karpathy
