@@ -55,6 +55,7 @@
     <div class="min-h-full flex">
 
         <!-- Sidebar -->
+        {% if request.app.state.wiki_paths and request.app.state.wiki_paths.is_initialized() %}
         <aside class="w-60 border-r border-[#2a2e3a] bg-[#0f1117] flex flex-col flex-shrink-0">
             <!-- Logo / project name -->
             <div class="p-5 border-b border-[#2a2e3a]">
@@ -105,6 +106,7 @@
                 <div class="mt-1">Running locally</div>
             </div>
         </aside>
+        {% endif %}
 
         <!-- Main content area -->
         <main class="flex-1 overflow-auto">

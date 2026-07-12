@@ -54,7 +54,7 @@ def create_app(paths: cfg.WikiPaths) -> FastAPI:
     async def check_setup_middleware(request: Request, call_next):
         path = request.url.path
         if not app.state.wiki_paths.is_initialized():
-            if not path.startswith("/setup") and not path.startswith("/api/setup") and not path.startswith("/static"):
+            if not path.startswith("/setup") and not path.startswith("/api/setup") and not path.startswith("/static") and not path.startswith("/guide"):
                 return RedirectResponse(url="/setup")
         return await call_next(request)
 

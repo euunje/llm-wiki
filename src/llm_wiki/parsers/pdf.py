@@ -47,7 +47,8 @@ class PDFParser(DocumentParser):
         # Resolve wiki assets folder
         from .. import config as cfg
         root = cfg.find_wiki_root(path) or path.parent
-        assets_dir = root / "wiki" / "assets"
+        paths = cfg.WikiPaths(root=root)
+        assets_dir = paths.wiki / "assets"
         assets_dir.mkdir(parents=True, exist_ok=True)
 
         # Extract text from all pages and extract images

@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block title %}System Directory & Pipeline Guide · LLM-Wiki{% endblock %}
+
+{% block extra_head %}
+<style>
+    .step-card {
+        border: 1px solid rgba(124, 140, 255, 0.15);
+        background: rgba(28, 31, 42, 0.4);
+        backdrop-filter: blur(8px);
+        transition: all 0.2s ease-in-out;
+    }
+    .step-card:hover {
+        border-color: rgba(124, 140, 255, 0.4);
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px -10px rgba(124, 140, 255, 0.15);
+    }
+    .role-badge {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-8 max-w-4xl mx-auto">
+    <!-- Header banner -->
+    <div class="relative overflow-hidden rounded-2xl bg-gradient-to-r from-bg-card to-indigo-950/20 border border-border p-8 md:p-10">
+        <div class="absolute top-0 right-0 w-80 h-80 bg-accent/5 rounded-full blur-[80px] pointer-events-none"></div>
+        <div class="relative z-10 space-y-3">
+            <span class="text-xs font-bold text-accent uppercase tracking-widest block">📚 Concept & Operation Manual</span>
+            <h1 class="text-3xl md:text-4xl font-bold text-white tracking-tight">System Directory & LLM Pipeline Guide</h1>
+            <p class="text-text-dim text-sm md:text-base max-w-2xl leading-relaxed">
+                Learn how LLM-Wiki organizes knowledge, processes raw documents, and structures Obsidian vault directories. Aligning these rules with your workflow ensures optimal indexing and search.
+            </p>
+            {% if not (request.app.state.wiki_paths and request.app.state.wiki_paths.is_initialized()) %}
+            <div class="pt-4 flex gap-3">
+                <a href="/setup" class="px-5 py-2.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-semibold active:scale-[0.98] transition shadow-lg shadow-accent/10">
+                    ⬅️ Go Back to Setup Wizard
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 1. System Directory Map -->
+    <section class="space-y-4">
+        <h2 class="text-xl font-bold text-white flex items-center gap-2 border-b border-border pb-2">
+            <span>📂</span> 1. Core Directory Roles
+        </h2>
+        <p class="text-text-dim text-sm leading-relaxed">
+            LLM-Wiki divides files into 3 logical areas. By configuring these correctly, you can integrate the pipeline directly into any existing Obsidian Vault.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
+            <!-- Inbox Card -->
+            <div class="step-card rounded-xl p-5 space-y-3 flex flex-col justify-between">
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-2xl">📥</span>
+                        <span class="role-badge px-2 py-0.5 rounded bg-amber-500/10 text-amber-400">Input</span>
+                    </div>
+                    <h3 class="text-base font-bold text-white">Inbox (Raw Sources)</h3>
+                    <p class="text-xs text-text-dim leading-relaxed">
+                        Where you drop your raw files (PDFs, PPTX, Docx, HTML, TXT). The ingestion pipeline monitors this directory and parses documents from here.
+                    </p>
+                </div>
+                <div class="text-[10px] text-slate-500 font-mono pt-2 border-t border-border">Default: `raw/`</div>
+            </div>
+
+            <!-- Wiki Card -->
+            <div class="step-card rounded-xl p-5 space-y-3 flex flex-col justify-between">
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-2xl">📂</span>
+                        <span class="role-badge px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400">Output</span>
+                    </div>
+                    <h3 class="text-base font-bold text-white">Wiki (Obsidian Notes)</h3>
+                    <p class="text-xs text-text-dim leading-relaxed">
+                        Where the AI-generated categorized notes are stored. This folder is scanned by Obsidian to display your interactive knowledge graphs.
+                    </p>
+                </div>
+                <div class="text-[10px] text-slate-500 font-mono pt-2 border-t border-border">Default: `wiki/`</div>
+            </div>
+
+            <!-- Schema Card -->
+            <div class="step-card rounded-xl p-5 space-y-3 flex flex-col justify-between">
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-2xl">⚙️</span>
+                        <span class="role-badge px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400">Rules</span>
+                    </div>
+                    <h3 class="text-base font-bold text-white">Schema (Taxonomy)</h3>
+                    <p class="text-xs text-text-dim leading-relaxed">
+                        Houses your system rules (`AGENTS.md`). This file defines taxonomy guidelines and tells the LLM how to identify entities and concepts.
+                    </p>
+                </div>
+                <div class="text-[10px] text-slate-500 font-mono pt-2 border-t border-border">Default: `schema/`</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 2. Inside the Wiki Directory -->
+    <section class="space-y-4">
+        <h2 class="text-xl font-bold text-white flex items-center gap-2 border-b border-border pb-2">
+            <span>🏷️</span> 2. Auto-Generated Categories
+        </h2>
+        <p class="text-text-dim text-sm leading-relaxed">
+            Within the configured **Wiki Folder**, the pipeline writes markdown notes into specific subdirectories to organize files logically:
+        </p>
+
+        <div class="bg-bg-soft border border-border rounded-xl p-5 space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="space-y-1">
+                    <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span class="text-accent">📄</span> sources/
+                    </h4>
+                    <p class="text-xs text-text-dim leading-relaxed pl-5">
+                        Holds document summary notes. Each note contains takeaways, frontmatter metadata, and clickable file:/// links to open local raw files.
+                    </p>
+                </div>
+
+                <div class="space-y-1">
+                    <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span class="text-accent">👤</span> entities/
+                    </h4>
+                    <p class="text-xs text-text-dim leading-relaxed pl-5">
+                        Individual notes representing real-world nouns like **People, Models, Organizations, Products** (e.g. `karpathy.md`, `gpt-4.md`).
+                    </p>
+                </div>
+
+                <div class="space-y-1">
+                    <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span class="text-accent">💡</span> concepts/
+                    </h4>
+                    <p class="text-xs text-text-dim leading-relaxed pl-5">
+                        Notes representing core abstract ideas, techniques, or subject domains (e.g. `RAG.md`, `Fine-tuning.md`).
+                    </p>
+                </div>
+
+                <div class="space-y-1">
+                    <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span class="text-accent">📊</span> synthesis/
+                    </h4>
+                    <p class="text-xs text-text-dim leading-relaxed pl-5">
+                        Overview or summary pages that combine key concepts and takeaways extracted from multiple sources (cross-document reasoning).
+                    </p>
+                </div>
+
+                <div class="space-y-1">
+                    <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span class="text-accent">📥</span> non_categories/ (Inbox Queue)
+                    </h4>
+                    <p class="text-xs text-text-dim leading-relaxed pl-5">
+                        A temporary buffer for files where LLM classification confidence is low. These documents are reviewed in the dashboard's Inbox UI.
+                    </p>
+                </div>
+
+                <div class="space-y-1">
+                    <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span class="text-accent">🖼️</span> assets/
+                    </h4>
+                    <p class="text-xs text-text-dim leading-relaxed pl-5">
+                        Extracts visual materials (slide layouts, shapes, diagrams) from PDFs and PowerPoint slides, allowing inline image links inside Obsidian.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3. Ingestion Pipeline flow -->
+    <section class="space-y-4">
+        <h2 class="text-xl font-bold text-white flex items-center gap-2 border-b border-border pb-2">
+            <span>⚡</span> 3. LLM Ingestion Pipeline Flow
+        </h2>
+        <p class="text-text-dim text-sm leading-relaxed">
+            When you run the ingestion process, the pipeline carries out five steps asynchronously:
+        </p>
+
+        <div class="relative pl-6 border-l-2 border-accent/30 space-y-6 text-sm">
+            <!-- Step 1 -->
+            <div class="relative">
+                <span class="absolute -left-[31px] top-0.5 bg-bg w-4 h-4 rounded-full border-2 border-accent flex items-center justify-center text-[10px] text-accent font-bold">1</span>
+                <h4 class="font-bold text-white">Parse Document</h4>
+                <p class="text-xs text-text-dim mt-0.5 leading-relaxed">
+                    Extracts raw text chunks from documents based on chosen strategy (Sliding Window or Page-based). Visual charts are extracted to the `assets/` folder.
+                </p>
+            </div>
+            <!-- Step 2 -->
+            <div class="relative">
+                <span class="absolute -left-[31px] top-0.5 bg-bg w-4 h-4 rounded-full border-2 border-accent flex items-center justify-center text-[10px] text-accent font-bold">2</span>
+                <h4 class="font-bold text-white">LLM Extraction</h4>
+                <p class="text-xs text-text-dim mt-0.5 leading-relaxed">
+                    The LLM reviews the document contents, generates takeaways, and extracts matching concepts/entities using taxonomy rules in `AGENTS.md`.
+                </p>
+            </div>
+            <!-- Step 3 -->
+            <div class="relative">
+                <span class="absolute -left-[31px] top-0.5 bg-bg w-4 h-4 rounded-full border-2 border-accent flex items-center justify-center text-[10px] text-accent font-bold">3</span>
+                <h4 class="font-bold text-white">Confidence Filter & Staging</h4>
+                <p class="text-xs text-text-dim mt-0.5 leading-relaxed">
+                    If confidence is high, files are staged to `entities/` or `concepts/`. If classification is ambiguous or confidence is low, files go to `non_categories/` (Inbox).
+                </p>
+            </div>
+            <!-- Step 4 -->
+            <div class="relative">
+                <span class="absolute -left-[31px] top-0.5 bg-bg w-4 h-4 rounded-full border-2 border-accent flex items-center justify-center text-[10px] text-accent font-bold">4</span>
+                <h4 class="font-bold text-white">Deduplication & Relinking</h4>
+                <p class="text-xs text-text-dim mt-0.5 leading-relaxed">
+                    The pipeline compares extracted slugs to existing wiki documents. It merges references and writes standard `[[wikilinks]]` in Obsidian format.
+                </p>
+            </div>
+            <!-- Step 5 -->
+            <div class="relative">
+                <span class="absolute -left-[31px] top-0.5 bg-bg w-4 h-4 rounded-full border-2 border-accent flex items-center justify-center text-[10px] text-accent font-bold">5</span>
+                <h4 class="font-bold text-white">Index Rebuild</h4>
+                <p class="text-xs text-text-dim mt-0.5 leading-relaxed">
+                    The local SQLite database and index files (`index.md`, `log.md`) are updated to reflect the new nodes, relationships, and ingestion logs.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Navigation footer when not initialized -->
+    {% if not (request.app.state.wiki_paths and request.app.state.wiki_paths.is_initialized()) %}
+    <div class="flex justify-center pt-8 border-t border-border">
+        <a href="/setup" class="px-8 py-3.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-semibold transition active:scale-[0.98] shadow-lg shadow-accent/15">
+            🏁 Return to Setup Wizard & Configure Project
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

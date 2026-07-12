@@ -270,3 +270,15 @@ async def execute_setup(request: Request, data: SetupConfigModel) -> JSONRespons
     request.app.state.wiki_paths = paths
     
     return JSONResponse({"status": "success", "message": "LLM-Wiki project initialized successfully!"})
+
+
+@router.get("/guide", response_class=HTMLResponse)
+async def guide_view(request: Request) -> HTMLResponse:
+    """Renders the comprehensive system directory and pipeline guide page."""
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "guide.html",
+        {
+            "page": "guide",
+        },
+    )
