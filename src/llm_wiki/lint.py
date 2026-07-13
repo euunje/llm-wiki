@@ -323,14 +323,19 @@ def check_broken_wikilinks(inv: PageInventory) -> list[LintIssue]:
 def check_orphan_pages(inv: PageInventory) -> list[LintIssue]:
     """Find pages with no incoming wikilinks from any other page.
 
-    Source pages and index/log are exempt (they're entry points, not
-    navigation targets). Synthesis pages are also exempt since they're
-    often user-saved answers that don't need backlinks.
+    Source pages, review queue pages, and index/log are exempt (they're entry
+    points or pending-review work items, not navigation targets). Synthesis
+    pages are also exempt since they're often user-saved answers that don't need
+    backlinks.
     """
     issues: list[LintIssue] = []
-    for relpath in inv.pages:
+    for relpath, parsed in inv.pages.items():
         page_type = relpath.split("/", 1)[0] if "/" in relpath else ""
-        if page_type in {"sources", "synthesis"}:
+        if page_type in {"sources", "synthesis", "non_categories"}:
+            continue
+        if parsed.frontmatter.get("pageKind") == "review" or parsed.frontmatter.get("type") == "review":
+            continue
+        if parsed.frontmatter.get("status") == "pending_review":
             continue
         slug_no_ext = relpath[:-3] if relpath.endswith(".md") else relpath
         incoming = inv.incoming_links.get(slug_no_ext, []) + inv.incoming_links.get(

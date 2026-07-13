@@ -39,6 +39,7 @@ async def inbox_view(request: Request) -> HTMLResponse:
                     "confidence": parsed.frontmatter.get("confidence", "low"),
                     "processed_at": parsed.frontmatter.get("processed_at", ""),
                     "source_file": parsed.frontmatter.get("source_file", ""),
+                    "suggestedExternalOwner": parsed.frontmatter.get("suggestedExternalOwner", ""),
                     "body": parsed.body.strip()
                 })
                 

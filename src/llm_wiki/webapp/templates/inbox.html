@@ -75,6 +75,10 @@
                                 <span class="text-[#6b7280]">Processed at:</span>
                                 <div class="text-[#e7e9f0] mt-1" id="preview-meta-processed-at">{{ items[0].processed_at | default('N/A') }}</div>
                             </div>
+                            <div>
+                                <span class="text-[#6b7280]">Suggested external owner:</span>
+                                <div class="font-mono text-xs text-[#fbbf24] mt-1" id="preview-meta-owner">{{ items[0].suggestedExternalOwner | default('N/A') or 'N/A' }}</div>
+                            </div>
                         </div>
                     </div>
                     
@@ -109,6 +113,7 @@
             confidence: "{{ item.confidence | escape }}",
             source_file: "{{ item.source_file | escape }}",
             processed_at: "{{ item.processed_at | escape }}",
+            suggestedExternalOwner: "{{ item.suggestedExternalOwner | escape }}",
             body: `{{ item.body | escape }}`
         },
         {% endfor %}
@@ -129,6 +134,7 @@
         document.getElementById('preview-slug').textContent = `non_categories/${item.slug}.md`;
         document.getElementById('preview-meta-source-file').textContent = item.source_file || 'N/A';
         document.getElementById('preview-meta-processed-at').textContent = item.processed_at || 'N/A';
+        document.getElementById('preview-meta-owner').textContent = item.suggestedExternalOwner || 'N/A';
         document.getElementById('preview-body').textContent = item.body;
     }
 

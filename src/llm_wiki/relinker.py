@@ -11,6 +11,7 @@ import datetime
 import shutil
 from pathlib import Path
 from . import db
+from . import config as cfg
 from .page_writer import read_page, rebuild_index
 
 
@@ -66,14 +67,37 @@ def relink_references(wiki_dir: Path, old_slug: str, new_folder: str) -> int:
     return modified_count
 
 
-def _mapped_folder(paths, folder: str) -> Path:
-    return {
-        "sources": paths.sources,
-        "entities": paths.entities,
-        "concepts": paths.concepts,
-        "synthesis": paths.synthesis,
-        "non_categories": paths.non_categories,
-    }.get(folder, paths.wiki / folder)
+def _mapped_folder(paths: cfg.WikiPaths, folder: str) -> Path:
+    """Resolve a logical page folder through configured page_dirs."""
+    return paths.page_dir(folder)
+
+
+def _configured_markdown_roots(paths: cfg.WikiPaths) -> list[Path]:
+    """Return unique configured markdown roots for relinking.
+
+    Ja-style vaults can map synthesis to a directory outside ``paths.wiki``
+    (for example ``30. Queries``), so scanning only ``paths.wiki`` misses
+    links in configured external page dirs.
+    """
+    configured = paths._page_dirs_config()  # internal config view; no public accessor yet
+    roots: list[Path] = []
+    for name in configured:
+        if name == "assets":
+            continue
+        root = paths.page_dir(name)
+        if root not in roots:
+            roots.append(root)
+    if paths.wiki not in roots:
+        roots.append(paths.wiki)
+    return roots
+
+
+def _relink_all_configured_pages(paths: cfg.WikiPaths, old_slug: str, new_folder: str) -> int:
+    updated = 0
+    for root in _configured_markdown_roots(paths):
+        if root.exists():
+            updated += relink_references(root, old_slug, new_folder)
+    return updated
 
 
 def promote_file(paths, old_slug: str, new_folder: str) -> bool:
@@ -98,8 +122,9 @@ def promote_file(paths, old_slug: str, new_folder: str) -> bool:
     # Move the file on disk
     shutil.move(str(old_path), str(new_path))
     
-    # Rewrite referencing links in other files
-    relink_references(paths.wiki, old_slug, new_folder)
+    # Rewrite referencing links in configured page directories, including page
+    # dirs outside paths.wiki such as Ja's 30. Queries synthesis folder.
+    _relink_all_configured_pages(paths, old_slug, new_folder)
     
     # Update SQLite database references
     old_wiki_path = f"non_categories/{old_slug}.md"

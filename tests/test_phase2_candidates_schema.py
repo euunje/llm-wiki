@@ -9,10 +9,12 @@ Verifies:
 
 from __future__ import annotations
 
+from fastapi.testclient import TestClient
 import yaml
 
 from llm_wiki import config as cfg
-from llm_wiki import db
+from llm_wiki import db, lint, relinker
+from llm_wiki.webapp.main import create_app
 from llm_wiki.ingest_llm import (
     ExtractedCandidate,
     IngestCallbacks,
@@ -578,3 +580,292 @@ def test_ingest_source_candidate_only_schema_routes_all_outputs(tmp_path, monkey
     assert not (vault_root / "20. Wiki/23. Guides/deploy-runbook.md").exists()
     assert not (vault_root / "20. Wiki/24. Maps/deploy-runbook.md").exists()
     assert {change.kind for change in result.changes} == {"entity", "concept", "source", "review"}
+
+
+class _RejectingCallbacks(IngestCallbacks):
+    def ask_confirm(self, extraction):
+        return False
+
+
+class _FakeReviewOnlyClient:
+    def chat(self, messages, **kwargs):
+        return """{
+  "title": "Review Only Source",
+  "source_slug": "review-only-source",
+  "summary": "Source summary.",
+  "key_takeaways": ["Takeaway"],
+  "candidates": [
+    {"name": "Deploy Runbook", "slug": "deploy-runbook", "pageKind": "review", "description": "Operational guide.", "confidence": "low", "suggestedExternalOwner": "8000-web-config"}
+  ],
+  "entities": [],
+  "concepts": [],
+  "tags": ["ops"]
+}"""
+
+    def chat_stream(self, messages, **kwargs):
+        raise AssertionError("skip path should not draft pages")
+
+
+def _write_ja_runtime_config(vault_root, runtime, raw_dir="10. Raw Sources"):
+    runtime.mkdir(parents=True, exist_ok=True)
+    config = {
+        "paths": {
+            "root": str(vault_root),
+            "raw_dir": raw_dir,
+            "internal_dir": str(runtime),
+            "wiki_dir": "20. Wiki",
+            "page_dirs": {
+                "sources": "20. Wiki/20. Sources",
+                "entities": "20. Wiki/22. Entities",
+                "concepts": "20. Wiki/21. Concepts",
+                "synthesis": "30. Queries",
+                "non_categories": "00. Inbox/_Review",
+            },
+            "files": {"state_db": str(runtime / "state.sqlite")},
+        }
+    }
+    runtime_config = runtime / "config.yml"
+    runtime_config.write_text(yaml.safe_dump(config), encoding="utf-8")
+    return runtime_config
+
+
+def _register_markdown_source(paths, relpath, text):
+    source_path = paths.root / relpath
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_text(text, encoding="utf-8")
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            """
+            INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (relpath, f"hash-{relpath}", "markdown", source_path.stat().st_size, "2026-07-13T00:00:00Z", "pending"),
+        )
+        return conn.execute("SELECT id FROM sources ORDER BY id DESC LIMIT 1").fetchone()[0]
+
+
+def test_review_candidates_not_written_when_ingest_skipped(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    runtime_config = _write_ja_runtime_config(vault_root, tmp_path / "runtime")
+    monkeypatch.setenv("LLM_WIKI_CONFIG", str(runtime_config))
+    paths = cfg.WikiPaths(vault_root)
+    source_id = _register_markdown_source(paths, "10. Raw Sources/review.md", "# Review\n\nDeploy runbook.")
+
+    result = ingest_source(
+        paths,
+        source_id,
+        _FakeReviewOnlyClient(),
+        _RejectingCallbacks(),
+        mode="interactive",
+        thinking_for_extraction=False,
+    )
+
+    assert result.skipped
+    assert not (vault_root / "00. Inbox/_Review/deploy-runbook.md").exists()
+
+
+class _FakeLowConfidenceClient:
+    def __init__(self, kind: str):
+        self.kind = kind
+
+    def chat(self, messages, **kwargs):
+        if self.kind == "entity":
+            candidates = '{"name": "OpenAI", "slug": "openai", "pageKind": "entity", "description": "AI company.", "confidence": "high"}'
+        else:
+            candidates = '{"name": "Retrieval-Augmented Generation", "slug": "rag", "pageKind": "concept", "description": "LLM retrieval pattern.", "confidence": "high"}'
+        return f"""{{
+  "title": "Low Confidence Source",
+  "source_slug": "low-confidence-source",
+  "summary": "Source summary.",
+  "key_takeaways": ["Takeaway"],
+  "candidates": [{candidates}],
+  "entities": [],
+  "concepts": [],
+  "tags": ["ai"]
+}}"""
+
+    def chat_stream(self, messages, **kwargs):
+        if self.kind == "entity":
+            text = """---
+title: OpenAI
+type: entity
+tags: [ai]
+created: 2026-07-13
+updated: 2026-07-13
+sources: []
+confidence: 0.5
+---
+
+# OpenAI
+
+Low confidence entity draft.
+"""
+        elif self.kind == "concept":
+            text = """---
+title: Retrieval-Augmented Generation
+type: concept
+tags: [ai]
+created: 2026-07-13
+updated: 2026-07-13
+sources: []
+confidence: low
+---
+
+# Retrieval-Augmented Generation
+
+Low confidence concept draft.
+"""
+        else:
+            text = """---
+title: Low Confidence Source
+type: source
+tags: [ai]
+created: 2026-07-13
+updated: 2026-07-13
+file_path: /api/raw-download/1
+file_type: markdown
+---
+
+# Low Confidence Source
+
+Source summary.
+"""
+        if False:
+            yield ""
+        return text
+
+
+def test_low_confidence_entity_routes_to_configured_non_categories(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    runtime_config = _write_ja_runtime_config(vault_root, tmp_path / "runtime")
+    monkeypatch.setenv("LLM_WIKI_CONFIG", str(runtime_config))
+    paths = cfg.WikiPaths(vault_root)
+    source_id = _register_markdown_source(paths, "10. Raw Sources/entity.md", "# Entity\n\nOpenAI.")
+
+    result = ingest_source(paths, source_id, _FakeLowConfidenceClient("entity"), IngestCallbacks(), mode="batch", thinking_for_extraction=False)
+
+    assert result.ok
+    assert (vault_root / "00. Inbox/_Review/openai.md").exists()
+    assert not (vault_root / "20. Wiki/22. Entities/openai.md").exists()
+    content = (vault_root / "00. Inbox/_Review/openai.md").read_text(encoding="utf-8")
+    assert "status: pending_review" in content
+    assert "confidence: 0.5" in content
+
+
+def test_low_confidence_concept_routes_to_configured_non_categories(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    runtime_config = _write_ja_runtime_config(vault_root, tmp_path / "runtime")
+    monkeypatch.setenv("LLM_WIKI_CONFIG", str(runtime_config))
+    paths = cfg.WikiPaths(vault_root)
+    source_id = _register_markdown_source(paths, "10. Raw Sources/concept.md", "# Concept\n\nRAG.")
+
+    result = ingest_source(paths, source_id, _FakeLowConfidenceClient("concept"), IngestCallbacks(), mode="batch", thinking_for_extraction=False)
+
+    assert result.ok
+    assert (vault_root / "00. Inbox/_Review/rag.md").exists()
+    assert not (vault_root / "20. Wiki/21. Concepts/rag.md").exists()
+    content = (vault_root / "00. Inbox/_Review/rag.md").read_text(encoding="utf-8")
+    assert "status: pending_review" in content
+    assert "confidence: low" in content
+
+
+def test_relinker_promote_file_updates_ja_mapped_external_page_dirs(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    runtime_config = _write_ja_runtime_config(vault_root, tmp_path / "runtime")
+    monkeypatch.setenv("LLM_WIKI_CONFIG", str(runtime_config))
+    paths = cfg.WikiPaths(vault_root)
+    db.init_db(paths.state_db)
+
+    paths.non_categories.mkdir(parents=True, exist_ok=True)
+    paths.entities.mkdir(parents=True, exist_ok=True)
+    paths.synthesis.mkdir(parents=True, exist_ok=True)
+    review = paths.non_categories / "deploy-runbook.md"
+    review.write_text("""---
+title: Deploy Runbook
+type: review
+pageKind: review
+status: pending_review
+created: 2026-07-13
+updated: 2026-07-13
+---
+
+# Deploy Runbook
+""", encoding="utf-8")
+    query = paths.synthesis / "ops-map.md"
+    query.write_text("---\ntitle: Ops Map\ntype: synthesis\ncreated: 2026-07-13\n---\n\nSee [[non_categories/deploy-runbook]].\n", encoding="utf-8")
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            """
+            INSERT INTO sources (id, relpath, content_hash, file_type, bytes, added_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (1, "10. Raw Sources/source.md", "hash-source", "markdown", 1, "2026-07-13T00:00:00Z", "done"),
+        )
+        conn.execute(
+            "INSERT INTO source_pages (source_id, wiki_path, operation, at) VALUES (?, ?, ?, ?)",
+            (1, "non_categories/deploy-runbook.md", "created", "2026-07-13T00:00:00Z"),
+        )
+
+    assert relinker.promote_file(paths, "deploy-runbook", "entities")
+
+    assert not review.exists()
+    assert (vault_root / "20. Wiki/22. Entities/deploy-runbook.md").exists()
+    assert "[[entities/deploy-runbook]]" in query.read_text(encoding="utf-8")
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute("SELECT wiki_path FROM source_pages").fetchone()
+    assert row["wiki_path"] == "entities/deploy-runbook.md"
+
+
+def test_inbox_ui_shows_suggested_external_owner(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    runtime_config = _write_ja_runtime_config(vault_root, tmp_path / "runtime")
+    monkeypatch.setenv("LLM_WIKI_CONFIG", str(runtime_config))
+    paths = cfg.WikiPaths(vault_root)
+    paths.non_categories.mkdir(parents=True, exist_ok=True)
+    db.init_db(paths.state_db)
+    (paths.non_categories / "deploy-runbook.md").write_text("""---
+title: Deploy Runbook
+type: review
+pageKind: review
+status: pending_review
+confidence: low
+suggestedExternalOwner: 8000-web-config
+processed_at: 2026-07-13T00:00:00Z
+source_file: sources/source.md
+created: 2026-07-13
+updated: 2026-07-13
+---
+
+# Deploy Runbook
+""", encoding="utf-8")
+
+    response = TestClient(create_app(paths)).get("/inbox")
+
+    assert response.status_code == 200
+    assert "Suggested external owner" in response.text
+    assert "8000-web-config" in response.text
+
+
+def test_lint_does_not_flag_review_queue_items_as_orphans(tmp_path, monkeypatch):
+    vault_root = tmp_path / "vault"
+    runtime_config = _write_ja_runtime_config(vault_root, tmp_path / "runtime")
+    monkeypatch.setenv("LLM_WIKI_CONFIG", str(runtime_config))
+    paths = cfg.WikiPaths(vault_root)
+    paths.non_categories.mkdir(parents=True, exist_ok=True)
+    (paths.non_categories / "ambiguous-topic.md").write_text("""---
+title: Ambiguous Topic
+type: review
+pageKind: review
+status: pending_review
+created: 2026-07-13
+updated: 2026-07-13
+---
+
+# Ambiguous Topic
+""", encoding="utf-8")
+
+    inv = lint._build_inventory(paths)
+    issues = lint.check_orphan_pages(inv)
+
+    assert not [issue for issue in issues if issue.page.endswith("ambiguous-topic.md")]
