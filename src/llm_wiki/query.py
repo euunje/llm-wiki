@@ -99,9 +99,11 @@ Rules:
    shown in the source headers (e.g. [[entities/karpathy]], [[concepts/rag]]).
 3. If the sources don't contain enough information to answer confidently,
    say so explicitly. Suggest what additional sources would help.
-4. Be concise but substantive. Write in clean markdown (headers, bullets,
+4. Write in Korean by default. Keep proper nouns, technical terms, commands,
+   file paths, APIs, model names, and code identifiers in English.
+5. Be concise but substantive. Write in clean markdown (headers, bullets,
    paragraphs as appropriate).
-5. Do NOT include YAML frontmatter, preamble like "Based on the sources:",
+6. Do NOT include YAML frontmatter, preamble like "Based on the sources:",
    or meta-commentary about your process.
 """
 
@@ -140,7 +142,8 @@ def _build_synthesis_user_prompt(
     lines.append("--- End of sources ---")
     lines.append("")
     lines.append(
-        "Now write a clear, well-structured markdown answer to the question. "
+        "Now write a clear, well-structured Korean markdown answer to the question. "
+        "Keep proper nouns, technical terms, commands, file paths, APIs, model names, and code identifiers in English. "
         "Cite each claim with [[wikilinks]] using the paths shown above. "
         "If a claim is not supported by the sources, say so."
     )

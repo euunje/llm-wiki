@@ -31,22 +31,26 @@ You follow these conventions strictly:
    - sources: ["sources/source-slug.md"]
    - confidence: high | medium | low
 
-2. Always use [[wikilinks]] for cross-references between wiki pages.
+2. Write generated summaries, wiki page bodies, review explanations, query/synthesis answers,
+   and learning artifacts in Korean by default. Keep proper nouns, technical terms,
+   commands, file paths, APIs, model names, and code identifiers in English.
+
+3. Always use [[wikilinks]] for cross-references between wiki pages.
    Never use plain markdown links for internal pages.
 
-3. Slugs are kebab-case lowercase ASCII (e.g. andrej-karpathy, not Karpathy.md).
+4. Slugs are kebab-case lowercase ASCII (e.g. andrej-karpathy, not Karpathy.md).
    Use the canonical name. Acronyms stay together (rag, llm, not r-a-g).
 
-4. Be factual. Never invent citations or claims not in the source.
+5. Be factual. Never invent citations or claims not in the source.
    If unsure, mark confidence as 'medium' or 'low'.
 
-5. Page bodies should be concise but substantive: 150-400 words is typical
+6. Page bodies should be concise but substantive: 150-400 words is typical
    for entity pages, 200-500 words for concept pages.
 
-6. Preserve existing content when updating a page. Add new info in new
+7. Preserve existing content when updating a page. Add new info in new
    sections or under an '## Updates' heading. Never silently overwrite.
 
-7. Routing rules — NEVER create normal wiki pages for operational or
+8. Routing rules — NEVER create normal wiki pages for operational or
    navigational content:
    - Guide-like content (runbooks, tutorials, how-tos, cheatsheets, configs)
      -> emit as candidates with pageKind: review, suggestedExternalOwner: 8000-web-config
@@ -107,6 +111,9 @@ Return ONLY a valid JSON object matching this exact schema:
 
 Rules:
 - Extract 3-8 key takeaways, each substantive.
+- Write source summary, key_takeaways, candidate descriptions, entity descriptions,
+  and concept descriptions in Korean by default. Keep proper nouns, technical terms,
+  commands, file paths, APIs, model names, and code identifiers in English.
 - Extract 2-10 candidates total (entities + concepts + any review items).
 - Slugs must be kebab-case ASCII. For people use last name if unambiguous
   (karpathy, not andrej-karpathy). For concepts use the shortest canonical
@@ -185,9 +192,10 @@ Related entities and concepts also mentioned in this source (use [[wikilinks]] t
 Write a complete markdown page with:
 1. YAML frontmatter (title, type: entity, tags, created: {today}, updated: {today}, sources: ["sources/{source_slug}.md"], confidence)
 2. An H1 heading matching the title
-3. A 2-3 paragraph body (150-300 words) describing this entity
-4. Use [[wikilinks]] when referencing other entities or concepts from the related list above
-5. End with a '## Sources' section listing [[sources/{source_slug}]]
+3. Korean section/body text; keep proper nouns, technical terms, commands, file paths, APIs, model names, and code identifiers in English
+4. A 2-3 paragraph body (150-300 words) describing this entity
+5. Use [[wikilinks]] when referencing other entities or concepts from the related list above
+6. End with a Korean sources section heading such as '## 출처' listing [[sources/{source_slug}]]
 
 Do not invent facts. Only use information from the excerpts. Return ONLY the markdown content — no preamble, no code fences.
 """
@@ -209,11 +217,12 @@ Related entities and concepts also mentioned in this source (use [[wikilinks]] t
 Write a complete markdown page with:
 1. YAML frontmatter (title, type: concept, tags, created: {today}, updated: {today}, sources: ["sources/{source_slug}.md"], confidence)
 2. An H1 heading matching the title
-3. A 2-4 paragraph body (200-400 words) explaining this concept:
+3. Korean section/body text; keep proper nouns, technical terms, commands, file paths, APIs, model names, and code identifiers in English
+4. A 2-4 paragraph body (200-400 words) explaining this concept:
    - What it is
    - Why it matters
    - How it relates to other concepts/entities (use [[wikilinks]])
-4. End with a '## Sources' section listing [[sources/{source_slug}]]
+5. End with a Korean sources section heading such as '## 출처' listing [[sources/{source_slug}]]
 
 Do not invent facts. Only use information from the excerpts. Return ONLY the markdown content — no preamble, no code fences.
 """
@@ -274,14 +283,15 @@ Relevant excerpts from the new source:
 
 Update the page by:
 1. Preserving ALL existing content — do not delete or rewrite existing paragraphs.
-2. Adding new information as either:
+2. Adding new information in Korean as either:
    - A new paragraph in the appropriate section, OR
    - A new section if the information is substantively new, OR
-   - An '## Updates' section if the new info contradicts something in the existing page.
-3. Updating the 'updated:' date in frontmatter to {today}.
-4. Adding "sources/{source_slug}.md" to the 'sources:' list in frontmatter (keep existing entries).
-5. Adding [[sources/{source_slug}]] to the '## Sources' section at the bottom.
-6. Keeping any existing [[wikilinks]] intact.
+   - An '## 업데이트' section if the new info contradicts something in the existing page.
+3. Keeping proper nouns, technical terms, commands, file paths, APIs, model names, and code identifiers in English.
+4. Updating the 'updated:' date in frontmatter to {today}.
+5. Adding "sources/{source_slug}.md" to the 'sources:' list in frontmatter (keep existing entries).
+6. Adding [[sources/{source_slug}]] to the sources section at the bottom.
+7. Keeping any existing [[wikilinks]] intact.
 
 Return ONLY the complete updated markdown page — no preamble, no code fences.
 """
@@ -345,10 +355,11 @@ Concept pages created/updated from this source:
 Write a complete markdown page with:
 1. YAML frontmatter: title, type: source, tags, created: {today}, updated: {today}, file_path, file_type
 2. An H1 heading matching the title
-3. A 'Summary' section with the summary paragraph
-4. A 'Key Takeaways' section with the takeaways as bullets
-5. A 'Related Pages' section with two subsections (Entities, Concepts), each listing [[wikilinks]] to the pages above
-6. No made-up facts — only use what's provided above
+3. Korean section/body text; keep proper nouns, technical terms, commands, file paths, APIs, model names, and code identifiers in English
+4. A '요약' section with the summary paragraph
+5. A '핵심 내용' section with the takeaways as bullets
+6. A '관련 페이지' section with two subsections (Entities, Concepts), each listing [[wikilinks]] to the pages above
+7. No made-up facts — only use what's provided above
 
 Return ONLY the markdown content — no preamble, no code fences.
 """
