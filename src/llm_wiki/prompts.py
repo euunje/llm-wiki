@@ -1,7 +1,7 @@
 """Prompt templates for the LLM ingest pipeline.
 
 Three passes:
-    1. extract — read source, return structured JSON with entities/concepts
+    1. extract — read source, return structured JSON with candidates
     2. draft_page — generate a single entity/concept/source page
     3. merge_page — update an existing page with new information
 

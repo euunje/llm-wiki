@@ -654,11 +654,11 @@ def ingest(
         help="Disable Qwen3 thinking mode in Pass 1 (faster, slightly lower quality).",
     ),
 ) -> None:
-    """Ingest pending sources: extract entities/concepts, write wiki pages.
+    """Ingest pending sources: extract candidates, write wiki/review pages.
 
-    The pipeline runs three LLM passes per source:
-      1. Extraction (thinking mode) — structured JSON
-      2. Page drafting — one page per entity/concept with streaming output
+    The pipeline runs three phases per source:
+      1. Extraction (thinking mode) — structured candidate JSON
+      2. Page drafting — one page per entity/concept candidate; review items are staged without an extra LLM draft
       3. Source summary page
 
     Then rebuilds index.md and appends to log.md.

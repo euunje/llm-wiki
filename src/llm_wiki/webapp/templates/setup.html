@@ -181,12 +181,12 @@
 │   ├── 📁 entities/                <span class="text-slate-500">← people, orgs, models, products</span>
 │   ├── 📁 concepts/                <span class="text-slate-500">← durable concepts</span>
 │   ├── 📁 synthesis/               <span class="text-slate-500">← saved query/synthesis pages</span>
-│   ├── 📁 non_categories/          <span class="text-slate-500">← low-confidence review queue</span>
+│   ├── 📁 non_categories/          <span class="text-slate-500">← candidate review queue</span>
 │   ├── 📁 assets/                  <span class="text-slate-500">← extracted assets</span>
 │   ├── 📄 index.md                 <span class="text-slate-500">← generated catalog</span>
 │   ├── 📄 log.md                   <span class="text-slate-500">← generated operation log</span>
 │   └── 📁 .obsidian/               <span class="text-slate-500">← optional Obsidian defaults</span>
-├── 📁 schema/AGENTS.md             <span class="text-slate-500">← rules and taxonomy</span>
+├── 📁 schema/AGENTS.md             <span class="text-slate-500">← routing rules + schema</span>
 └── 📁 .wiki/                       <span class="text-slate-500">← internal config + state DB</span></pre>
                     </div>
 
@@ -230,7 +230,7 @@
                                     <div class="flex justify-between items-start">
                                         <div>
                                             <span class="text-[11px] font-bold text-slate-200">📂 Wiki Folder (AI Notes Output)</span>
-                                            <p class="text-[10px] text-slate-400 mt-0.5">Where AI notes (Entities, Concepts, Synthesis) will be generated. Use `.` for root.</p>
+                                            <p class="text-[10px] text-slate-400 mt-0.5">Where AI notes (Entities, Concepts, Synthesis) and review items will be generated. Use `.` for root.</p>
                                         </div>
                                     </div>
                                     <div class="flex gap-2 mt-2">
@@ -244,8 +244,8 @@
                                      ondragover="allowDrop(event)" ondrop="handleDrop(event, 'schema')" ondragleave="handleDragLeave(event)">
                                     <div class="flex justify-between items-start">
                                         <div>
-                                            <span class="text-[11px] font-bold text-slate-200">⚙️ Schema Folder (Taxonomy Rules)</span>
-                                            <p class="text-[10px] text-slate-400 mt-0.5">Where taxonomies, templates, and instructions (`AGENTS.md`) are saved.</p>
+                                            <span class="text-[11px] font-bold text-slate-200">⚙️ Schema Folder (Routing Rules)</span>
+                                            <p class="text-[10px] text-slate-400 mt-0.5">Where routing rules, templates, and instructions (`AGENTS.md`) are saved.</p>
                                         </div>
                                     </div>
                                     <div class="flex gap-2 mt-2">
