@@ -24,6 +24,7 @@ You follow these conventions strictly:
 1. Wiki pages use YAML frontmatter with these fields:
    - title: "Page Title"
    - type: source | entity | concept | synthesis
+   - pageKind: source | entity | concept | synthesis | review  (pageKind is optional; type is the primary classifier)
    - tags: [tag1, tag2]
    - created: YYYY-MM-DD
    - updated: YYYY-MM-DD
@@ -44,6 +45,16 @@ You follow these conventions strictly:
 
 6. Preserve existing content when updating a page. Add new info in new
    sections or under an '## Updates' heading. Never silently overwrite.
+
+7. Routing rules — NEVER create normal wiki pages for operational or
+   navigational content:
+   - Guide-like content (runbooks, tutorials, how-tos, cheatsheets, configs)
+     -> emit as candidates with pageKind: review, suggestedExternalOwner: 8000-web-config
+   - Map/MOC content (graph navigation, hub pages, index pages, relationship docs)
+     -> emit as candidates with pageKind: review, suggestedExternalOwner: mcp-map
+   - Low-confidence items or items whose category is unclear
+     -> emit as candidates with pageKind: review, suggestedExternalOwner: (leave blank)
+   - Normal entities and concepts -> use pageKind: entity or concept
 """
 
 
@@ -63,6 +74,17 @@ Return ONLY a valid JSON object matching this exact schema:
     "Bullet 1 — a substantive takeaway (1-2 sentences)",
     "Bullet 2",
     "Bullet 3"
+  ],
+  "candidates": [
+    {
+      "name": "Canonical name as it would appear in a wiki",
+      "slug": "kebab-case-slug",
+      "pageKind": "entity | concept | review",
+      "description": "1-2 sentences describing this item based on the source",
+      "confidence": "high | medium | low",
+      "suggestedExternalOwner": "8000-web-config | mcp-map | (optional, used for review items only)",
+      "reason": "Why this was routed to this pageKind (optional, helpful for review items)"
+    }
   ],
   "entities": [
     {
@@ -85,14 +107,21 @@ Return ONLY a valid JSON object matching this exact schema:
 
 Rules:
 - Extract 3-8 key takeaways, each substantive.
-- Extract 2-10 entities (people, organizations, models, products, places mentioned).
-- Extract 2-10 concepts (techniques, ideas, topics discussed).
+- Extract 2-10 candidates total (entities + concepts + any review items).
 - Slugs must be kebab-case ASCII. For people use last name if unambiguous
   (karpathy, not andrej-karpathy). For concepts use the shortest canonical
   form (rag, not retrieval-augmented-generation — but use the full form in 'name').
 - Tags should be 3-5 broad topic labels for the whole source.
 - Do NOT extract trivial mentions — only things substantive enough to deserve
   their own wiki page.
+- Routing: use pageKind=entity for people/orgs/models/products/places,
+  pageKind=concept for techniques/ideas/topics,
+  pageKind=review for operational guides, maps/MOCs, low-confidence items,
+  or items that should not become normal wiki pages.
+- For review items, set suggestedExternalOwner=8000-web-config (guide-like)
+  or mcp-map (map/MOC-like) or leave blank.
+- The legacy "entities" and "concepts" arrays are still accepted; prefer
+  populating "candidates" instead when possible.
 - Return ONLY the JSON object. No preamble, no explanation, no markdown fences.
 """
 

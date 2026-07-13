@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -147,9 +148,8 @@ def init_db(db_path: Path) -> None:
         # Seed default prompts if prompt_versions is empty
         cur = conn.execute("SELECT COUNT(*) FROM prompt_versions")
         if cur.fetchone()[0] == 0:
-            import datetime
             from .prompts import DEFAULT_PROMPTS
-            now = datetime.datetime.utcnow().isoformat() + "Z"
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
             for key, content in DEFAULT_PROMPTS.items():
                 conn.execute(
                     """

@@ -46,6 +46,16 @@ EXCERPT_CHARS = 4000        # how much of the source we include in draft prompts
 # ---------------------------------------------------------------------------
 
 
+class ExtractedCandidate(BaseModel):
+    name: str
+    slug: str
+    pageKind: str = "entity"  # "entity" | "concept" | "review"
+    description: str = ""
+    confidence: str | float | None = None  # "high" | "medium" | "low" | float
+    suggestedExternalOwner: str | None = None  # "8000-web-config" | "mcp-map"
+    reason: str | None = None
+
+
 class ExtractedEntity(BaseModel):
     name: str
     slug: str
@@ -65,6 +75,7 @@ class Extraction(BaseModel):
     source_slug: str
     summary: str
     key_takeaways: list[str] = Field(default_factory=list)
+    candidates: list[ExtractedCandidate] = Field(default_factory=list)
     entities: list[ExtractedEntity] = Field(default_factory=list)
     concepts: list[ExtractedConcept] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
@@ -182,15 +193,99 @@ def _extract_json_object(text: str) -> str:
     return text[start:]
 
 
+def _normalize_extraction_data(data: dict) -> dict:
+    """Normalize old/new extraction JSON into one internal contract.
+
+    ``candidates[]`` is the Phase 2 source of truth when present.  Legacy
+    ``entities[]``/``concepts[]`` remain accepted and are converted into
+    candidates.  For backward compatibility with CLI/jobs and the existing
+    draft loops, entity/concept candidates are also projected back into the
+    legacy arrays.
+    """
+    candidates = data.get("candidates") or []
+    if candidates:
+        normalized_candidates = []
+        entities = []
+        concepts = []
+        for raw in candidates:
+            if not isinstance(raw, dict):
+                continue
+            kind = str(raw.get("pageKind") or raw.get("type") or "entity").strip().lower()
+            if kind not in {"entity", "concept", "review"}:
+                kind = "review"
+            item = {**raw, "pageKind": kind}
+            normalized_candidates.append(item)
+            if kind == "entity":
+                entities.append(
+                    {
+                        "name": item.get("name", ""),
+                        "slug": item.get("slug", ""),
+                        "type": "entity",
+                        "description": item.get("description", ""),
+                    }
+                )
+            elif kind == "concept":
+                concepts.append(
+                    {
+                        "name": item.get("name", ""),
+                        "slug": item.get("slug", ""),
+                        "type": "concept",
+                        "description": item.get("description", ""),
+                    }
+                )
+        data["candidates"] = normalized_candidates
+        data["entities"] = entities
+        data["concepts"] = concepts
+        return data
+
+    # Legacy response: derive candidates while preserving original arrays.
+    derived = []
+    for ent in data.get("entities", []) or []:
+        if not isinstance(ent, dict):
+            continue
+        derived.append(
+            {
+                "name": ent.get("name", ""),
+                "slug": ent.get("slug", ""),
+                "pageKind": "entity",
+                "description": ent.get("description", ""),
+                "confidence": None,
+                "suggestedExternalOwner": None,
+                "reason": None,
+            }
+        )
+    for con in data.get("concepts", []) or []:
+        if not isinstance(con, dict):
+            continue
+        derived.append(
+            {
+                "name": con.get("name", ""),
+                "slug": con.get("slug", ""),
+                "pageKind": "concept",
+                "description": con.get("description", ""),
+                "confidence": None,
+                "suggestedExternalOwner": None,
+                "reason": None,
+            }
+        )
+    if derived:
+        data["candidates"] = derived
+    return data
+
+
 def _parse_extraction(raw: str) -> Extraction:
-    """Parse the JSON from Pass 1, raising ValueError on failure."""
+    """Parse the JSON from Pass 1, raising ValueError on failure.
+
+    Normalizes the response so that both the legacy entities[]/concepts[] format
+    and the new candidates[] format are available on the returned Extraction object.
+    """
     json_str = _extract_json_object(raw)
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON from LLM: {e}") from e
     try:
-        return Extraction(**data)
+        return Extraction(**_normalize_extraction_data(data))
     except ValidationError as e:
         raise ValueError(f"JSON didn't match expected schema: {e}") from e
 
@@ -232,6 +327,73 @@ def _resolve_slug(
     if not clean:
         clean = slugify.slugify(name) or "untitled"
     return clean, False
+
+
+def _build_review_candidate_page(
+    candidate: ExtractedCandidate,
+    source_slug: str,
+    extraction_tags: list[str],
+    today: str,
+) -> str:
+    """Build deterministic markdown for a review candidate."""
+    confidence = candidate.confidence if candidate.confidence is not None else "medium"
+    processed_at = _now_iso()
+
+    frontmatter = {
+        "title": candidate.name,
+        "type": "review",
+        "pageKind": "review",
+        "status": "pending_review",
+        "confidence": confidence,
+        "tags": extraction_tags[:3],
+        "created": today,
+        "updated": today,
+        "sources": [f"sources/{source_slug}.md"],
+        "source_file": f"sources/{source_slug}.md",
+        "processed_at": processed_at,
+    }
+    if candidate.suggestedExternalOwner:
+        frontmatter["suggestedExternalOwner"] = candidate.suggestedExternalOwner
+    if candidate.pageKind != "review":
+        frontmatter["originalPageKind"] = candidate.pageKind
+
+    body_parts = []
+    if candidate.description:
+        body_parts.append(candidate.description)
+    if candidate.reason:
+        body_parts.append(f"**Reason**: {candidate.reason}")
+    if candidate.suggestedExternalOwner:
+        body_parts.append(f"**Suggested external owner**: `{candidate.suggestedExternalOwner}`")
+    body = "\n\n".join(body_parts)
+
+    return page_writer.ParsedPage(frontmatter=frontmatter, body=body).to_markdown()
+
+
+def _write_review_candidate(
+    paths: cfg.WikiPaths,
+    candidate: ExtractedCandidate,
+    source_slug: str,
+    extraction_tags: list[str],
+    today: str,
+) -> PageChange:
+    """Write a review-candidate page to paths.non_categories.
+
+    Review candidates are written directly without an additional LLM call.
+    Returns a PageChange for the written file.
+    """
+    slug = slugify.slugify(candidate.slug or candidate.name) or "untitled-review"
+    non_cat_dir = paths.non_categories
+    non_cat_dir.mkdir(parents=True, exist_ok=True)
+    file_path = non_cat_dir / f"{slug}.md"
+    content = _build_review_candidate_page(candidate, source_slug, extraction_tags, today)
+    file_path.write_text(content, encoding="utf-8")
+
+    return PageChange(
+        slug=slug,
+        path=f"non_categories/{slug}.md",
+        kind="review",
+        operation="created",
+    )
 
 
 def _now_iso() -> str:
@@ -476,10 +638,35 @@ def ingest_source(
         slug, exists = _resolve_slug(con.name, "concept", paths, con.slug)
         concept_plans.append((con, slug, exists))
 
+    # 5b. Collect review candidates. They are staged with other pages below so
+    # ingest remains transactional until finalization.
+    review_candidates = [cand for cand in extraction.candidates if cand.pageKind == "review"]
+
     # 6. Staging directory for transactional writes
     staging = Path(tempfile.mkdtemp(prefix="llm-wiki-ingest-"))
     try:
         staged_files: list[tuple[Path, Path, PageChange]] = []  # (staged, final, change)
+
+        for cand in review_candidates:
+            slug = slugify.slugify(cand.slug or cand.name) or "untitled-review"
+            staged_path = staging / f"non_categories__{slug}.md"
+            final_path = paths.non_categories / f"{slug}.md"
+            staged_path.write_text(
+                _build_review_candidate_page(cand, source_slug, extraction.tags, today),
+                encoding="utf-8",
+            )
+            staged_files.append(
+                (
+                    staged_path,
+                    final_path,
+                    PageChange(
+                        slug=slug,
+                        path=f"non_categories/{slug}.md",
+                        kind="review",
+                        operation="created" if not final_path.exists() else "updated",
+                    ),
+                )
+            )
 
         # 6a. Build the "related" list for each page (used in draft prompts)
         all_entity_slugs = [s for _, s, _ in entity_plans]
@@ -599,15 +786,14 @@ def ingest_source(
                     if folder == "non_categories":
                         status = "pending_review"
                 else:
-                    final_path = paths.wiki / folder / f"{slug}.md"
+                    final_path = paths.page_dir(folder) / f"{slug}.md"
                     staged_path = staging / f"{folder}__{slug}.md"
-                
+
                 # Always ensure source is in sources list
                 page_writer.add_source_to_frontmatter(parsed_page, source_slug, today)
-                
+
                 # Update frontmatter fields
-                import datetime
-                processed_at = datetime.datetime.utcnow().isoformat() + "Z"
+                processed_at = _now_iso()
                 page_writer.prepare_page_frontmatter(
                     parsed_page,
                     status=status,
@@ -615,7 +801,7 @@ def ingest_source(
                     processed_at=processed_at,
                     source_file=f"sources/{source_slug}.md",
                 )
-                
+
                 content = parsed_page.to_markdown()
                 staged_path.write_text(content, encoding="utf-8")
                 change = PageChange(
@@ -738,15 +924,14 @@ def ingest_source(
                     if folder == "non_categories":
                         status = "pending_review"
                 else:
-                    final_path = paths.wiki / folder / f"{slug}.md"
+                    final_path = paths.page_dir(folder) / f"{slug}.md"
                     staged_path = staging / f"{folder}__{slug}.md"
-                
+
                 # Always ensure source is in sources list
                 page_writer.add_source_to_frontmatter(parsed_page, source_slug, today)
-                
+
                 # Update frontmatter fields
-                import datetime
-                processed_at = datetime.datetime.utcnow().isoformat() + "Z"
+                processed_at = _now_iso()
                 page_writer.prepare_page_frontmatter(
                     parsed_page,
                     status=status,
@@ -754,7 +939,7 @@ def ingest_source(
                     processed_at=processed_at,
                     source_file=f"sources/{source_slug}.md",
                 )
-                
+
                 content = parsed_page.to_markdown()
                 staged_path.write_text(content, encoding="utf-8")
                 change = PageChange(
@@ -870,6 +1055,9 @@ def ingest_source(
             else:
                 pages_updated += 1
 
+        # Review candidates are part of staged_files, so they are committed
+        # atomically with source/entity/concept pages above.
+
         # 8. Rebuild index.md and append to log.md
         page_writer.rebuild_index(paths, today)
         log_bullets = [
@@ -981,9 +1169,8 @@ def _record_ingest_log(
     error_message: str | None = None,
     raw_response: str | None = None,
 ):
-    import datetime
     import sqlite3
-    processed_at = datetime.datetime.utcnow().isoformat() + "Z"
+    processed_at = _now_iso()
     prompt_ver = _get_active_prompt_version(paths.state_db, "extract")
     try:
         with sqlite3.connect(paths.state_db) as conn:
