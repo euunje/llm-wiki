@@ -259,12 +259,28 @@ def _parse_qmd_json(stdout: str) -> list[dict]:
     return []
 
 
+def _split_qmd_file_ref(value: str) -> tuple[str, str] | None:
+    """Parse qmd://collection/path references emitted by newer QMD JSON output."""
+    if not value.startswith("qmd://"):
+        return None
+    rest = value.removeprefix("qmd://")
+    if "/" not in rest:
+        return rest, ""
+    collection, path = rest.split("/", 1)
+    return collection, path
+
+
 def _hit_from_dict(raw: dict) -> SearchHit:
     """Build a SearchHit from a QMD JSON result entry (tolerant of field names)."""
+    path_value = str(raw.get("path") or raw.get("filepath") or raw.get("file") or "")
+    collection_value = str(raw.get("collection") or raw.get("col") or "")
+    qmd_ref = _split_qmd_file_ref(path_value)
+    if qmd_ref:
+        collection_value, path_value = qmd_ref
     return SearchHit(
         docid=str(raw.get("docid") or raw.get("id") or ""),
-        path=str(raw.get("path") or raw.get("filepath") or raw.get("file") or ""),
-        collection=str(raw.get("collection") or raw.get("col") or ""),
+        path=path_value,
+        collection=collection_value,
         title=str(raw.get("title") or ""),
         score=float(raw.get("score") or 0.0),
         snippet=str(raw.get("snippet") or raw.get("preview") or ""),
@@ -272,18 +288,45 @@ def _hit_from_dict(raw: dict) -> SearchHit:
     )
 
 
+def _qmd_display_segment(path: Path) -> str:
+    """Approximate QMD's display normalization for path segments."""
+    return path.name.replace(". ", "-").replace(" ", "-")
+
+
+def _configured_page_candidates(paths: cfg.WikiPaths, qmd_path: str) -> list[Path]:
+    """Map QMD display paths back to configured page directories."""
+    parts = Path(qmd_path).parts
+    if len(parts) < 2:
+        return []
+    first, rest = parts[0], Path(*parts[1:])
+    out: list[Path] = []
+    for logical_name, page_dir in paths._page_dirs_config().items():
+        if logical_name == "assets":
+            continue
+        resolved = paths.page_dir(logical_name)
+        try:
+            rel = resolved.relative_to(paths.wiki)
+        except ValueError:
+            rel = resolved.relative_to(paths.root) if resolved.is_relative_to(paths.root) else resolved
+        possible_segments = {resolved.name, _qmd_display_segment(resolved)}
+        if rel.parts:
+            possible_segments.add(rel.parts[-1])
+            possible_segments.add(rel.parts[-1].replace(". ", "-").replace(" ", "-"))
+        if first in possible_segments:
+            out.append(resolved / rest)
+    return out
+
+
 def _read_full_content(
     paths: cfg.WikiPaths, hit: SearchHit, max_chars: int = 8000
 ) -> str:
     """Look up the original file for a hit and return its (truncated) text."""
-    # QMD returns 'path' relative to the collection. We know the collection
-    # roots from ensure_collections — try both.
     candidates: list[Path] = []
     if hit.collection == "llm-wiki-pages" or not hit.collection:
         candidates.append(paths.wiki / hit.path)
+        candidates.extend(_configured_page_candidates(paths, hit.path))
     if hit.collection == "llm-wiki-raw" or not hit.collection:
         candidates.append(paths.raw / hit.path)
-    # Also try interpreting the path as relative to the project root
     candidates.append(paths.root / hit.path)
 
     for c in candidates:

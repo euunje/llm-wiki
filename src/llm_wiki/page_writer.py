@@ -104,7 +104,45 @@ def strip_llm_noise(text: str) -> str:
     for pattern in preamble_patterns:
         text = re.sub(pattern, "", text, count=1, flags=re.IGNORECASE)
 
-    return text.strip()
+    return strip_embedded_frontmatter_preamble(text)
+
+
+def strip_embedded_frontmatter_preamble(text: str) -> str:
+    """Strip delimiter-less YAML-ish metadata accidentally emitted before a page heading.
+
+    Some local models return body text that begins with lines like
+    ``title:``, ``type:``, ``tags:``, ``sources:``, and ``confidence:`` without
+    wrapping them in ``---``.  When the caller has already supplied validated
+    frontmatter, keeping that block in the body degrades page quality and search
+    snippets.  Only strip when the text starts with frontmatter-like keys and a
+    real markdown heading appears shortly after the metadata block.
+    """
+    text = text.strip()
+    lines = text.splitlines()
+    if not lines:
+        return text
+
+    key_re = re.compile(
+        r"^(title|type|pageKind|tags|created|updated|sources|confidence|status|processed_at|source_file)\s*:",
+        re.IGNORECASE,
+    )
+    if not key_re.match(lines[0].strip()):
+        return text
+
+    heading_idx: int | None = None
+    for idx, line in enumerate(lines[:40]):
+        if line.startswith("# "):
+            heading_idx = idx
+            break
+    if heading_idx is None or heading_idx == 0:
+        return text
+
+    preamble = lines[:heading_idx]
+    frontmatterish = sum(1 for line in preamble if key_re.match(line.strip()))
+    if frontmatterish < 2:
+        return text
+
+    return "\n".join(lines[heading_idx:]).strip()
 
 
 # ---------------------------------------------------------------------------

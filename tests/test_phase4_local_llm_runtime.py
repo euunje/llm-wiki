@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from llm_wiki import config as cfg
-from llm_wiki import lint
+from llm_wiki import lint, page_writer, search
 from llm_wiki.llm import ChatMessage, OllamaClient
 
 
@@ -127,3 +127,67 @@ def test_lint_resolves_source_refs_through_mapped_page_dirs(tmp_path, monkeypatc
 
     assert report.pages_checked == 2
     assert not report.issues
+
+
+def test_strip_llm_noise_removes_delimiterless_frontmatter_preamble():
+    raw = """title: \"Claude Code\"
+type: entity
+tags: [ai-coding-agent, token-overhead]
+created: 2026-07-13
+updated: 2026-07-13
+sources: [\"sources/claude-code-vs-opencode-token-overhead.md\"]
+confidence: high
+
+# Claude Code
+
+Claude Code is an AI coding agent that incurs [[concepts/token-overhead]].
+"""
+
+    cleaned = page_writer.strip_llm_noise(raw)
+
+    assert cleaned.startswith("# Claude Code")
+    assert "title:" not in cleaned.split("# Claude Code", 1)[0]
+    assert "confidence: high" not in cleaned.split("# Claude Code", 1)[0]
+    assert "[[concepts/token-overhead]]" in cleaned
+
+
+def test_qmd_uri_hits_hydrate_against_mapped_page_dirs(tmp_path, monkeypatch):
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    root = tmp_path / "vault"
+    concept_dir = root / "20. Wiki" / "21. Concepts"
+    concept_dir.mkdir(parents=True)
+    (root / "10. Raw Sources").mkdir(parents=True)
+    config_path = runtime / "config.yml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "paths": {
+                    "root": str(root),
+                    "raw_dir": "10. Raw Sources",
+                    "wiki_dir": "20. Wiki",
+                    "internal_dir": str(runtime),
+                    "page_dirs": {"concepts": "20. Wiki/21. Concepts"},
+                    "files": {"config": str(config_path), "state_db": str(runtime / "state.sqlite")},
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LLM_WIKI_CONFIG", str(config_path))
+    paths = cfg.WikiPaths(root)
+    (concept_dir / "token-overhead.md").write_text("# Token Overhead\n\nToken costs.", encoding="utf-8")
+    hit = search._hit_from_dict(
+        {
+            "file": "qmd://llm-wiki-pages/21-Concepts/token-overhead.md",
+            "title": "Token Overhead",
+            "score": 0,
+        }
+    )
+
+    assert hit.collection == "llm-wiki-pages"
+    assert hit.path == "21-Concepts/token-overhead.md"
+    assert "Token costs" in search._read_full_content(paths, hit)
