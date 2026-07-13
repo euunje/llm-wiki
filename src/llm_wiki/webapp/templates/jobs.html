@@ -1,117 +1,89 @@
-<!DOCTYPE html>
-<html lang="en" class="h-full">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}LLM-Wiki{% endblock %}</title>
+{% extends "base.html" %}
 
-    <!-- Tailwind CSS via CDN (no build step) -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        darkMode: 'class',
-        theme: {
-          extend: {
-            colors: {
-              bg: {
-                DEFAULT: '#0f1117',
-                soft: '#161922',
-                card: '#1c1f2a',
-              },
-              accent: {
-                DEFAULT: '#7c8cff',
-                hover: '#9aa7ff',
-              },
-              border: {
-                DEFAULT: '#2a2e3a',
-              },
-              text: {
-                DEFAULT: '#e7e9f0',
-                dim: '#9ca3af',
-                muted: '#6b7280',
-              },
-            },
-            fontFamily: {
-              sans: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'system-ui', 'sans-serif'],
-              mono: ['SF Mono', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
-            },
-          }
-        }
-      }
-    </script>
+{% block title %}Jobs · LLM-Wiki{% endblock %}
 
-    <!-- HTMX for dynamic updates -->
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+{% block extra_head %}
+<style>
+    .state-badge { font-size: 10px; padding: 2px 8px; border-radius: 9999px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+    .state-queued      { background: rgba(156, 163, 175, 0.15); color: #9ca3af; }
+    .state-running     { background: rgba(124, 140, 255, 0.2); color: #9aa7ff; }
+    .state-done        { background: rgba(34, 197, 94, 0.15);  color: #4ade80; }
+    .state-failed      { background: rgba(239, 68, 68, 0.18);  color: #f87171; }
+    .state-interrupted { background: rgba(234, 179, 8, 0.18);  color: #facc15; }
+    .progress-bar-bg { background: #0f1117; height: 6px; border-radius: 3px; overflow: hidden; }
+    .progress-bar-fill { background: #7c8cff; height: 100%; transition: width 0.3s ease; }
+</style>
+{% endblock %}
 
-    <!-- Our tiny CSS overrides -->
-    <link rel="stylesheet" href="/static/app.css">
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-semibold text-white mb-1">Jobs</h1>
+    <p class="text-sm text-[#9ca3af]">Persistent ingest job history. Use this page to check queued, running, completed, failed, or interrupted ingest runs.</p>
+</div>
 
-    <!-- Favicon: simple emoji data URI -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📚</text></svg>">
-
-    {% block extra_head %}{% endblock %}
-</head>
-<body class="h-full bg-[#0f1117] text-[#e7e9f0] font-sans antialiased">
-    <div class="min-h-full flex">
-
-        <!-- Sidebar -->
-        <aside class="w-60 border-r border-[#2a2e3a] bg-[#0f1117] flex flex-col flex-shrink-0">
-            <!-- Logo / project name -->
-            <div class="p-5 border-b border-[#2a2e3a]">
-                <a href="/" class="flex items-center gap-2 group">
-                    <span class="text-2xl">📚</span>
-                    <div>
-                        <div class="text-base font-semibold text-white group-hover:text-[#9aa7ff] transition">LLM-Wiki</div>
-                        <div class="text-xs text-[#6b7280]">v{{ request.app.state.version | default('0.8.1') }}</div>
-                    </div>
-                </a>
-            </div>
-
-            <!-- Nav links -->
-            <nav class="flex-1 p-3 space-y-1">
-                {% set nav_items = [
-                    ('/', 'Dashboard', '🏠', 'dashboard'),
-                    ('/sources', 'Sources', '📥', 'sources'),
-                    ('/ingest', 'Ingest', '⚡', 'ingest'),
-                    ('/jobs', 'Jobs', '🧵', 'jobs'),
-                    ('/query', 'Query', '💬', 'query'),
-                    ('/lint', 'Lint', '🔍', 'lint'),
-                    ('/graph', 'Graph', '🕸️', 'graph'),
-                ] %}
-                {% for href, label, icon, key in nav_items %}
-                    {% if page == key %}
-                        <a href="{{ href }}" class="flex items-center gap-3 px-3 py-2 rounded-md bg-[#1c1f2a] text-white font-medium border-l-2 border-[#7c8cff]">
-                            <span class="text-base">{{ icon }}</span>
-                            <span class="text-sm">{{ label }}</span>
-                        </a>
-                    {% else %}
-                        <a href="{{ href }}" class="flex items-center gap-3 px-3 py-2 rounded-md text-[#9ca3af] hover:bg-[#1c1f2a] hover:text-white transition">
-                            <span class="text-base">{{ icon }}</span>
-                            <span class="text-sm">{{ label }}</span>
-                        </a>
-                    {% endif %}
-                {% endfor %}
-            </nav>
-
-            <!-- Footer -->
-            <div class="p-3 border-t border-[#2a2e3a] text-xs text-[#6b7280]">
-                <a href="https://github.com/NiharShrotri/llm-wiki" target="_blank" rel="noopener"
-                   class="block hover:text-[#9aa7ff] transition">
-                    GitHub →
-                </a>
-                <div class="mt-1">Running locally</div>
-            </div>
-        </aside>
-
-        <!-- Main content area -->
-        <main class="flex-1 overflow-auto">
-            <div class="max-w-6xl mx-auto px-8 py-8">
-                {% block content %}{% endblock %}
-            </div>
-        </main>
-
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+    {% for state, label in [('queued', 'Queued'), ('running', 'Running'), ('done', 'Done'), ('failed', 'Failed'), ('interrupted', 'Interrupted')] %}
+    <div class="bg-[#1c1f2a] border border-[#2a2e3a] rounded-lg p-4">
+        <div class="text-xs uppercase tracking-wide text-[#6b7280] mb-1">{{ label }}</div>
+        <div class="text-2xl font-semibold text-white">{{ counts.get(state, 0) }}</div>
     </div>
+    {% endfor %}
+</div>
 
-    {% block extra_body %}{% endblock %}
-</body>
-</html>
+<div class="flex items-center justify-between mb-3">
+    <h2 class="text-xs uppercase tracking-wide text-[#9ca3af] font-medium">Recent jobs</h2>
+    <div class="flex items-center gap-3 text-xs">
+        <a href="/ingest" class="text-[#7c8cff] hover:text-[#9aa7ff]">Start ingest →</a>
+        <button type="button" id="refreshJobsBtn" class="text-[#7c8cff] hover:text-[#9aa7ff]">Refresh</button>
+    </div>
+</div>
+
+{% if jobs %}
+<div id="jobs-list" class="bg-[#1c1f2a] border border-[#2a2e3a] rounded-lg divide-y divide-[#2a2e3a]">
+    {% for job in jobs %}
+    <div class="p-4" data-job-id="{{ job.id }}" data-state="{{ job.state }}">
+        <div class="flex items-start justify-between gap-4 mb-3">
+            <div class="min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="state-badge state-{{ job.state }}">{{ job.state }}</span>
+                    <span class="text-xs text-[#6b7280]">#{{ job.id }}</span>
+                    {% if job.source_type %}<span class="text-xs text-[#6b7280]">{{ job.source_type }}</span>{% endif %}
+                </div>
+                <code class="block text-sm text-white truncate">{{ job.source_relpath or ('source #' ~ job.source_id) }}</code>
+                <div class="text-xs text-[#6b7280] mt-1">
+                    Created {{ job.created_at }}
+                    {% if job.started_at %} · Started {{ job.started_at }}{% endif %}
+                    {% if job.finished_at %} · Finished {{ job.finished_at }}{% endif %}
+                </div>
+            </div>
+            <div class="text-right text-xs text-[#9ca3af] flex-shrink-0">
+                <div>{{ job.pages_created }} created · {{ job.pages_updated }} updated</div>
+                {% if job.phase %}<div class="mt-1">{{ job.phase }}</div>{% endif %}
+            </div>
+        </div>
+
+        <div class="progress-bar-bg mb-2">
+            <div class="progress-bar-fill" style="width: {{ (job.progress or 0) * 100 }}%"></div>
+        </div>
+        <div class="flex justify-between text-xs text-[#6b7280]">
+            <span>{{ '%.0f'|format((job.progress or 0) * 100) }}%</span>
+            {% if job.error %}<span class="text-[#f87171] truncate max-w-[70%]">{{ job.error }}</span>{% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="bg-[#1c1f2a] border border-[#2a2e3a] rounded-lg p-8 text-center">
+    <div class="text-4xl mb-3">🧵</div>
+    <h3 class="text-lg font-medium text-white mb-1">No jobs yet</h3>
+    <p class="text-sm text-[#9ca3af] mb-4">Start an ingest run to create a persistent job record.</p>
+    <a href="/ingest" class="inline-flex items-center px-4 py-2 bg-[#7c8cff] hover:bg-[#9aa7ff] text-[#0f1117] rounded-md font-medium transition">Go to Ingest</a>
+</div>
+{% endif %}
+
+<script>
+    document.getElementById('refreshJobsBtn')?.addEventListener('click', () => {
+        window.location.reload();
+    });
+</script>
+{% endblock %}
