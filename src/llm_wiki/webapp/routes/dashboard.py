@@ -116,8 +116,7 @@ def _collect_stats(paths: cfg.WikiPaths) -> dict:
     last_updated: str | None = None
     try:
         latest = 0.0
-        for sub in ("sources", "entities", "concepts", "synthesis"):
-            d = paths.wiki / sub
+        for d in (paths.sources, paths.entities, paths.concepts, paths.synthesis, paths.non_categories):
             if not d.exists():
                 continue
             for p in d.glob("*.md"):

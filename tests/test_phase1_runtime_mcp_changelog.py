@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from llm_wiki import config as cfg
 from llm_wiki.webapp.main import create_app
 from llm_wiki.webapp.routes import changelog_store
+from llm_wiki.webapp.routes.dashboard import _collect_stats
 from llm_wiki.webapp.routes.mcp import handle_mcp_request
 
 
@@ -102,6 +103,38 @@ def test_mcp_uses_configured_page_dirs_and_graph_tool(tmp_path, monkeypatch):
     graph_data = json.loads(graph_result["result"]["content"][0]["text"])
     assert set(graph_data) == {"nodes", "edges", "stats"}
     assert graph_data["stats"]["node_count"] >= 2
+
+
+def test_dashboard_last_updated_uses_configured_page_dirs(tmp_path, monkeypatch):
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    runtime = tmp_path / "runtime"
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    _write_config(
+        paths.root / ".wiki" / "config.yml",
+        {
+            "paths": {
+                "wiki_dir": "20. Wiki",
+                "internal_dir": str(runtime),
+                "page_dirs": {
+                    "synthesis": "30. Queries",
+                    "non_categories": "00. Inbox/_Review",
+                },
+            }
+        },
+    )
+    db_path = cfg.WikiPaths(paths.root).state_db
+    # Make DB stats available without forcing dashboard to create vault content.
+    from llm_wiki import db
+    db.init_db(db_path)
+
+    synthesis = paths.root / "30. Queries"
+    synthesis.mkdir(parents=True)
+    (synthesis / "answer.md").write_text("---\ntitle: Answer\ntype: synthesis\ncreated: 2026-07-13\n---\n\nBody\n", encoding="utf-8")
+
+    stats = _collect_stats(cfg.WikiPaths(paths.root))
+
+    assert stats["pages"]["synthesis"] == 1
+    assert stats["last_updated"] is not None
 
 
 def test_changelog_store_lives_under_internal_runtime(tmp_path, monkeypatch):
