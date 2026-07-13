@@ -52,11 +52,13 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body class="h-full bg-[#f6f7fb] text-[#111827] font-sans antialiased">
-    <div class="min-h-full flex">
+    <div class="min-h-full flex flex-col md:flex-row min-w-0">
 
-        <!-- Sidebar -->
+        <!-- ==============================================
+             DESKTOP SIDEBAR (hidden on mobile)
+             ============================================== -->
         {% if request.app.state.wiki_paths and request.app.state.wiki_paths.is_initialized() %}
-        <aside class="w-60 border-r border-[#e2e8f0] bg-white flex flex-col flex-shrink-0 shadow-sm">
+        <aside class="hidden md:flex w-60 border-r border-[#e2e8f0] bg-white flex-col flex-shrink-0 shadow-sm">
             <!-- Logo / project name -->
             <div class="p-5 border-b border-[#e2e8f0]">
                 <a href="/" class="flex items-center gap-2 group">
@@ -96,22 +98,160 @@
                     {% endif %}
                 {% endfor %}
             </nav>
-
-            <!-- Footer -->
-            <div class="p-3 border-t border-[#e2e8f0] text-xs text-[#64748b]">
-                <div class="mt-1">로컬 실행 중</div>
-            </div>
         </aside>
         {% endif %}
 
+        <!-- ==============================================
+             MOBILE TOPBAR + RIGHT-SIDE DRAWER
+             ============================================== -->
+        {% if request.app.state.wiki_paths and request.app.state.wiki_paths.is_initialized() %}
+        <!-- Mobile top header (visible only on screens < md) -->
+        <header class="md:hidden flex items-center justify-between bg-white border-b border-[#e2e8f0] px-4 py-3 sticky top-0 z-30">
+            <a href="/" class="flex items-center gap-2">
+                <span class="text-xl">📚</span>
+                <span class="text-base font-semibold text-[#111827]">LLM-Wiki</span>
+            </a>
+            <button
+                id="mobile-menu-button"
+                aria-label="탐색 메뉴 열기"
+                aria-expanded="false"
+                aria-controls="mobile-menu-panel"
+                class="p-2 rounded-md text-[#475569] hover:bg-[#eef2ff] hover:text-[#111827] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4f46e5]"
+            >
+                <!-- Hamburger icon -->
+                <svg id="hamburger-icon" xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+                <!-- Close (X) icon — hidden by default -->
+                <svg id="close-icon" xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </header>
+
+        <!-- Mobile drawer backdrop (click to close) -->
+        <div
+            id="mobile-menu-backdrop"
+            class="md:hidden fixed inset-0 bg-slate-900/30 z-40 hidden"
+            aria-hidden="true"
+        ></div>
+
+        <!-- Mobile navigation drawer (slides in from right) -->
+        <nav
+            id="mobile-menu-panel"
+            class="md:hidden fixed right-0 top-0 h-full w-72 max-w-[85vw] bg-white border-l border-[#e2e8f0] shadow-xl z-50 transform translate-x-full transition-transform duration-200 ease-out overflow-y-auto"
+            aria-label="주 탐색"
+        >
+            <!-- Drawer header -->
+            <div class="flex items-center justify-between p-4 border-b border-[#e2e8f0]">
+                <span class="text-base font-semibold text-[#111827]">탐색</span>
+                <button
+                    id="mobile-menu-close"
+                    aria-label="메뉴 닫기"
+                    class="p-1 rounded text-[#475569] hover:bg-[#eef2ff] hover:text-[#111827] transition"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Drawer nav links (same items as desktop sidebar) -->
+            <div class="p-3 space-y-1">
+                {% set nav_items = [
+                    ('/', '대시보드', '🏠', 'dashboard'),
+                    ('/sources', '소스', '📂', 'sources'),
+                    ('/inbox', '수신함', '📥', 'inbox'),
+                    ('/ingest', '수집', '⚡', 'ingest'),
+                    ('/jobs', '작업', '🧵', 'jobs'),
+                    ('/query', '질문', '💬', 'query'),
+                    ('/lint', '검사', '🔍', 'lint'),
+                    ('/graph', '그래프', '🕸️', 'graph'),
+                    ('/changelog', '변경사항', '📝', 'changelog'),
+                    ('/logs', '로그', '🗒️', 'logs'),
+                    ('/settings', '설정', '⚙️', 'settings'),
+                ] %}
+                {% for href, label, icon, key in nav_items %}
+                    {% if page == key %}
+                        <a href="{{ href }}" id="mobile-nav-{{ key }}" class="flex items-center gap-3 px-3 py-2 rounded-md bg-[#eef2ff] text-[#111827] font-medium border-l-2 border-[#4f46e5]">
+                            <span class="text-base">{{ icon }}</span>
+                            <span class="text-sm">{{ label }}</span>
+                        </a>
+                    {% else %}
+                        <a href="{{ href }}" id="mobile-nav-{{ key }}" class="flex items-center gap-3 px-3 py-2 rounded-md text-[#475569] hover:bg-[#eef2ff] hover:text-[#111827] transition">
+                            <span class="text-base">{{ icon }}</span>
+                            <span class="text-sm">{{ label }}</span>
+                        </a>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </nav>
+        {% endif %}
+
         <!-- Main content area -->
-        <main class="flex-1 overflow-auto">
-            <div class="max-w-6xl mx-auto px-8 py-8">
+        <main class="flex-1 overflow-auto min-w-0">
+            <div class="max-w-6xl mx-auto px-4 py-6 md:px-8 md:py-8">
                 {% block content %}{% endblock %}
             </div>
         </main>
 
     </div>
+
+    <script>
+    (function() {
+        var btn = document.getElementById('mobile-menu-button');
+        var panel = document.getElementById('mobile-menu-panel');
+        var backdrop = document.getElementById('mobile-menu-backdrop');
+        var closeBtn = document.getElementById('mobile-menu-close');
+        var hamburgerIcon = document.getElementById('hamburger-icon');
+        var closeIcon = document.getElementById('close-icon');
+
+        function openMenu() {
+            panel.classList.remove('translate-x-full');
+            backdrop.classList.remove('hidden');
+            btn.setAttribute('aria-expanded', 'true');
+            hamburgerIcon.classList.add('hidden');
+            closeIcon.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeMenu() {
+            panel.classList.add('translate-x-full');
+            backdrop.classList.add('hidden');
+            btn.setAttribute('aria-expanded', 'false');
+            hamburgerIcon.classList.remove('hidden');
+            closeIcon.classList.add('hidden');
+            document.body.style.overflow = '';
+        }
+
+        if (btn && panel && backdrop) {
+            btn.addEventListener('click', function() {
+                var isOpen = btn.getAttribute('aria-expanded') === 'true';
+                if (isOpen) closeMenu(); else openMenu();
+            });
+
+            backdrop.addEventListener('click', closeMenu);
+
+            if (closeBtn) closeBtn.addEventListener('click', closeMenu);
+
+            // Close on Escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    var isOpen = btn.getAttribute('aria-expanded') === 'true';
+                    if (isOpen) closeMenu();
+                }
+            });
+
+            // Close after selecting a nav link (simple approach)
+            var navLinks = panel.querySelectorAll('a');
+            navLinks.forEach(function(link) {
+                link.addEventListener('click', function() {
+                    closeMenu();
+                });
+            });
+        }
+    })();
+    </script>
 
     {% block extra_body %}{% endblock %}
 </body>

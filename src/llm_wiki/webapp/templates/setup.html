@@ -132,7 +132,7 @@
             <div class="space-y-4">
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600">Setup Mode & Folder Configuration</label>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <!-- Option A: Clean Scaffold -->
                     <div id="setup-type-new" onclick="setSetupType('new')" 
                          class="cursor-pointer border-2 border-brand-500 bg-brand-500/5 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-brand-400">
@@ -256,7 +256,7 @@
 
                                 <details open class="p-3 border border-slate-200 bg-dark-950/30 rounded-lg">
                                     <summary class="cursor-pointer text-[11px] font-bold text-slate-800">🧭 Full folder map shown to new users and saved in config</summary>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3" id="full-path-map">
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-3" id="full-path-map">
                                         <label class="text-[10px] text-slate-600">Source summaries<input id="sources_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/sources"></label>
                                         <label class="text-[10px] text-slate-600">엔티티<input id="entities_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/entities"></label>
                                         <label class="text-[10px] text-slate-600">개념<input id="concepts_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/concepts"></label>
@@ -285,7 +285,7 @@
             <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600 mb-4">LLM Integration Settings</h3>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                     <!-- LLM Provider -->
                     <div class="space-y-1">
                         <label for="llm_provider" class="block text-xs text-slate-600 font-medium">Provider</label>
@@ -309,7 +309,7 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-3">
                     <!-- API Key (Conditional) -->
                     <div id="apiKeyContainer" class="space-y-1">
                         <label for="api_key" class="block text-xs text-slate-600 font-medium">API Key</label>
@@ -338,7 +338,7 @@
                     <span id="connection상태" class="text-[11px] font-medium hidden"></span>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <!-- Temperature -->
                     <div class="space-y-2">
                         <div class="flex justify-between text-xs">
@@ -654,7 +654,7 @@
             return path;
         }
 
-        function setModal상태(message, kind = 'info') {
+        function setModalStatus(message, kind = 'info') {
             modal상태.className = `text-[11px] ${kind === 'error' ? 'text-rose-600' : kind === 'success' ? 'text-emerald-600' : 'text-slate-600'}`;
             modal상태.textContent = message;
             modal상태.classList.remove('hidden');
@@ -759,7 +759,7 @@
         modalCreateFolderBtn.addEventListener('click', async () => {
             const name = (modalNewFolderName.value || '').trim();
             if (!name) {
-                setModal상태('Enter a folder name to create under the current folder.', 'error');
+                setModalStatus('Enter a folder name to create under the current folder.', 'error');
                 return;
             }
             modalCreateFolderBtn.setAttribute('disabled', 'true');
@@ -774,14 +774,14 @@
                     throw new Error(result.detail || result.error || '실패 to create folder.');
                 }
                 modalNewFolderName.value = '';
-                setModal상태(`Created: ${result.path}`, 'success');
+                setModalStatus(`Created: ${result.path}`, 'success');
                 await loadDirectories(result.path);
                 if (folderPickerTargetInputId) {
                     const input = document.getElementById(folderPickerTargetInputId);
                     if (input) input.value = relativeToProject(result.path);
                 }
             } catch (err) {
-                setModal상태(err.message, 'error');
+                setModalStatus(err.message, 'error');
             } finally {
                 modalCreateFolderBtn.removeAttribute('disabled');
             }
@@ -938,7 +938,7 @@
                     const parentValue = currentValue.replace(/\/[^/]*$/, '') || '.';
                     const startPath = root ? joinPath(root, parentValue) : currentValue;
                     openWebFolderExplorer(startPath, inputId);
-                    setModal상태('Create a child folder here; it will be mapped to this role automatically.', 'info');
+                    setModalStatus('Create a child folder here; it will be mapped to this role automatically.', 'info');
                 });
 
                 row.appendChild(chooseBtn);

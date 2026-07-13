@@ -4,7 +4,7 @@
 
 {% block content %}
 
-<div class="mb-6 flex items-start justify-between">
+<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
     <div>
         <h1 class="text-3xl font-semibold text-[#111827] mb-1">검사</h1>
         <p class="text-sm text-[#475569]">손상된 링크, 고아 페이지, 잘못된 프론트매터 등을 점검하는 상태 검사용 페이지입니다.</p>
@@ -36,8 +36,8 @@
 {% endif %}
 
 <!-- Health summary -->
-<div class="grid grid-cols-4 gap-4 mb-8">
-    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5">
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5 min-w-0">
         <div class="text-xs text-[#64748b] uppercase tracking-wide mb-2">상태 점수</div>
         {% if report.score >= 80 %}
             <div class="text-3xl font-semibold text-green-600">{{ report.score }}</div>
@@ -49,19 +49,19 @@
         <div class="text-xs text-[#64748b] mt-2">/ 100</div>
     </div>
 
-    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5">
+    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5 min-w-0">
         <div class="text-xs text-[#64748b] uppercase tracking-wide mb-2">오류</div>
         <div class="text-3xl font-semibold {% if report.errors_count > 0 %}text-red-500{% else %}text-[#64748b]{% endif %}">{{ report.errors_count }}</div>
         <div class="text-xs text-[#64748b] mt-2">조치 필요</div>
     </div>
 
-    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5">
+    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5 min-w-0">
         <div class="text-xs text-[#64748b] uppercase tracking-wide mb-2">경고</div>
         <div class="text-3xl font-semibold {% if report.warnings_count > 0 %}text-yellow-500{% else %}text-[#64748b]{% endif %}">{{ report.warnings_count }}</div>
         <div class="text-xs text-[#64748b] mt-2">스타일 관련</div>
     </div>
 
-    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5">
+    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5 min-w-0">
         <div class="text-xs text-[#64748b] uppercase tracking-wide mb-2">검사된 페이지</div>
         <div class="text-3xl font-semibold text-[#111827]">{{ report.pages_checked }}</div>
         <div class="text-xs text-[#64748b] mt-2">{{ "%.2f"|format(report.duration) }}초 소요</div>

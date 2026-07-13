@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex justify-between items-center">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
             <h1 class="text-2xl font-bold text-[#111827]">수집 감사 로그</h1>
             <p class="text-sm text-[#475569]">전체 pipeline 실행과 LLM 추출 과정을 추적합니다.</p>
@@ -31,7 +31,7 @@
     {% else %}
     <div class="bg-[#ffffff] rounded-lg border border-[#e2e8f0] overflow-hidden">
         <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm">
+            <table class="w-full min-w-[760px] text-left text-sm">
                 <thead class="bg-[#f6f7fb] text-[#475569] uppercase text-xs">
                     <tr>
                         <th class="px-6 py-3">Log ID</th>

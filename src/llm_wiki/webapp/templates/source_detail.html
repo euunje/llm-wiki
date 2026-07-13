@@ -9,7 +9,7 @@
     <a href="/sources" class="hover:text-[#4338ca] transition">← 소스</a>
 </div>
 
-<div class="mb-6 flex items-start justify-between gap-4">
+<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between gap-4">
     <div class="min-w-0 flex-1">
         <h1 class="text-2xl font-semibold text-[#111827] mb-1">{{ title }}</h1>
         <p class="text-sm text-[#475569] font-mono truncate">{{ source.relpath }}</p>
@@ -37,7 +37,7 @@
 </div>
 {% endif %}
 
-<div class="grid grid-cols-3 gap-6">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
     <!-- 메타데이터 + related pages -->
     <div class="col-span-1 space-y-6">
@@ -68,15 +68,15 @@
             <div class="bg-[#ffffff] border border-[#e2e8f0] rounded-lg overflow-hidden">
                 <ul class="divide-y divide-[#e2e8f0]">
                     {% for p in related_pages %}
-                    <li class="px-4 py-2 flex items-center gap-2">
+                    <li class="px-4 py-2 flex items-center gap-2 min-w-0">
                         {% if p.operation == 'created' %}
-                            <span class="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 font-medium">+</span>
+                            <span class="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-200 font-medium">+</span>
                         {% elif p.operation == 'updated' %}
-                            <span class="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-medium">↑</span>
+                            <span class="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-medium">↑</span>
                         {% else %}
-                            <span class="text-xs px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-300 font-medium">{{ p.operation[:1] }}</span>
+                            <span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 font-medium">{{ p.operation[:1] }}</span>
                         {% endif %}
-                        <span class="text-xs font-mono text-[#475569]">{{ p.path }}</span>
+                        <span class="text-xs font-mono text-[#475569] truncate min-w-0" title="{{ p.path }}">{{ p.path }}</span>
                     </li>
                     {% endfor %}
                 </ul>
@@ -96,7 +96,7 @@
     </div>
 
     <!-- 텍스트 미리보기 -->
-    <div class="col-span-2">
+    <div class="lg:col-span-2 min-w-0">
         <h2 class="text-sm font-semibold text-[#475569] uppercase tracking-wide mb-3">텍스트 미리보기</h2>
         {% if preview %}
         <div class="bg-[#ffffff] border border-[#e2e8f0] rounded-lg overflow-hidden">

@@ -3,7 +3,7 @@
 {% block title %}설정 · LLM-Wiki{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
+<div class="space-y-6 min-w-0">
     <div>
         <h1 class="text-2xl font-bold text-[#111827]">시스템 설정</h1>
         <p class="text-sm text-[#475569]">LLM, 청킹 설정, 프롬프트 템플릿 및 integrations을 설정합니다.</p>
@@ -11,7 +11,7 @@
 
     <!-- Settings Subtabs -->
     <div class="border-b border-[#e2e8f0]">
-        <nav class="flex space-x-6" aria-label="Tabs">
+        <nav class="flex gap-4 overflow-x-auto pb-px" aria-label="Tabs">
             <button onclick="switchTab('general')" id="tab-btn-general" class="border-b-2 border-[#4f46e5] pb-4 px-1 text-sm font-medium text-[#111827]">
                 일반 및 청킹
             </button>
@@ -29,7 +29,7 @@
         <form id="general-settings-form" class="space-y-6">
             <div class="bg-white rounded-lg border border-[#e2e8f0] p-6 space-y-6">
                 <h2 class="text-lg font-medium text-[#111827]">LLM 설정</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div>
                         <label class="block text-sm font-medium text-[#475569] mb-2">Provider</label>
                         <select name="llm_provider" id="settings_llm_provider" onchange="toggleSettingsApiKey()" class="w-full bg-[#f1f5f9] border border-[#e2e8f0] rounded-md px-3 py-2 text-[#111827] focus:outline-none focus:border-[#4f46e5]">
@@ -59,7 +59,7 @@
                         {% set api_key_val = env.OPENAI_API_KEY or env.ANTHROPIC_API_KEY or env.GEMINI_API_KEY or "" %}
                         <input type="password" name="llm_api_key" value="{{ api_key_val }}" placeholder="API Key 입력" class="w-full bg-[#f1f5f9] border border-[#e2e8f0] rounded-md px-3 py-2 text-[#111827] focus:outline-none focus:border-[#4f46e5]">
                     </div>
-                    <div class="col-span-1 md:col-span-2 flex items-center justify-between pb-2 border-b border-[#e2e8f0] mt-2 mb-2">
+                    <div class="col-span-1 lg:col-span-2 flex items-center justify-between pb-2 border-b border-[#e2e8f0] mt-2 mb-2">
                         <button type="button" id="settingsTestConnBtn" onclick="testSettingsConnection()"
                                 class="text-xs font-semibold text-[#4f46e5] hover:text-[#4338ca] transition duration-150 flex items-center gap-1.5 bg-[#4f46e5]/10 hover:bg-[#4f46e5]/20 px-3 py-1.5 rounded border border-[#4f46e5]/20 active:scale-[0.98]">
                             <span>🔌 연결 테스트 및 Model 목록 불러오기</span>
@@ -68,7 +68,7 @@
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                         </button>
-                        <span id="settingsConnection상태" class="text-[11px] font-medium hidden"></span>
+                        <span id="settingsConnectionStatus" class="text-[11px] font-medium hidden"></span>
                     </div>
                 </div>
                 </div>
@@ -108,7 +108,7 @@
 
             <div class="bg-[#ffffff] rounded-lg border border-[#e2e8f0] p-6 space-y-6">
                 <h2 class="text-lg font-medium text-[#111827]">환경변수 설정 (.env)</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {% for key, val in env.items() %}
                     <div>
                         <label class="block text-sm font-medium text-[#475569] mb-2">{{ key }}</label>
@@ -134,11 +134,11 @@
     <!-- PROMPTS TAB -->
     <div id="tab-prompts" class="hidden space-y-6">
         <div class="bg-[#ffffff] rounded-lg border border-[#e2e8f0] p-6 space-y-6">
-            <div class="flex justify-between items-center">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between min-w-0">
                 <h2 class="text-lg font-medium text-[#111827]">Prompt 템플릿 편집기</h2>
-                <div>
+                <div class="min-w-0">
                     <label class="text-sm font-medium text-[#475569] mr-2">선택된 Prompt:</label>
-                    <select id="prompt-selector" onchange="loadPromptEditor()" class="bg-[#f1f5f9] border border-[#e2e8f0] rounded-md px-3 py-1.5 text-[#111827]">
+                    <select id="prompt-selector" onchange="loadPromptEditor()" class="w-full sm:w-auto bg-[#f1f5f9] border border-[#e2e8f0] rounded-md px-3 py-1.5 text-[#111827]">
                         <option value="system">System Prompt</option>
                         <option value="extract">Pass 1: Extract Template</option>
                         <option value="new_entity">Pass 2: New Entity Template</option>
@@ -270,7 +270,7 @@
         
         const btn = document.getElementById('settingsTestConnBtn');
         const spinner = document.getElementById('settingsTestSpinner');
-        const status = document.getElementById('settingsConnection상태');
+        const status = document.getElementById('settingsConnectionStatus');
         
         spinner.classList.remove('hidden');
         status.className = "text-[11px] font-medium text-slate-600";

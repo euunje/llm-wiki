@@ -87,7 +87,7 @@
             <button onclick="hideCreateModal()" class="text-text-dim hover:text-[#111827] text-xl">&times;</button>
         </div>
         <form id="create-form" onsubmit="submitCreate(event)" class="p-5 space-y-4">
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-xs text-text-dim mb-1">변경자 *</label>
                     <input type="text" name="changed_by" required
@@ -112,7 +112,7 @@
                     class="w-full bg-bg-soft border border-border text-text rounded px-3 py-2 text-sm focus:border-accent outline-none"
                     placeholder="왜 변경했나요?">
             </div>
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-xs text-text-dim mb-1">소스 파일</label>
                     <input type="text" name="source_file"
