@@ -135,14 +135,14 @@ def _configured_page_type_dirs(paths: cfg.WikiPaths) -> list[tuple[str, Path]]:
 
 
 def _inventory_relpath(paths: cfg.WikiPaths, logical_name: str, md_path: Path) -> str:
-    """Return a stable inventory path for a markdown page."""
-    try:
-        return md_path.relative_to(paths.wiki).as_posix()
-    except ValueError:
-        try:
-            return md_path.relative_to(paths.root).as_posix()
-        except ValueError:
-            return f"{logical_name}/{md_path.name}"
+    """Return the logical inventory path for a configured markdown page.
+
+    Runtime config may map logical page dirs to physical folders such as
+    ``20. Wiki/21. Concepts``.  Lint/link logic should still reason in the
+    stable logical namespace used by wikilinks and frontmatter:
+    ``concepts/foo``, ``entities/bar``, ``sources/baz``.
+    """
+    return f"{logical_name}/{md_path.name}"
 
 
 def _build_inventory(paths: cfg.WikiPaths) -> PageInventory:
@@ -526,7 +526,7 @@ def check_stale_source_refs(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
             # Should be sources/<slug>
             if not normalized.startswith("sources/"):
                 continue
-            source_file = paths.wiki / (normalized + ".md")
+            source_file = paths.page_dir("sources") / (normalized.removeprefix("sources/") + ".md")
             if not source_file.exists():
                 issues.append(
                     LintIssue(

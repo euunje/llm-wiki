@@ -669,11 +669,12 @@ def ingest(
 
     host = llm_cfg.get("host", "http://localhost:11434")
     model = llm_cfg.get("model", "qwen3:14b")
+    timeout = float(llm_cfg.get("timeout", 300.0))
 
-    # Verify Ollama is reachable before doing anything
+    # Verify the configured LLM endpoint is reachable before doing anything
     console.print()
-    console.print(f"[dim]Checking Ollama at {host} …[/dim]")
-    client = OllamaClient(host=host, model=model)
+    console.print(f"[dim]Checking LLM at {host} …[/dim]")
+    client = OllamaClient(host=host, model=model, timeout=timeout)
     try:
         client.ensure_ready()
     except OllamaNotRunning as e:
@@ -686,7 +687,7 @@ def ingest(
         _err(f"LLM check failed: {e}")
         raise typer.Exit(code=1)
 
-    _ok(f"Ollama ready · model=[bold]{model}[/bold]")
+    _ok(f"LLM ready · model=[bold]{model}[/bold]")
 
     mode = "batch" if batch else "interactive"
     thinking = not no_thinking

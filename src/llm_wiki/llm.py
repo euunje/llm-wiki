@@ -93,7 +93,38 @@ class OllamaClient:
         if not self.provider:
             self.provider = "ollama"
 
+        if not self.api_key and self.provider in ("openai", "openai-local"):
+            self.api_key = self._resolve_api_key()
+
         self._client = httpx.Client(timeout=timeout)
+
+    def _resolve_api_key(self) -> str | None:
+        """Resolve API keys for OpenAI-compatible endpoints without storing secrets in config."""
+        key_names = ["OPENAI_API_KEY"]
+        if self.provider == "openai-local":
+            key_names.insert(0, "LOCAL_LLM_API_KEY")
+
+        for key in key_names:
+            value = os.getenv(key)
+            if value:
+                return value
+
+        env_file = os.environ.get("ENV_FILE_PATH")
+        env_paths = []
+        if env_file:
+            env_paths.append(Path(env_file))
+        env_paths.append(Path.home() / ".hermes" / ".env")
+
+        for env_path in env_paths:
+            if not env_path.exists():
+                continue
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                if "=" not in line or line.strip().startswith("#"):
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() in key_names and v.strip():
+                    return v.strip()
+        return None
 
     def close(self) -> None:
         self._client.close()
@@ -214,7 +245,14 @@ class OllamaClient:
                 "temperature": temperature,
             }
             if json_mode:
-                payload["response_format"] = {"type": "json_object"}
+                if self.provider == "openai-local":
+                    # Some local OpenAI-compatible servers (LM Studio-compatible)
+                    # reject OpenAI's legacy json_object mode and accept only
+                    # text/json_schema. Keep transport compatible and rely on
+                    # the extraction prompt's strict JSON instructions.
+                    payload["response_format"] = {"type": "text"}
+                else:
+                    payload["response_format"] = {"type": "json_object"}
 
             headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
             try:
