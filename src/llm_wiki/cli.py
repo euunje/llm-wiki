@@ -542,7 +542,7 @@ class CliIngestCallbacks(ingest_llm.IngestCallbacks):
         console.print("[dim]  parsing…[/dim]")
 
     def on_extracting(self) -> None:
-        console.print("[dim]  extracting entities and concepts (thinking mode)…[/dim]")
+        console.print("[dim]  extracting candidates…[/dim]")
 
     def on_extracted(self, extraction: ingest_llm.Extraction) -> None:
         console.print()
