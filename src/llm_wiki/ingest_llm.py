@@ -1,8 +1,9 @@
 """LLM ingest pipeline — the orchestrator for `wiki ingest`.
 
 Three-pass flow per source:
-    1. EXTRACT — JSON: summary, entities, concepts, takeaways
-    2. DRAFT  — one wiki page per entity and concept (or MERGE if exists)
+    1. EXTRACT — JSON: summary, candidates, takeaways
+    2. DRAFT  — one wiki page per entity/concept candidate; review candidates
+                are staged deterministically in non_categories/
     3. SOURCE — the sources/<slug>.md summary page
 
 After all passes: index.md is rebuilt and log.md is appended.

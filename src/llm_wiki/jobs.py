@@ -259,7 +259,7 @@ class _JobCallbacks(ingest_llm.IngestCallbacks):
         self._emit(
             "status",
             {
-                "text": "Extracting entities and concepts (thinking mode)…",
+                "text": "Extracting candidates (thinking mode)…",
                 "phase": "extracting",
             },
         )

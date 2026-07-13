@@ -10,30 +10,35 @@
 ```
 .
 ├── raw/         ← Source documents. IMMUTABLE. Read-only for the agent.
-├── wiki/        ← LLM-maintained markdown. The agent owns this layer entirely.
-│   ├── index.md       ← Auto-maintained catalog of every wiki page.
-│   ├── log.md         ← Append-only chronological history.
-│   ├── sources/       ← One summary page per ingested source.
-│   ├── entities/      ← People, places, organizations, models, products.
-│   ├── concepts/      ← Topics, techniques, theories, ideas.
-│   └── synthesis/     ← Overview pages, comparisons, evolving theses.
-└── schema/AGENTS.md   ← This file.
+├── wiki/        ← LLM-maintained markdown. The agent owns generated pages here.
+│   ├── index.md          ← Auto-maintained catalog of generated wiki pages.
+│   ├── log.md            ← Append-only chronological history.
+│   ├── sources/          ← One summary page per ingested source.
+│   ├── entities/         ← People, places, organizations, models, products.
+│   ├── concepts/         ← Topics, techniques, theories, ideas.
+│   ├── synthesis/        ← Overview pages, comparisons, evolving theses.
+│   └── non_categories/   ← Review queue for ambiguous or externally owned items.
+└── schema/AGENTS.md      ← This file.
 ```
+
+Configured installs may map these logical folders to different physical paths.
+Always follow the project config rather than hard-coding `wiki/<folder>`.
 
 ## 2. Page conventions
 
-Every wiki page must:
+Every generated wiki page must:
 
 1. **Start with YAML frontmatter** containing at minimum:
    ```yaml
    ---
    title: "Page Title"
-   type: source | entity | concept | synthesis
+   type: source | entity | concept | synthesis | review
+   pageKind: source | entity | concept | synthesis | review  # optional for legacy pages; required for review items
    tags: [tag1, tag2]
    created: YYYY-MM-DD
    updated: YYYY-MM-DD
-   sources: ["sources/source-slug.md"]   # which source pages contributed
-   confidence: high | medium | low        # how confident is the synthesis
+   sources: ["sources/source-slug.md"]
+   confidence: high | medium | low
    ---
    ```
 
@@ -52,25 +57,54 @@ Every wiki page must:
 ## 3. Page types
 
 ### `sources/<slug>.md`
-A summary of one ingested source. Contains: bibliographic info (title,
-author, date, URL/path), 3–8 bullet key takeaways, a "Related pages" section
-listing every entity/concept page touched by this source.
+A summary of one ingested source. Contains bibliographic info, 3–8 bullet key
+takeaways, and related entity/concept pages touched by this source.
 
 ### `entities/<slug>.md`
 A page about a single named thing (person, lab, model, product, place).
-Sections: brief description, key facts, relationships (`[[wikilinks]]` to
-related entities), references back to source pages.
 
 ### `concepts/<slug>.md`
-A page about an idea, technique, or topic. Sections: definition, why it
-matters, key examples, related concepts, source references.
+A page about an idea, technique, or topic.
 
 ### `synthesis/<slug>.md`
-Overview pages, comparisons, the "evolving thesis." These are higher-order
-pages that draw conclusions across multiple sources. Update these when new
-sources strengthen, weaken, or contradict the thesis.
+Overview pages, comparisons, and evolving theses across multiple sources.
 
-## 4. Naming rules
+### `non_categories/<slug>.md`
+A pending review item. Use this for low-confidence, ambiguous, or externally
+owned content. Review pages must have:
+
+```yaml
+type: review
+pageKind: review
+status: pending_review
+```
+
+If the item belongs to another system, include `suggestedExternalOwner`:
+
+```yaml
+suggestedExternalOwner: 8000-web-config  # guide-like operational/config/playbook content
+suggestedExternalOwner: mcp-map          # map/MOC/navigation/graph content
+```
+
+## 4. Routing rules
+
+The ingest extractor uses candidates with `pageKind`:
+
+- `entity` → generate or merge an entity page.
+- `concept` → generate or merge a concept page.
+- `review` → create a deterministic review item in `non_categories/`; do not
+  draft a normal wiki page for it.
+
+Do **not** auto-generate static guide/map pages from ingest:
+
+- Guide-like content — runbooks, tutorials, how-tos, cheatsheets, deployment
+  notes, operational configs — should become `pageKind: review` with
+  `suggestedExternalOwner: 8000-web-config`.
+- Map/MOC-like content — navigation hubs, graph maps, relationship maps,
+  index pages — should become `pageKind: review` with
+  `suggestedExternalOwner: mcp-map`.
+
+## 5. Naming rules
 
 - **Slugs are kebab-case lowercase ASCII.** `karpathy.md`, not `Karpathy.md`
   or `andrej_karpathy.md`.
@@ -78,27 +112,26 @@ sources strengthen, weaken, or contradict the thesis.
   necessary (`apple-inc.md` vs `apple-fruit.md`).
 - **Acronyms stay together** (`rag.md`, `llm.md`, not `r-a-g.md`).
 
-## 5. Ingest workflow
+## 6. Ingest workflow
 
 When a new source arrives in `raw/`:
 
 1. **Read** the full source.
-2. **Identify** every named entity and significant concept.
+2. **Extract candidates** with `pageKind: entity | concept | review`.
 3. **Write** `sources/<slug>.md` with the summary.
-4. **For each entity:**
-   - If `entities/<slug>.md` exists → append new info, update `updated` date,
-     add this source to its `sources` frontmatter list.
-   - Else → create the page.
-5. **For each concept:** same as entities, but in `concepts/`.
-6. **Update `synthesis/`** pages where this source changes the picture.
-7. **Append to `log.md`:** `## [YYYY-MM-DD] ingest | <source title>` followed
-   by a bullet list of pages created/updated.
-8. **Update `index.md`** with any new pages.
+4. **For each entity candidate:** merge/create under `entities/`.
+5. **For each concept candidate:** merge/create under `concepts/`.
+6. **For each review candidate:** create/update a pending review item under
+   `non_categories/` without an extra LLM drafting call.
+7. **Update `synthesis/`** pages only when explicitly requested or saved from a
+   query result.
+8. **Append to `log.md`** and **update `index.md`**.
 
-A single source typically touches **8–15** wiki pages. That's normal and
-expected.
+A single source may create fewer normal wiki pages than older versions because
+ambiguous, guide-like, or map-like material is now held for review instead of
+being filed automatically.
 
-## 6. Query workflow
+## 7. Query workflow
 
 When the user asks a question:
 
@@ -109,7 +142,7 @@ When the user asks a question:
 5. **Offer to save** the answer back as a `synthesis/` page if it's a
    non-trivial new analysis.
 
-## 7. Lint workflow
+## 8. Lint workflow
 
 When the user runs `wiki lint`:
 
@@ -117,12 +150,12 @@ When the user runs `wiki lint`:
 - **Orphans:** Pages with no inbound `[[wikilinks]]`. Suggest linking or
   deleting.
 - **Stale claims:** Older claims contradicted by newer sources.
-- **Missing pages:** Concepts mentioned 3+ times across the wiki without
-  having their own page.
-- **Suggested questions:** Topics where the wiki is thin and a question
-  could uncover new directions.
+- **Missing pages:** Concepts mentioned repeatedly without their own page.
+- **Review queue:** Keep `non_categories/` as pending review; promote only to
+  `entities/`, `concepts/`, or `synthesis/` unless the project config says
+  otherwise.
 
-## 8. Contradiction handling
+## 9. Contradiction handling
 
 When new source contradicts existing wiki claim:
 
@@ -133,11 +166,12 @@ When new source contradicts existing wiki claim:
 - **Update `confidence:` frontmatter** to `medium` or `low` if the
   disagreement is significant.
 
-## 9. Frontmatter date format
+## 10. Frontmatter date format
 
-Always `YYYY-MM-DD` (ISO 8601 calendar date). No times.
+Always `YYYY-MM-DD` (ISO 8601 calendar date). Use timestamps only in machine
+fields such as `processed_at`.
 
-## 10. What the agent must never do
+## 11. What the agent must never do
 
 - ❌ **Never edit `raw/`.** Sources are immutable.
 - ❌ **Never delete a wiki page** without explicit user confirmation.
@@ -145,6 +179,8 @@ Always `YYYY-MM-DD` (ISO 8601 calendar date). No times.
 - ❌ **Never invent citations.** If you don't know which source supports a
   claim, mark it `confidence: low` and leave the source field empty.
 - ❌ **Never use plain markdown links** between wiki pages. Use `[[wikilinks]]`.
+- ❌ **Never auto-file guide-like or map-like material as normal wiki pages.**
+  Route it to review with the appropriate `suggestedExternalOwner`.
 
 ---
 

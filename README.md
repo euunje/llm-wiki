@@ -41,13 +41,13 @@ wiki lint --fix
 open wiki/
 ```
 
-각 ingest는 YAML frontmatter와 `[[wikilinks]]`로 연결된 `sources/`, `entities/`, `concepts/` 페이지 묶음을 생성합니다. 각 query는 하이브리드 BM25 + vector + LLM rerank 검색으로 상위 페이지를 찾은 뒤, 근거가 포함된 답변을 생성합니다. 각 lint 실행은 끊어진 링크, 고아 페이지, 잘못된 frontmatter, 소스의 잡음, 그리고 옵션에 따라 LLM이 찾아내는 페이지 간 모순까지 검사합니다.
+각 ingest는 YAML frontmatter와 `[[wikilinks]]`로 연결된 `sources/`, `entities/`, `concepts/` 페이지를 생성하고, 애매하거나 운영 가이드/맵 성격인 항목은 `non_categories/` review queue에 보류합니다. 각 query는 하이브리드 BM25 + vector + LLM rerank 검색으로 상위 페이지를 찾은 뒤, 근거가 포함된 답변을 생성합니다. 각 lint 실행은 끊어진 링크, 고아 페이지, 잘못된 frontmatter, 소스의 잡음, 그리고 옵션에 따라 LLM이 찾아내는 페이지 간 모순까지 검사합니다.
 
 ## 기능
 
 ### 핵심 기능
-- **점진적 ingest** - 파일을 넣고 `wiki ingest`를 실행하면 8–15개의 상호 연결된 위키 페이지가 생성됩니다.
-- **구조화된 추출** - Qwen3가 각 소스에서 엔티티(사람, 조직, 모델), 개념, 핵심 요점을 식별합니다.
+- **점진적 ingest** - 파일을 넣고 `wiki ingest`를 실행하면 상호 연결된 source/entity/concept 페이지와 필요한 review queue 항목이 생성됩니다.
+- **구조화된 후보 추출** - Qwen3가 각 소스에서 `candidate`를 추출하고 `pageKind: entity | concept | review`로 분류합니다. 운영 가이드/맵 성격 항목은 자동 페이지가 아니라 review queue로 갑니다.
 - **스마트 병합** - 관련 소스를 다시 ingest하면 기존 엔티티/개념 페이지를 덮어쓰지 않고 업데이트해 계보를 보존합니다.
 - **하이브리드 검색** - BM25 전문 검색 + vector embedding + LLM reranking을 모두 로컬에서 수행합니다([QMD](https://github.com/tobi/qmd) 사용).
 - **3방향 질의 범위** - `Wiki`(LLM이 컴파일한 페이지 기반의 주제별 답변), `Raw`(원본 문서에서의 정확한 조회), `Hybrid`(둘 다) 중 선택할 수 있습니다.
@@ -97,7 +97,7 @@ Karpathy의 설명을 따라 3개 계층으로 구성됩니다.
 ```
 
 - **`raw/`** - 원본 문서입니다. 변경 불가이며, 에이전트는 읽기만 하고 수정하지 않습니다.
-- **`wiki/`** - LLM이 유지보수하는 마크다운입니다. 페이지 유형별 폴더(`sources/`, `entities/`, `concepts/`, `synthesis/`)와 자동 생성되는 `index.md`, `log.md`가 있습니다. Obsidian에서 열면 됩니다.
+- **`wiki/`** - LLM이 유지보수하는 마크다운입니다. 페이지 유형별 폴더(`sources/`, `entities/`, `concepts/`, `synthesis/`, `non_categories/`)와 자동 생성되는 `index.md`, `log.md`가 있습니다. `non_categories/`는 애매한 후보, low-confidence 후보, 또는 외부 소유 guide/map 후보를 보류하는 review queue입니다. Obsidian에서 열면 됩니다.
 - **`schema/AGENTS.md`** - 규칙 문서입니다. LLM이 페이지를 어떻게 포맷할지, 언제 merge와 create를 구분할지, 어떻게 인용할지, 모순을 어떻게 다룰지 알려 줍니다. 선호가 바뀌면 이 파일을 수정하면 됩니다.
 - **`.wiki/`** - 내부 상태 저장소입니다. SQLite ingest 이력, QMD 검색 인덱스, 설정이 들어 있으며 git ignore 대상입니다.
 
@@ -105,9 +105,9 @@ Karpathy의 설명을 따라 3개 계층으로 구성됩니다.
 
 각 소스는 세 단계의 LLM 패스를 거칩니다.
 
-1. **추출**(thinking mode on) - Qwen3가 소스를 읽고 요약, 핵심 요점, 명명된 엔티티, 개념, 태그를 포함한 구조화된 JSON을 반환합니다.
-2. **페이지 작성**(streaming, thinking mode off) - 엔티티/개념마다 한 번씩 호출합니다. 새 페이지를 처음부터 작성하거나, 기존 페이지에 새 정보를 *병합*합니다(기존 내용 유지, 날짜 갱신, `sources:` frontmatter에 추가).
-3. **소스 요약** - `sources/<slug>.md` 페이지를 작성해 이 소스가 건드린 모든 위키 페이지를 provenance 용도로 나열합니다.
+1. **추출**(thinking mode on) - Qwen3가 소스를 읽고 요약, 핵심 요점, 태그, 그리고 `pageKind: entity | concept | review` 후보를 포함한 구조화된 JSON을 반환합니다. legacy `entities[]`/`concepts[]`도 계속 허용됩니다.
+2. **페이지 작성**(streaming, thinking mode off) - entity/concept 후보마다 한 번씩 호출합니다. 새 페이지를 처음부터 작성하거나, 기존 페이지에 새 정보를 *병합*합니다. `review` 후보는 추가 LLM 호출 없이 `non_categories/`에 deterministic review note로 저장됩니다.
+3. **소스 요약** - `sources/<slug>.md` 페이지를 작성해 이 소스가 건드린 모든 위키/리뷰 페이지를 provenance 용도로 나열합니다.
 
 세 단계가 끝나면 `index.md`가 다시 생성되고, `log.md`가 추가되며, QMD의 검색 인덱스가 자동으로 갱신됩니다.
 
@@ -178,7 +178,7 @@ wiki init
 # 2. source 문서를 raw/에 넣거나 아래처럼 추가
 wiki add ~/Documents/papers --recursive
 
-# 3. ingest 실행(기본은 대화형 - filing 전에 entities/concepts를 보여주고 소스별로 y/n을 묻습니다)
+# 3. ingest 실행(기본은 대화형 - filing 전에 후보 분류 결과를 보여주고 소스별로 y/n을 묻습니다)
 wiki ingest
 
 # 첫 query 시 QMD가 embedding + reranker 모델을 다운로드합니다

@@ -41,13 +41,13 @@ wiki lint --fix
 open wiki/
 ```
 
-Every ingest produces a cluster of `sources/`, `entities/`, and `concepts/` pages with YAML frontmatter and `[[wikilinks]]` between them. Every query pulls the top-ranked pages via hybrid BM25 + vector + LLM-rerank search, then synthesizes a cited answer. Every lint run catches broken links, orphan pages, malformed frontmatter, and (optionally, using the LLM) contradictions between pages.
+Every ingest produces YAML-frontmatter markdown for `sources/`, `entities/`, and `concepts/`, while ambiguous, guide-like, or map-like items are held in `non_categories/` as review items. Every query pulls the top-ranked pages via hybrid BM25 + vector + LLM-rerank search, then synthesizes a cited answer. Every lint run catches broken links, orphan pages, malformed frontmatter, and (optionally, using the LLM) contradictions between pages.
 
 ## Features
 
 ### Core capabilities
-- **Incremental ingest** — drop a file, run `wiki ingest`, get 8–15 cross-linked wiki pages
-- **Structured extraction** — Qwen3 identifies entities (people, orgs, models), concepts, and key takeaways per source
+- **Incremental ingest** — drop a file, run `wiki ingest`, get cross-linked source/entity/concept pages plus review items when needed
+- **Structured candidate extraction** — Qwen3 extracts candidates and classifies them as `pageKind: entity | concept | review`; guide/map-like items go to the review queue instead of normal wiki pages
 - **Smart merging** — re-ingesting related sources updates existing entity/concept pages instead of overwriting them, preserving provenance
 - **Hybrid search** — BM25 full-text + vector embeddings + LLM reranking (all local, via [QMD](https://github.com/tobi/qmd))
 - **3-way query scope** — `Wiki` (thematic answers from LLM-compiled pages), `Raw` (exact lookups in original documents), or `Hybrid` (both)
@@ -178,7 +178,7 @@ wiki init
 # 2. Drop some source documents in raw/, or use:
 wiki add ~/Documents/papers --recursive
 
-# 3. Run ingest (interactive by default — shows you entities/concepts
+# 3. Run ingest (interactive by default — shows extracted candidates
 #    before filing, with a y/n prompt per source)
 wiki ingest
 

@@ -330,6 +330,15 @@ wiki ingest 3                           # Ingest a specific source by ID
 wiki ingest --dry-run                   # Show what would be done without doing it
 ```
 
+Ingest now extracts `candidates[]` and routes each item by `pageKind`:
+
+- `entity` → `entities/`
+- `concept` → `concepts/`
+- `review` → `non_categories/` review queue
+
+Guide-like operational content is held for `8000-web-config`; map/MOC-like
+content is held for `mcp-map`. These are not auto-filed as normal wiki pages.
+
 ### Querying the wiki
 
 ```bash
@@ -419,7 +428,7 @@ You're probably using **Wiki** scope when you should use **Raw**. The wiki layer
 ### Web UI shows "Internal Server Error"
 
 Check the terminal where `wiki serve` is running — there'll be a Python traceback. Common causes:
-- `ingest_raw.py` or `ingest_llm.py` got corrupted (run: `wc -l src/llm_wiki/ingest_*.py` — should show `341` and `836`)
+- `ingest_raw.py` or `ingest_llm.py` got corrupted (run: `python3 -m py_compile src/llm_wiki/ingest_raw.py src/llm_wiki/ingest_llm.py`)
 - Ollama stopped midway through a request
 - QMD binary isn't installed
 

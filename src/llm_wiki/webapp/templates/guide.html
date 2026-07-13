@@ -94,7 +94,7 @@
                     </div>
                     <h3 class="text-base font-bold text-white">Schema (Taxonomy)</h3>
                     <p class="text-xs text-text-dim leading-relaxed">
-                        Houses your system rules (`AGENTS.md`). This file defines taxonomy guidelines and tells the LLM how to identify entities and concepts.
+                        Houses your system rules (`AGENTS.md`). This file defines routing guidelines and tells the LLM how to classify candidates as entities, concepts, or review items.
                     </p>
                 </div>
                 <div class="text-[10px] text-slate-500 font-mono pt-2 border-t border-border">Default: `schema/`</div>
@@ -154,7 +154,7 @@
                         <span class="text-accent">📥</span> non_categories/ (Inbox Queue)
                     </h4>
                     <p class="text-xs text-text-dim leading-relaxed pl-5">
-                        A temporary buffer for files where LLM classification confidence is low. These documents are reviewed in the dashboard's Inbox UI.
+                        A review queue for ambiguous or externally owned candidates. Guide-like content is held for `8000-web-config`; map/MOC-like content is held for `mcp-map`.
                     </p>
                 </div>
 
@@ -193,7 +193,7 @@
                 <span class="absolute -left-[31px] top-0.5 bg-bg w-4 h-4 rounded-full border-2 border-accent flex items-center justify-center text-[10px] text-accent font-bold">2</span>
                 <h4 class="font-bold text-white">LLM Extraction</h4>
                 <p class="text-xs text-text-dim mt-0.5 leading-relaxed">
-                    The LLM reviews the document contents, generates takeaways, and extracts matching concepts/entities using taxonomy rules in `AGENTS.md`.
+                    The LLM reviews the document contents, generates takeaways, and extracts candidates classified as entity, concept, or review using routing rules in `AGENTS.md`.
                 </p>
             </div>
             <!-- Step 3 -->
@@ -201,7 +201,7 @@
                 <span class="absolute -left-[31px] top-0.5 bg-bg w-4 h-4 rounded-full border-2 border-accent flex items-center justify-center text-[10px] text-accent font-bold">3</span>
                 <h4 class="font-bold text-white">Confidence Filter & Staging</h4>
                 <p class="text-xs text-text-dim mt-0.5 leading-relaxed">
-                    If confidence is high, files are staged to `entities/` or `concepts/`. If classification is ambiguous or confidence is low, files go to `non_categories/` (Inbox).
+                    Entity and concept candidates are staged to their configured folders. Review candidates, including guide-like or map-like items, go to `non_categories/` (Inbox) instead of becoming normal wiki pages.
                 </p>
             </div>
             <!-- Step 4 -->
