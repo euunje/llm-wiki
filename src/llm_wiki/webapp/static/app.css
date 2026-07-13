@@ -1,24 +1,24 @@
-/* LLM-Wiki — minimal CSS overrides on top of Tailwind */
+/* LLM-Wiki — light theme CSS overrides on top of Tailwind */
 
-/* Custom scrollbar that fits the dark theme */
+/* Custom scrollbar that fits the light theme */
 ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
 }
 ::-webkit-scrollbar-track {
-    background: #0f1117;
+    background: #f0f2f8;
 }
 ::-webkit-scrollbar-thumb {
-    background: #2a2e3a;
+    background: #dce0ed;
     border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #3a3e4a;
+    background: #b8bfd0;
 }
 
-/* Better default focus rings on dark backgrounds */
+/* Better default focus rings on light backgrounds */
 *:focus-visible {
-    outline: 2px solid #7c8cff;
+    outline: 2px solid #5b6ef5;
     outline-offset: 2px;
 }
 

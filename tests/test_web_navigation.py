@@ -16,19 +16,19 @@ def test_jobs_page_uses_shared_sidebar_navigation(tmp_path, monkeypatch):
     response = client.get("/jobs")
 
     assert response.status_code == 200
-    assert "Jobs" in response.text
+    assert "작업" in response.text
     for label in [
-        "Dashboard",
-        "Sources",
-        "Inbox",
-        "Ingest",
-        "Jobs",
-        "Query",
-        "Lint",
-        "Graph",
-        "Changelog",
-        "Logs",
-        "Settings",
+        "대시보드",
+        "소스",
+        "수신함",
+        "수집",
+        "작업",
+        "질문",
+        "검사",
+        "그래프",
+        "변경사항",
+        "로그",
+        "설정",
     ]:
         assert f">{label}<" in response.text
-    assert "Start an ingest run" in response.text
+    assert "최근 작업" in response.text

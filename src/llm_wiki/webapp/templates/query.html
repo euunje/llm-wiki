@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Query — LLM-Wiki{% endblock %}
+{% block title %}질문 — LLM-Wiki{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -9,7 +9,7 @@
         font-weight: 600;
         margin-top: 1.2em;
         margin-bottom: 0.5em;
-        color: #fff;
+        color: #1a1d2e;
     }
     .markdown-body h1 { font-size: 1.5em; }
     .markdown-body h2 { font-size: 1.25em; }
@@ -18,21 +18,21 @@
     .markdown-body ul, .markdown-body ol { margin: 0.6em 0; padding-left: 1.5em; }
     .markdown-body li { margin: 0.3em 0; }
     .markdown-body code {
-        background: #0f1117;
+        background: #f0f2f8;
         padding: 0.15em 0.4em;
         border-radius: 3px;
         font-size: 0.9em;
-        color: #9aa7ff;
+        color: #5b6ef5;
     }
-    .markdown-body strong { color: #fff; font-weight: 600; }
+    .markdown-body strong { color: #1a1d2e; font-weight: 600; }
     .markdown-body a, .markdown-body .wikilink {
-        color: #7c8cff;
+        color: #5b6ef5;
         text-decoration: none;
     }
     .markdown-body a:hover { text-decoration: underline; }
     .stream-cursor::after {
         content: '▌';
-        color: #7c8cff;
+        color: #5b6ef5;
         animation: blink 1s steps(1) infinite;
     }
     @keyframes blink {
@@ -48,7 +48,7 @@
         width: 6px;
         height: 6px;
         border-radius: 50%;
-        background: #7c8cff;
+        background: #5b6ef5;
         animation: pulse-dot 1.4s ease-in-out infinite both;
     }
     .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
@@ -63,15 +63,15 @@
         align-items: center;
         gap: 8px;
         padding: 8px 12px;
-        background: #0f1117;
-        border: 1px solid #2a2e3a;
+        background: #f0f2f8;
+        border: 1px solid #dce0ed;
         border-radius: 6px;
         font-size: 13px;
-        color: #9ca3af;
+        color: #5a6178;
     }
     .stage-indicator.active {
-        border-color: #7c8cff;
-        color: #e7e9f0;
+        border-color: #5b6ef5;
+        color: #1a1d2e;
     }
     .stage-icon {
         width: 18px;
@@ -82,7 +82,7 @@
     }
     .elapsed-counter {
         font-size: 11px;
-        color: #6b7280;
+        color: #8892a4;
         margin-left: auto;
         font-variant-numeric: tabular-nums;
     }
@@ -92,8 +92,8 @@
 {% block content %}
 
 <div class="mb-6">
-    <h1 class="text-3xl font-semibold text-white mb-1">Query</h1>
-    <p class="text-sm text-[#9ca3af]">Ask a question. The wiki searches itself and synthesizes a cited answer.</p>
+    <h1 class="text-3xl font-semibold text-[#1a1d2e] mb-1">질문</h1>
+    <p class="text-sm text-[#5a6178]">질문을 해보세요. 위키가 스스로 검색하여 인용된 답변을 생성합니다.</p>
 </div>
 
 <!-- Chat history -->
@@ -102,36 +102,36 @@
 </div>
 
 <!-- Example queries (shown until first query) -->
-<div id="example-queries" class="bg-[#1c1f2a] border border-[#2a2e3a] rounded-lg p-6 mb-6">
-    <div class="text-xs text-[#6b7280] uppercase tracking-wide mb-3">Example questions to try</div>
+<div id="example-queries" class="bg-white border border-[#dce0ed] rounded-lg p-6 mb-6">
+    <div class="text-xs text-[#8892a4] uppercase tracking-wide mb-3">시도해볼 수 있는 예시 질문</div>
     <div class="grid grid-cols-2 gap-2">
-        <button class="example-btn text-left text-sm px-3 py-2 bg-[#0f1117] hover:bg-[#161922] border border-[#2a2e3a] hover:border-[#7c8cff] rounded text-[#9ca3af] hover:text-white transition">
-            What are the main themes in my wiki?
+        <button class="example-btn text-left text-sm px-3 py-2 bg-[#f0f2f8] hover:bg-[#eef0f8] border border-[#dce0ed] hover:border-[#5b6ef5] rounded text-[#5a6178] hover:text-[#1a1d2e] transition">
+            제 위키의 주요 주제는 무엇인가요?
         </button>
-        <button class="example-btn text-left text-sm px-3 py-2 bg-[#0f1117] hover:bg-[#161922] border border-[#2a2e3a] hover:border-[#7c8cff] rounded text-[#9ca3af] hover:text-white transition">
-            Who are the key people mentioned?
+        <button class="example-btn text-left text-sm px-3 py-2 bg-[#f0f2f8] hover:bg-[#eef0f8] border border-[#dce0ed] hover:border-[#5b6ef5] rounded text-[#5a6178] hover:text-[#1a1d2e] transition">
+            언급된 주요 인물은 누구인가요?
         </button>
-        <button class="example-btn text-left text-sm px-3 py-2 bg-[#0f1117] hover:bg-[#161922] border border-[#2a2e3a] hover:border-[#7c8cff] rounded text-[#9ca3af] hover:text-white transition">
-            What are the most-referenced concepts?
+        <button class="example-btn text-left text-sm px-3 py-2 bg-[#f0f2f8] hover:bg-[#eef0f8] border border-[#dce0ed] hover:border-[#5b6ef5] rounded text-[#5a6178] hover:text-[#1a1d2e] transition">
+            가장 많이 참조되는 개념은 무엇인가요?
         </button>
-        <button class="example-btn text-left text-sm px-3 py-2 bg-[#0f1117] hover:bg-[#161922] border border-[#2a2e3a] hover:border-[#7c8cff] rounded text-[#9ca3af] hover:text-white transition">
-            Summarize the main argument across sources.
+        <button class="example-btn text-left text-sm px-3 py-2 bg-[#f0f2f8] hover:bg-[#eef0f8] border border-[#dce0ed] hover:border-[#5b6ef5] rounded text-[#5a6178] hover:text-[#1a1d2e] transition">
+            여러 소스에 걸친 주요 논거를 요약해주세요.
         </button>
     </div>
 </div>
 
 <!-- Input form (sticky to bottom of content area) -->
-<form id="query-form" class="bg-[#1c1f2a] border border-[#2a2e3a] rounded-lg p-2 flex items-center gap-2">
+<form id="query-form" class="bg-white border border-[#dce0ed] rounded-lg p-2 flex items-center gap-2">
     <input type="text"
            id="query-input"
            name="q"
-           placeholder="Ask a question…"
+           placeholder="질문을 입력하세요…"
            autocomplete="off"
-           class="flex-1 bg-transparent px-3 py-2 text-white placeholder-[#6b7280] focus:outline-none">
+           class="flex-1 bg-transparent px-3 py-2 text-[#1a1d2e] placeholder-[#8892a4] focus:outline-none">
     <button type="submit"
             id="query-submit"
-            class="px-4 py-2 bg-[#7c8cff] hover:bg-[#9aa7ff] text-white rounded-md font-medium transition disabled:opacity-50 disabled:cursor-not-allowed">
-        Ask
+            class="px-4 py-2 bg-[#5b6ef5] hover:bg-[#3d4ef3] text-[#1a1d2e] rounded-md font-medium transition disabled:opacity-50 disabled:cursor-not-allowed">
+        질문
     </button>
 </form>
 
@@ -188,9 +188,9 @@
         const div = document.createElement('div');
         div.className = 'flex justify-end';
         div.innerHTML = `
-            <div class="max-w-2xl bg-[#7c8cff]/20 border border-[#7c8cff]/40 rounded-lg px-4 py-3">
-                <div class="text-xs text-[#9aa7ff] uppercase tracking-wide mb-1">You</div>
-                <div class="text-sm text-white">${question.replace(/</g, '&lt;')}</div>
+            <div class="max-w-2xl bg-[#eef0f8] border border-[#5b6ef5]/40 rounded-lg px-4 py-3">
+                <div class="text-xs text-[#5b6ef5] uppercase tracking-wide mb-1">질문</div>
+                <div class="text-sm text-[#1a1d2e]">${question.replace(/</g, '&lt;')}</div>
             </div>
         `;
         history.appendChild(div);
@@ -199,21 +199,21 @@
 
     function addAssistantMessage() {
         const div = document.createElement('div');
-        div.className = 'bg-[#1c1f2a] border border-[#2a2e3a] rounded-lg p-5';
+        div.className = 'bg-white border border-[#dce0ed] rounded-lg p-5';
         div.innerHTML = `
-            <div class="text-xs text-[#9ca3af] uppercase tracking-wide mb-3 flex items-center gap-2">
-                <span>Wiki</span>
+            <div class="text-xs text-[#5a6178] uppercase tracking-wide mb-3 flex items-center gap-2">
+                <span>위키</span>
             </div>
             <div class="stage-indicator active mb-4">
                 <span class="stage-icon">
                     <span class="loading-dots"><span></span><span></span><span></span></span>
                 </span>
-                <span class="status-line">Connecting…</span>
+                <span class="status-line">연결 중…</span>
                 <span class="elapsed-counter">0.0s</span>
             </div>
             <div class="hits-container hidden mb-4"></div>
-            <div class="answer-container markdown-body text-sm text-[#e7e9f0]"></div>
-            <div class="actions-container hidden mt-4 pt-4 border-t border-[#2a2e3a] flex items-center gap-2"></div>
+            <div class="answer-container markdown-body text-sm text-[#1a1d2e]"></div>
+            <div class="actions-container hidden mt-4 pt-4 border-t border-[#dce0ed] flex items-center gap-2"></div>
         `;
         history.appendChild(div);
         return div;
@@ -221,20 +221,20 @@
 
     function renderHits(container, hits) {
         if (!hits.length) {
-            container.innerHTML = '<div class="text-xs text-[#6b7280]">No matching pages found.</div>';
+            container.innerHTML = '<div class="text-xs text-[#8892a4]">일치하는 페이지가 없습니다.</div>';
             container.classList.remove('hidden');
             return;
         }
         const itemsHtml = hits.map((h, i) => `
-            <div class="flex items-start gap-3 p-2 rounded hover:bg-[#0f1117] transition">
-                <div class="text-xs font-mono text-[#6b7280] w-8">${i + 1}.</div>
-                <div class="text-xs font-mono text-[#9aa7ff] w-12">${(h.score * 100).toFixed(0)}%</div>
-                <div class="text-xs text-white truncate">${h.title}</div>
-                <div class="text-xs text-[#6b7280] truncate ml-auto font-mono">${h.path}</div>
+            <div class="flex items-start gap-3 p-2 rounded hover:bg-[#f0f2f8] transition">
+                <div class="text-xs font-mono text-[#8892a4] w-8">${i + 1}.</div>
+                <div class="text-xs font-mono text-[#5b6ef5] w-12">${(h.score * 100).toFixed(0)}%</div>
+                <div class="text-xs text-[#1a1d2e] truncate">${h.title}</div>
+                <div class="text-xs text-[#8892a4] truncate ml-auto font-mono">${h.path}</div>
             </div>
         `).join('');
         container.innerHTML = `
-            <div class="text-xs text-[#6b7280] uppercase tracking-wide mb-2">${hits.length} relevant page${hits.length === 1 ? '' : 's'}</div>
+            <div class="text-xs text-[#8892a4] uppercase tracking-wide mb-2">${hits.length}개 관련 페이지</div>
             ${itemsHtml}
         `;
         container.classList.remove('hidden');
@@ -242,11 +242,11 @@
 
     function showSaveButton(actionsContainer, question, answer) {
         actionsContainer.innerHTML = `
-            <input type="text" class="save-slug bg-[#0f1117] border border-[#2a2e3a] rounded px-3 py-1.5 text-sm text-white placeholder-[#6b7280] focus:outline-none focus:border-[#7c8cff]" placeholder="synthesis-slug">
-            <button class="save-btn px-3 py-1.5 bg-[#1c1f2a] border border-[#7c8cff] text-[#7c8cff] hover:bg-[#7c8cff] hover:text-white rounded text-sm font-medium transition">
-                Save as synthesis page
+            <input type="text" class="save-slug bg-[#f0f2f8] border border-[#dce0ed] rounded px-3 py-1.5 text-sm text-[#1a1d2e] placeholder-[#8892a4] focus:outline-none focus:border-[#5b6ef5]" placeholder="종합-슬러그">
+            <button class="save-btn px-3 py-1.5 bg-white border border-[#5b6ef5] text-[#5b6ef5] hover:bg-[#5b6ef5] hover:text-[#1a1d2e] rounded text-sm font-medium transition">
+                종합 페이지로 저장
             </button>
-            <span class="save-status text-xs text-[#6b7280] ml-2"></span>
+            <span class="save-status text-xs text-[#8892a4] ml-2"></span>
         `;
         actionsContainer.classList.remove('hidden');
 
@@ -257,13 +257,13 @@
         saveBtn.addEventListener('click', async () => {
             const slug = slugInput.value.trim();
             if (!slug) {
-                statusEl.textContent = 'Enter a slug first';
-                statusEl.className = 'save-status text-xs text-yellow-400 ml-2';
+                statusEl.textContent = '먼저 슬러그를 입력하세요';
+                statusEl.className = 'save-status text-xs text-yellow-500 ml-2';
                 return;
             }
             saveBtn.disabled = true;
-            statusEl.textContent = 'Saving…';
-            statusEl.className = 'save-status text-xs text-[#9ca3af] ml-2';
+            statusEl.textContent = '저장 중…';
+            statusEl.className = 'save-status text-xs text-[#5a6178] ml-2';
 
             const fd = new FormData();
             fd.append('question', question);
@@ -274,9 +274,9 @@
                 const r = await fetch('/query/save', { method: 'POST', body: fd });
                 const data = await r.json();
                 if (data.ok) {
-                    statusEl.textContent = '✓ Saved as ' + data.saved_path;
+                    statusEl.textContent = '✓ 저장됨 as ' + data.saved_path;
                     statusEl.className = 'save-status text-xs text-green-400 ml-2';
-                    saveBtn.textContent = 'Saved';
+                    saveBtn.textContent = '저장됨';
                 } else {
                     statusEl.textContent = '✗ ' + (data.error || 'failed');
                     statusEl.className = 'save-status text-xs text-red-400 ml-2';
@@ -335,14 +335,14 @@
         es.addEventListener('hits', (ev) => {
             const data = JSON.parse(ev.data);
             renderHits(hitsEl, data.hits);
-            statusEl.textContent = 'Synthesizing answer with Qwen3…';
+            statusEl.textContent = 'Qwen3가 답변을 종합 중…';
         });
 
         es.addEventListener('chunk', (ev) => {
             const data = JSON.parse(ev.data);
             if (!firstChunkReceived) {
                 firstChunkReceived = true;
-                statusEl.textContent = 'Streaming…';
+                statusEl.textContent = '스트리밍 중…';
             }
             accumulatedAnswer += data.text || '';
             answerEl.innerHTML = renderMarkdown(accumulatedAnswer);
@@ -355,10 +355,10 @@
             const finalAnswer = data.answer || accumulatedAnswer;
             answerEl.innerHTML = renderMarkdown(finalAnswer);
             answerEl.classList.remove('stream-cursor');
-            statusEl.textContent = '✓ Done';
+            statusEl.textContent = '✓ 완료';
             // Replace the dots with a static checkmark
             const icon = stageEl.querySelector('.stage-icon');
-            if (icon) icon.innerHTML = '<span class="text-green-400">✓</span>';
+            if (icon) icon.innerHTML = '<span class="text-green-600">✓</span>';
             stageEl.classList.remove('active');
             stopTimer();
             es.close();
@@ -370,19 +370,19 @@
             try {
                 const data = JSON.parse(ev.data);
                 if (data && data.text) {
-                    answerEl.innerHTML = '<div class="text-red-400 text-sm">Error: ' + data.text + '</div>';
-                    statusEl.textContent = '✗ Failed';
+                    answerEl.innerHTML = '<div class="text-red-500 text-sm">오류: ' + data.text + '</div>';
+                    statusEl.textContent = '✗ 실패';
                 }
             } catch (e) {
                 if (es.readyState === EventSource.CLOSED) {
                     if (!accumulatedAnswer) {
-                        answerEl.innerHTML = '<div class="text-red-400 text-sm">Connection closed.</div>';
+                        answerEl.innerHTML = '<div class="text-red-500 text-sm">연결이 닫혔습니다.</div>';
                     }
                 }
             }
             answerEl.classList.remove('stream-cursor');
             const icon = stageEl.querySelector('.stage-icon');
-            if (icon) icon.innerHTML = '<span class="text-red-400">✗</span>';
+            if (icon) icon.innerHTML = '<span class="text-red-500">✗</span>';
             stageEl.classList.remove('active');
             stopTimer();
             es.close();

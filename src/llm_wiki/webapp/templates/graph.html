@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Graph — LLM-Wiki{% endblock %}
+{% block title %}그래프 — LLM-Wiki{% endblock %}
 
 {% block extra_head %}
 <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -9,8 +9,8 @@
         width: 100%;
         height: calc(100vh - 200px);
         min-height: 500px;
-        background: #0f1117;
-        border: 1px solid #2a2e3a;
+        background: #f8f9fc;
+        border: 1px solid #dce0ed;
         border-radius: 8px;
         cursor: grab;
     }
@@ -19,7 +19,7 @@
     }
     .node {
         cursor: pointer;
-        stroke: #161922;
+        stroke: #f0f2f8;
         stroke-width: 2px;
         transition: stroke 150ms;
     }
@@ -31,11 +31,11 @@
         opacity: 0.15;
     }
     .node.highlight {
-        stroke: #7c8cff;
+        stroke: #5b6ef5;
         stroke-width: 3px;
     }
     .link {
-        stroke: #2a2e3a;
+        stroke: #dce0ed;
         stroke-opacity: 0.6;
         transition: stroke 150ms, stroke-opacity 150ms;
     }
@@ -43,13 +43,13 @@
         stroke-opacity: 0.05;
     }
     .link.highlight {
-        stroke: #7c8cff;
+        stroke: #5b6ef5;
         stroke-opacity: 0.8;
         stroke-width: 1.5px;
     }
     .node-label {
         font-size: 11px;
-        fill: #9ca3af;
+        fill: #5a6178;
         pointer-events: none;
         text-anchor: middle;
         font-family: -apple-system, system-ui, sans-serif;
@@ -58,7 +58,7 @@
         opacity: 0.15;
     }
     .node-label.visible {
-        fill: #e7e9f0;
+        fill: #1a1d2e;
         font-weight: 500;
     }
 </style>
@@ -68,40 +68,40 @@
 
 <div class="mb-6 flex items-start justify-between">
     <div>
-        <h1 class="text-3xl font-semibold text-white mb-1">Graph</h1>
-        <p class="text-sm text-[#9ca3af]">Interactive view of all wiki pages and their cross-references.</p>
+        <h1 class="text-3xl font-semibold text-[#1a1d2e] mb-1">그래프</h1>
+        <p class="text-sm text-[#5a6178]">모든 wiki 페이지와 교차 참조를 시각적으로 확인합니다.</p>
     </div>
     <div class="flex items-center gap-3">
         <input type="text"
                id="graph-search"
-               placeholder="Search nodes…"
-               class="bg-[#1c1f2a] border border-[#2a2e3a] rounded-md px-3 py-1.5 text-sm text-white placeholder-[#6b7280] focus:border-[#7c8cff] focus:outline-none">
+               placeholder="노드 검색…"
+               class="bg-[#ffffff] border border-[#dce0ed] rounded-md px-3 py-1.5 text-sm text-[#1a1d2e] placeholder-[#8892a4] focus:border-[#5b6ef5] focus:outline-none">
         <button id="reset-btn"
-                class="text-xs px-3 py-1.5 bg-[#1c1f2a] border border-[#2a2e3a] rounded-md text-[#9ca3af] hover:text-white hover:border-[#7c8cff] transition">
-            Reset view
+                class="text-xs px-3 py-1.5 bg-[#ffffff] border border-[#dce0ed] rounded-md text-[#5a6178] hover:text-[#1a1d2e] hover:border-[#5b6ef5] transition">
+            화면 초기화
         </button>
     </div>
 </div>
 
 <!-- Stats + legend bar -->
-<div class="bg-[#1c1f2a] border border-[#2a2e3a] rounded-lg px-4 py-3 mb-3 flex items-center justify-between">
-    <div id="graph-stats" class="text-xs text-[#9ca3af]">Loading…</div>
+<div class="bg-[#ffffff] border border-[#dce0ed] rounded-lg px-4 py-3 mb-3 flex items-center justify-between">
+    <div id="graph-stats" class="text-xs text-[#5a6178]">불러오는 중…</div>
     <div class="flex items-center gap-4 text-xs">
         <div class="flex items-center gap-1.5">
             <div class="w-2.5 h-2.5 rounded-full bg-[#8b5cf6]"></div>
-            <span class="text-[#9ca3af]">Sources</span>
+            <span class="text-[#5a6178]">소스</span>
         </div>
         <div class="flex items-center gap-1.5">
             <div class="w-2.5 h-2.5 rounded-full bg-[#f59e0b]"></div>
-            <span class="text-[#9ca3af]">Entities</span>
+            <span class="text-[#5a6178]">엔티티</span>
         </div>
         <div class="flex items-center gap-1.5">
             <div class="w-2.5 h-2.5 rounded-full bg-[#10b981]"></div>
-            <span class="text-[#9ca3af]">Concepts</span>
+            <span class="text-[#5a6178]">개념</span>
         </div>
         <div class="flex items-center gap-1.5">
             <div class="w-2.5 h-2.5 rounded-full bg-[#ec4899]"></div>
-            <span class="text-[#9ca3af]">Synthesis</span>
+            <span class="text-[#5a6178]">종합</span>
         </div>
     </div>
 </div>
@@ -110,10 +110,10 @@
 
 <!-- Hover details panel -->
 <div id="hover-info"
-     class="hidden fixed bottom-6 right-6 bg-[#1c1f2a] border border-[#2a2e3a] rounded-lg p-4 max-w-xs shadow-xl z-50">
-    <div id="hover-title" class="text-sm font-semibold text-white mb-1"></div>
-    <div id="hover-type" class="text-xs text-[#9ca3af] mb-2"></div>
-    <div id="hover-degree" class="text-xs text-[#6b7280]"></div>
+     class="hidden fixed bottom-6 right-6 bg-[#ffffff] border border-[#dce0ed] rounded-lg p-4 max-w-xs shadow-xl z-50">
+    <div id="hover-title" class="text-sm font-semibold text-[#1a1d2e] mb-1"></div>
+    <div id="hover-type" class="text-xs text-[#5a6178] mb-2"></div>
+    <div id="hover-degree" class="text-xs text-[#8892a4]"></div>
 </div>
 
 <script>
@@ -128,16 +128,16 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         data = await response.json();
     } catch (err) {
-        statsEl.textContent = 'Failed to load graph data: ' + err.message;
+        statsEl.textContent = '그래프 데이터를 불러오지 못했습니다: ' + err.message;
         return;
     }
 
     if (data.nodes.length === 0) {
-        statsEl.textContent = 'No pages yet. Add and ingest sources first.';
+        statsEl.textContent = '아직 페이지가 없습니다. 먼저 소스를 추가하고 수집하세요.';
         svg.append('text')
             .attr('x', '50%').attr('y', '50%')
             .attr('text-anchor', 'middle')
-            .attr('fill', '#6b7280')
+            .attr('fill', '#8892a4')
             .attr('font-size', 14)
             .text('Empty wiki — nothing to graph.');
         return;
@@ -150,7 +150,7 @@
     if (tc.entities)  parts.push(`${tc.entities} entities`);
     if (tc.concepts)  parts.push(`${tc.concepts} concepts`);
     if (tc.synthesis) parts.push(`${tc.synthesis} synthesis`);
-    statsEl.innerHTML = `<span class="text-white font-semibold">${data.stats.node_count}</span> nodes · <span class="text-white font-semibold">${data.stats.edge_count}</span> edges · ${parts.join(' · ')}`;
+    statsEl.innerHTML = `<span class="text-[#1a1d2e] font-semibold">${data.stats.node_count}</span> nodes · <span class="text-[#1a1d2e] font-semibold">${data.stats.edge_count}</span> edges · ${parts.join(' · ')}`;
 
     // Setup SVG dimensions
     const container = svg.node().parentElement;
@@ -245,7 +245,7 @@
 
     // Click → if it's a source page, navigate to its detail (best we have)
     node.on('click', function(event, d) {
-        // Sources have a numeric ID lookup we'd need; for now just log
+        // 소스 have a numeric ID lookup we'd need; for now just log
         // and rely on the fact that page links are visible in the panel
         console.log('Clicked:', d.path);
     });

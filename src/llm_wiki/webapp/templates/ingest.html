@@ -3,26 +3,26 @@
 {% block extra_head %}
 <style>
     .drop-zone {
-        border: 2px dashed #2a2e3a;
+        border: 2px dashed #dce0ed;
         transition: all 0.15s ease;
     }
     .drop-zone.dragover {
-        border-color: #7c8cff;
-        background: #1a1e2c;
+        border-color: #5b6ef5;
+        background: #eef0f8;
     }
     .state-badge { font-size: 10px; padding: 2px 8px; border-radius: 9999px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
-    .state-queued      { background: rgba(156, 163, 175, 0.15); color: #9ca3af; }
-    .state-running     { background: rgba(124, 140, 255, 0.2); color: #9aa7ff; }
-    .state-done        { background: rgba(34, 197, 94, 0.15);  color: #4ade80; }
-    .state-failed      { background: rgba(239, 68, 68, 0.18);  color: #f87171; }
-    .state-interrupted { background: rgba(234, 179, 8, 0.18);  color: #facc15; }
+    .state-queued      { background: rgba(156, 163, 175, 0.15); color: #5a6178; }
+    .state-running     { background: rgba(124, 140, 255, 0.2); color: #5b6ef5; }
+    .state-done        { background: rgba(34, 197, 94, 0.15);  color: #16a34a; }
+    .state-failed      { background: rgba(239, 68, 68, 0.18);  color: #dc2626; }
+    .state-interrupted { background: rgba(234, 179, 8, 0.18);  color: #ca8a04; }
     .job-card { transition: background 0.15s ease; }
-    .job-card:hover { background: #1c1f2a; }
-    .progress-bar-bg { background: #0f1117; height: 6px; border-radius: 3px; overflow: hidden; }
-    .progress-bar-fill { background: #7c8cff; height: 100%; transition: width 0.3s ease; }
+    .job-card:hover { background: #f0f2f8; }
+    .progress-bar-bg { background: #f0f2f8; height: 6px; border-radius: 3px; overflow: hidden; }
+    .progress-bar-fill { background: #5b6ef5; height: 100%; transition: width 0.3s ease; }
     .live-log {
-        background: #0f1117;
-        border: 1px solid #2a2e3a;
+        background: #f8f9fc;
+        border: 1px solid #dce0ed;
         border-radius: 6px;
         padding: 12px;
         max-height: 400px;
@@ -32,47 +32,47 @@
         line-height: 1.6;
     }
     .log-line { margin-bottom: 2px; }
-    .log-status { color: #9aa7ff; }
-    .log-page   { color: #4ade80; }
-    .log-error  { color: #f87171; }
-    .log-extracted { background: #1c1f2a; border-radius: 4px; padding: 8px; margin: 6px 0; }
+    .log-status { color: #5b6ef5; }
+    .log-page   { color: #16a34a; }
+    .log-error  { color: #dc2626; }
+    .log-extracted { background: #f0f2f8; border-radius: 4px; padding: 8px; margin: 6px 0; }
 </style>
 {% endblock %}
 
 {% block content %}
 
 <div class="mb-6">
-    <h1 class="text-2xl font-semibold text-white">Ingest</h1>
-    <p class="text-sm text-[#9ca3af]">Upload sources and watch Qwen3 read them. Jobs survive tab close and server restart.</p>
+    <h1 class="text-2xl font-semibold text-[#1a1d2e]">수집</h1>
+    <p class="text-sm text-[#5a6178]">소스를 업로드하고 Qwen3가 읽는 것을 확인하세요. 작업은 탭을 닫거나 서버를 재시작해도 유지됩니다.</p>
 </div>
 
 <!-- Drop zone -->
 <div id="drop-zone"
-     class="drop-zone rounded-lg p-12 text-center cursor-pointer hover:bg-[#1a1e2c] transition mb-6">
+     class="drop-zone rounded-lg p-12 text-center cursor-pointer hover:bg-[#eef0f8] transition mb-6">
     <input type="file" id="file-input" class="hidden" multiple
            accept=".pdf,.md,.markdown,.html,.htm,.docx,.txt">
     <div class="text-4xl mb-2">📥</div>
-    <div class="text-white font-medium mb-1">Drop files here or click to upload</div>
-    <div class="text-xs text-[#6b7280]">PDF · Markdown · HTML · DOCX · TXT</div>
+    <div class="text-[#1a1d2e] font-medium mb-1">파일을 여기에 드롭하거나 클릭하여 업로드</div>
+    <div class="text-xs text-[#8892a4]">PDF · Markdown · HTML · DOCX · TXT</div>
 </div>
 
-<!-- Pending sources -->
+<!-- 대기 sources -->
 {% if pending %}
 <div class="mb-6">
     <div class="flex items-center justify-between mb-2">
-        <h2 class="text-xs uppercase tracking-wide text-[#9ca3af] font-medium">Pending sources</h2>
-        <a href="/sources" class="text-xs text-[#7c8cff] hover:text-[#9aa7ff]">Browse all sources →</a>
+        <h2 class="text-xs uppercase tracking-wide text-[#5a6178] font-medium">대기 중인 소스</h2>
+        <a href="/sources" class="text-xs text-[#5b6ef5] hover:text-[#3d4ef3]">모든 소스 보기 →</a>
     </div>
-    <div class="bg-[#1c1f2a] border border-[#2a2e3a] rounded-lg divide-y divide-[#2a2e3a]">
+    <div class="bg-white border border-[#dce0ed] rounded-lg divide-y divide-[#dce0ed]">
         {% for src in pending %}
         <div class="flex items-center justify-between p-3 gap-3">
             <div class="flex items-center gap-3 min-w-0">
-                <span class="state-badge bg-[#2a2e3a] text-[#facc15]">{{ src.file_type }}</span>
-                <code class="text-sm text-white truncate">{{ src.relpath }}</code>
+                <span class="state-badge bg-[#dce0ed] text-[#ca8a04]">{{ src.file_type }}</span>
+                <code class="text-sm text-[#1a1d2e] truncate">{{ src.relpath }}</code>
             </div>
-            <button type="button" class="start-job-btn text-xs px-3 py-1.5 bg-[#7c8cff] hover:bg-[#6a7bff] text-white rounded font-medium transition"
+            <button type="button" class="start-job-btn text-xs px-3 py-1.5 bg-[#5b6ef5] hover:bg-[#3d4ef3] text-[#1a1d2e] rounded font-medium transition"
                     data-source-id="{{ src.id }}">
-                Ingest →
+                수집 →
             </button>
         </div>
         {% endfor %}
@@ -83,22 +83,22 @@
 <!-- Active / recent jobs -->
 <div>
     <div class="flex items-center justify-between mb-2">
-        <h2 class="text-xs uppercase tracking-wide text-[#9ca3af] font-medium">Recent jobs</h2>
-        <a href="/jobs" class="text-xs text-[#7c8cff] hover:text-[#9aa7ff]">All jobs →</a>
+        <h2 class="text-xs uppercase tracking-wide text-[#5a6178] font-medium">최근 작업</h2>
+        <a href="/jobs" class="text-xs text-[#5b6ef5] hover:text-[#3d4ef3]">모든 작업 →</a>
     </div>
-    <div id="jobs-list" class="bg-[#1c1f2a] border border-[#2a2e3a] rounded-lg divide-y divide-[#2a2e3a]">
+    <div id="jobs-list" class="bg-white border border-[#dce0ed] rounded-lg divide-y divide-[#dce0ed]">
         {% if recent_jobs %}
             {% for job in recent_jobs %}
             <div class="job-card p-3" data-job-id="{{ job.id }}" data-state="{{ job.state }}">
                 <div class="flex items-center justify-between gap-3 mb-1">
                     <div class="flex items-center gap-3 min-w-0">
                         <span class="state-badge state-{{ job.state }}">{{ job.state }}</span>
-                        <code class="text-sm text-white truncate">{{ job.source_relpath or ('(source #' ~ job.source_id ~ ')') }}</code>
+                        <code class="text-sm text-[#1a1d2e] truncate">{{ job.source_relpath or ('소스 #' ~ job.source_id) }}</code>
                     </div>
                     <div class="flex items-center gap-3 flex-shrink-0">
-                        <span class="text-xs text-[#6b7280]">job #{{ job.id }}</span>
-                        <button type="button" class="watch-btn text-xs text-[#7c8cff] hover:text-[#9aa7ff]" data-job-id="{{ job.id }}">
-                            {% if job.state in ['running', 'queued'] %}Watch →{% else %}View log →{% endif %}
+                        <span class="text-xs text-[#8892a4]">작업 #{{ job.id }}</span>
+                        <button type="button" class="watch-btn text-xs text-[#5b6ef5] hover:text-[#3d4ef3]" data-job-id="{{ job.id }}">
+                            {% if job.state in ['running', 'queued'] %}관찰 →{% else %}로그 보기 →{% endif %}
                         </button>
                     </div>
                 </div>
@@ -106,18 +106,18 @@
                 <div class="progress-bar-bg">
                     <div class="progress-bar-fill" style="width: {{ (job.progress * 100) | round(0) }}%;"></div>
                 </div>
-                <div class="text-xs text-[#6b7280] mt-1">{{ job.phase or 'queued' }}</div>
+                <div class="text-xs text-[#8892a4] mt-1">{{ job.phase or '대기중' }}</div>
                 {% elif job.state == 'done' %}
-                <div class="text-xs text-[#6b7280]">
-                    {{ job.pages_created }} created, {{ job.pages_updated }} updated
+                <div class="text-xs text-[#8892a4]">
+                    {{ job.pages_created }}개 생성, {{ job.pages_updated }}개 업데이트
                 </div>
                 {% elif job.state == 'failed' or job.state == 'interrupted' %}
-                <div class="text-xs text-[#f87171] truncate">{{ job.error or 'Unknown error' }}</div>
+                <div class="text-xs text-red-500 truncate">{{ job.error or '알 수 없는 오류' }}</div>
                 {% endif %}
             </div>
             {% endfor %}
         {% else %}
-            <div class="p-6 text-sm text-center text-[#6b7280]">No jobs yet. Upload a file to start.</div>
+            <div class="p-6 text-sm text-center text-[#8892a4]">아직 작업이 없습니다. 파일을 업로드하여 시작하세요.</div>
         {% endif %}
     </div>
 </div>
@@ -125,10 +125,10 @@
 <!-- Live log for selected/started job (hidden until a job is being watched) -->
 <div id="job-watcher" class="hidden mt-6">
     <div class="flex items-center justify-between mb-2">
-        <h2 class="text-xs uppercase tracking-wide text-[#9ca3af] font-medium">
-            Live log · job #<span id="watching-job-id"></span>
+        <h2 class="text-xs uppercase tracking-wide text-[#5a6178] font-medium">
+            실시간 로그 · 작업 #<span id="watching-job-id"></span>
         </h2>
-        <button type="button" id="close-watcher" class="text-xs text-[#6b7280] hover:text-white">✕ Close</button>
+        <button type="button" id="close-watcher" class="text-xs text-[#8892a4] hover:text-[#1a1d2e]">✕ 닫기</button>
     </div>
     <div class="live-log" id="live-log"></div>
 </div>
@@ -167,15 +167,15 @@
             // Reload the page so the pending list refreshes
             window.location.reload();
         } else {
-            alert('Upload failed: ' + (await r.text()));
+            alert('업로드 실패: ' + (await r.text()));
         }
     }
 
-    // --- Start ingest ---
+    // --- 수집 시작 ---
     document.querySelectorAll('.start-job-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             btn.disabled = true;
-            btn.textContent = 'Starting…';
+            btn.textContent = '시작 중…';
             const fd = new FormData();
             fd.append('source_id', btn.dataset.sourceId);
             const r = await fetch('/ingest/start', { method: 'POST', body: fd });
@@ -185,9 +185,9 @@
                 // Reload after 1s so the jobs list shows the new job
                 setTimeout(() => window.location.reload(), 1200);
             } else {
-                alert('Failed to start: ' + (await r.text()));
+                alert('시작 실패: ' + (await r.text()));
                 btn.disabled = false;
-                btn.textContent = 'Ingest →';
+                btn.textContent = '수집 →';
             }
         });
     });
@@ -240,36 +240,36 @@
         es.addEventListener('extracted', (ev) => {
             const d = JSON.parse(ev.data);
             const ents = (d.entities || []).map(e =>
-                `<li class="text-xs text-[#9ca3af]">+ <span class="text-[#7c8cff]">${escapeHtml(e.slug)}</span> <span class="text-[#6b7280]">(${escapeHtml(e.type)})</span> <span class="text-white">${escapeHtml(e.name)}</span></li>`
+                `<li class="text-xs text-[#5a6178]">+ <span class="text-[#5b6ef5]">${escapeHtml(e.slug)}</span> <span class="text-[#8892a4]">(${escapeHtml(e.type)})</span> <span class="text-[#1a1d2e]">${escapeHtml(e.name)}</span></li>`
             ).join('');
             const cons = (d.concepts || []).map(c =>
-                `<li class="text-xs text-[#9ca3af]">+ <span class="text-[#7c8cff]">${escapeHtml(c.slug)}</span> <span class="text-white">${escapeHtml(c.name)}</span></li>`
+                `<li class="text-xs text-[#5a6178]">+ <span class="text-[#5b6ef5]">${escapeHtml(c.slug)}</span> <span class="text-[#1a1d2e]">${escapeHtml(c.name)}</span></li>`
             ).join('');
             const block = `
                 <div class="log-extracted">
-                    <div class="text-xs text-[#6b7280] uppercase tracking-wide mb-1">Extracted</div>
-                    <div class="text-sm text-white font-medium mb-1">${escapeHtml(d.title || '')}</div>
-                    <div class="text-xs text-[#9ca3af] mb-2">${escapeHtml(d.summary || '')}</div>
-                    ${d.entities && d.entities.length ? `<div class="mb-1"><div class="text-xs text-[#6b7280]">Entities (${d.entities.length})</div><ul>${ents}</ul></div>` : ''}
-                    ${d.concepts && d.concepts.length ? `<div><div class="text-xs text-[#6b7280]">Concepts (${d.concepts.length})</div><ul>${cons}</ul></div>` : ''}
+                    <div class="text-xs text-[#8892a4] uppercase tracking-wide mb-1">추출 결과</div>
+                    <div class="text-sm text-[#1a1d2e] font-medium mb-1">${escapeHtml(d.title || '')}</div>
+                    <div class="text-xs text-[#5a6178] mb-2">${escapeHtml(d.summary || '')}</div>
+                    ${d.entities && d.entities.length ? `<div class="mb-1"><div class="text-xs text-[#8892a4]">엔티티 (${d.entities.length})</div><ul>${ents}</ul></div>` : ''}
+                    ${d.concepts && d.concepts.length ? `<div><div class="text-xs text-[#8892a4]">개념 (${d.concepts.length})</div><ul>${cons}</ul></div>` : ''}
                 </div>
             `;
             logLine(block);
         });
         es.addEventListener('page_start', (ev) => {
             const d = JSON.parse(ev.data);
-            logLine(`  ${escapeHtml(d.operation)} ${escapeHtml(d.kind)} <span class="text-[#7c8cff]">${escapeHtml(d.slug)}</span>…`, 'log-status');
+            logLine(`  ${escapeHtml(d.operation)} ${escapeHtml(d.kind)} <span class="text-[#5b6ef5]">${escapeHtml(d.slug)}</span>…`, 'log-status');
         });
         es.addEventListener('page', (ev) => {
             const d = JSON.parse(ev.data);
-            logLine(`  + ${escapeHtml(d.kind)} <span class="text-[#7c8cff]">${escapeHtml(d.path)}</span>`, 'log-page');
+            logLine(`  + ${escapeHtml(d.kind)} <span class="text-[#5b6ef5]">${escapeHtml(d.path)}</span>`, 'log-page');
         });
         es.addEventListener('error', (ev) => {
             try { const d = JSON.parse(ev.data); logLine('✗ ' + escapeHtml(d.text), 'log-error'); } catch {}
         });
         es.addEventListener('done', (ev) => {
             const d = JSON.parse(ev.data);
-            logLine(`✓ Done — ${d.pages_created} created, ${d.pages_updated} updated`, 'log-page');
+            logLine(`✓ 완료 — ${d.pages_created}개 생성, ${d.pages_updated}개 업데이트`, 'log-page');
         });
         es.addEventListener('job', (ev) => {
             const d = JSON.parse(ev.data);

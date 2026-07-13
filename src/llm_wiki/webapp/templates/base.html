@@ -14,21 +14,21 @@
           extend: {
             colors: {
               bg: {
-                DEFAULT: '#0f1117',
-                soft: '#161922',
-                card: '#1c1f2a',
+                DEFAULT: '#f8f9fc',
+                soft: '#f0f2f8',
+                card: '#ffffff',
               },
               accent: {
-                DEFAULT: '#7c8cff',
-                hover: '#9aa7ff',
+                DEFAULT: '#5b6ef5',
+                hover: '#3d4ef3',
               },
               border: {
-                DEFAULT: '#2a2e3a',
+                DEFAULT: '#dce0ed',
               },
               text: {
-                DEFAULT: '#e7e9f0',
-                dim: '#9ca3af',
-                muted: '#6b7280',
+                DEFAULT: '#1a1d2e',
+                dim: '#5a6178',
+                muted: '#8892a4',
               },
             },
             fontFamily: {
@@ -51,19 +51,18 @@
 
     {% block extra_head %}{% endblock %}
 </head>
-<body class="h-full bg-[#0f1117] text-[#e7e9f0] font-sans antialiased">
+<body class="h-full bg-[#f8f9fc] text-[#1a1d2e] font-sans antialiased">
     <div class="min-h-full flex">
 
         <!-- Sidebar -->
         {% if request.app.state.wiki_paths and request.app.state.wiki_paths.is_initialized() %}
-        <aside class="w-60 border-r border-[#2a2e3a] bg-[#0f1117] flex flex-col flex-shrink-0">
+        <aside class="w-60 border-r border-[#dce0ed] bg-[#f8f9fc] flex flex-col flex-shrink-0">
             <!-- Logo / project name -->
-            <div class="p-5 border-b border-[#2a2e3a]">
+            <div class="p-5 border-b border-[#dce0ed]">
                 <a href="/" class="flex items-center gap-2 group">
                     <span class="text-2xl">📚</span>
                     <div>
-                        <div class="text-base font-semibold text-white group-hover:text-[#9aa7ff] transition">LLM-Wiki</div>
-                        <div class="text-xs text-[#6b7280]">v{{ request.app.state.version | default('0.8.0') }}</div>
+                        <div class="text-base font-semibold text-[#1a1d2e] group-hover:text-[#3d4ef3] transition">LLM-Wiki</div>
                     </div>
                 </a>
             </div>
@@ -71,26 +70,26 @@
             <!-- Nav links -->
             <nav class="flex-1 p-3 space-y-1">
                 {% set nav_items = [
-                    ('/', 'Dashboard', '🏠', 'dashboard'),
-                    ('/sources', 'Sources', '📂', 'sources'),
-                    ('/inbox', 'Inbox', '📥', 'inbox'),
-                    ('/ingest', 'Ingest', '⚡', 'ingest'),
-                    ('/jobs', 'Jobs', '🧵', 'jobs'),
-                    ('/query', 'Query', '💬', 'query'),
-                    ('/lint', 'Lint', '🔍', 'lint'),
-                    ('/graph', 'Graph', '🕸️', 'graph'),
-                    ('/changelog', 'Changelog', '📝', 'changelog'),
-                    ('/logs', 'Logs', '🗒️', 'logs'),
-                    ('/settings', 'Settings', '⚙️', 'settings'),
+                    ('/', '대시보드', '🏠', 'dashboard'),
+                    ('/sources', '소스', '📂', 'sources'),
+                    ('/inbox', '수신함', '📥', 'inbox'),
+                    ('/ingest', '수집', '⚡', 'ingest'),
+                    ('/jobs', '작업', '🧵', 'jobs'),
+                    ('/query', '질문', '💬', 'query'),
+                    ('/lint', '검사', '🔍', 'lint'),
+                    ('/graph', '그래프', '🕸️', 'graph'),
+                    ('/changelog', '변경사항', '📝', 'changelog'),
+                    ('/logs', '로그', '🗒️', 'logs'),
+                    ('/settings', '설정', '⚙️', 'settings'),
                 ] %}
                 {% for href, label, icon, key in nav_items %}
                     {% if page == key %}
-                        <a href="{{ href }}" class="flex items-center gap-3 px-3 py-2 rounded-md bg-[#1c1f2a] text-white font-medium border-l-2 border-[#7c8cff]">
+                        <a href="{{ href }}" class="flex items-center gap-3 px-3 py-2 rounded-md bg-[#eef0f8] text-[#1a1d2e] font-medium border-l-2 border-[#5b6ef5]">
                             <span class="text-base">{{ icon }}</span>
                             <span class="text-sm">{{ label }}</span>
                         </a>
                     {% else %}
-                        <a href="{{ href }}" class="flex items-center gap-3 px-3 py-2 rounded-md text-[#9ca3af] hover:bg-[#1c1f2a] hover:text-white transition">
+                        <a href="{{ href }}" class="flex items-center gap-3 px-3 py-2 rounded-md text-[#5a6178] hover:bg-[#eef0f8] hover:text-[#1a1d2e] transition">
                             <span class="text-base">{{ icon }}</span>
                             <span class="text-sm">{{ label }}</span>
                         </a>
@@ -99,12 +98,8 @@
             </nav>
 
             <!-- Footer -->
-            <div class="p-3 border-t border-[#2a2e3a] text-xs text-[#6b7280]">
-                <a href="https://github.com/NiharShrotri/llm-wiki" target="_blank" rel="noopener"
-                   class="block hover:text-[#9aa7ff] transition">
-                    GitHub →
-                </a>
-                <div class="mt-1">Running locally</div>
+            <div class="p-3 border-t border-[#dce0ed] text-xs text-[#8892a4]">
+                <div class="mt-1">로컬 실행 중</div>
             </div>
         </aside>
         {% endif %}

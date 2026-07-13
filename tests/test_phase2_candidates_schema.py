@@ -843,7 +843,7 @@ updated: 2026-07-13
     response = TestClient(create_app(paths)).get("/inbox")
 
     assert response.status_code == 200
-    assert "Suggested external owner" in response.text
+    assert "제안된 외부 담당" in response.text
     assert "8000-web-config" in response.text
 
 
