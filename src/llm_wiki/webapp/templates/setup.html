@@ -26,7 +26,7 @@
                 100: '#e1e7ff',
                 200: '#c7d2ff',
                 300: '#a3b4ff',
-                400: '#5b6ef5',
+                400: '#4f46e5',
                 500: '#5865f2',
                 600: '#3f47d9',
                 700: '#3236b8',
@@ -58,7 +58,7 @@
             backdrop-filter: blur(12px);
         }
         .gradient-text {
-            background: linear-gradient(135deg, #a3b4ff 0%, #5b6ef5 50%, #5865f2 100%);
+            background: linear-gradient(135deg, #a3b4ff 0%, #4f46e5 50%, #5865f2 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -72,28 +72,28 @@
     
     <!-- Welcome Info Modal (System Guide Alert Popup) -->
     <div id="guideAlertModal" class="fixed inset-0 bg-dark-950/85 backdrop-blur-md flex items-center justify-center z-50 transition-opacity duration-300 opacity-0 pointer-events-none">
-        <div class="bg-dark-900 border border-dark-700 w-full max-w-md rounded-2xl p-6 shadow-2xl relative space-y-4 m-4 transform scale-95 transition-transform duration-300">
+        <div class="bg-dark-900 border border-slate-200 w-full max-w-md rounded-2xl p-6 shadow-2xl relative space-y-4 m-4 transform scale-95 transition-transform duration-300">
             <div class="text-center space-y-2">
                 <span class="text-4xl block">📖</span>
-                <h3 class="text-lg font-bold text-[#1a1d2e] tracking-tight">Before Configuring Your Vault...</h3>
-                <p class="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto">
+                <h3 class="text-lg font-bold text-[#111827] tracking-tight">Before Configuring Your Vault...</h3>
+                <p class="text-xs text-slate-600 leading-relaxed max-w-sm mx-auto">
                     We recommend reading our <strong>System Directory & Ingestion Guide</strong> to understand how LLM-Wiki organizes files and writes categorizations inside your folders.
                 </p>
             </div>
             
             <!-- Quick tree recap -->
-            <div class="p-3 bg-dark-950/50 border border-dark-800 rounded-lg text-[10px] font-mono text-slate-400 space-y-1 select-none">
-                <div>📥 <strong class="text-slate-200">Inbox</strong>: PDF, PPTX raw files input</div>
-                <div>📂 <strong class="text-slate-200">Wiki</strong>: Categorized notes output (sources, entities, concepts)</div>
-                <div>⚙️ <strong class="text-slate-200">Schema</strong>: Rules & taxonomy configuration</div>
+            <div class="p-3 bg-dark-950/50 border border-dark-800 rounded-lg text-[10px] font-mono text-slate-600 space-y-1 select-none">
+                <div>📥 <strong class="text-slate-800">Inbox</strong>: PDF, PPTX raw files input</div>
+                <div>📂 <strong class="text-slate-800">Wiki</strong>: Categorized notes output (sources, entities, concepts)</div>
+                <div>⚙️ <strong class="text-slate-800">Schema</strong>: Rules & taxonomy configuration</div>
             </div>
 
             <!-- Footer Buttons -->
             <div class="flex gap-3 pt-2">
-                <a href="/guide" class="flex-1 bg-brand-500 hover:bg-brand-600 text-[#1a1d2e] font-semibold text-center py-2.5 rounded-lg text-xs active:scale-[0.98] transition">
+                <a href="/guide" class="flex-1 bg-brand-500 hover:bg-brand-600 text-[#111827] font-semibold text-center py-2.5 rounded-lg text-xs active:scale-[0.98] transition">
                     📖 Read System Guide
                 </a>
-                <button type="button" onclick="dismissGuideModal()" class="flex-1 bg-dark-800 hover:bg-dark-700 border border-dark-700 text-slate-300 font-semibold py-2.5 rounded-lg text-xs active:scale-[0.98] transition">
+                <button type="button" onclick="dismissGuideModal()" class="flex-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold py-2.5 rounded-lg text-xs active:scale-[0.98] transition">
                     Configure Vault
                 </button>
             </div>
@@ -110,7 +110,7 @@
         <div class="text-center mb-8">
             <span class="text-5xl mb-3 block">📚</span>
             <h1 class="text-3xl font-bold font-outfit tracking-tight mb-2">Welcome to <span class="gradient-text">LLM-Wiki</span></h1>
-            <p class="text-slate-400 text-sm max-w-md mx-auto">Scaffold and configure your local knowledge base project to begin parsing your documents with LLMs.</p>
+            <p class="text-slate-600 text-sm max-w-md mx-auto">Scaffold and configure your local knowledge base project to begin parsing your documents with LLMs.</p>
         </div>
 
         <!-- Setup Form -->
@@ -118,19 +118,19 @@
             
             <!-- Step 1: Project Location -->
             <div class="space-y-2">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400">Project Directory</label>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600">Project Directory</label>
                 <div class="flex gap-2">
                     <input type="text" id="path" name="path" value="{{ current_dir }}" required
-                           class="flex-1 bg-dark-800 border border-dark-700 rounded-lg px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition duration-150">
+                           class="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition duration-150">
                     <button type="button" id="browseBtn"
-                            class="px-5 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded-lg text-sm font-semibold transition whitespace-nowrap active:scale-[0.98]">Browse...</button>
+                            class="px-5 bg-slate-100 hover:bg-slate-200 border border-dark-600 rounded-lg text-sm font-semibold transition whitespace-nowrap active:scale-[0.98]">Browse...</button>
                 </div>
                 <p class="text-[11px] text-slate-500 mt-1">Select the root directory of your project or Obsidian Vault.</p>
             </div>
 
             <!-- Vault Configuration Mode Section -->
             <div class="space-y-4">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400">Setup Mode & Folder Configuration</label>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600">Setup Mode & Folder Configuration</label>
                 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <!-- Option A: Clean Scaffold -->
@@ -141,9 +141,9 @@
                                 <h4 class="text-sm font-bold text-slate-100 flex items-center gap-1.5">
                                     <span>🆕</span> New Vault Setup
                                 </h4>
-                                <span id="setup-type-new-radio" class="w-4 h-4 rounded-full border-4 border-brand-500 bg-dark-800"></span>
+                                <span id="setup-type-new-radio" class="w-4 h-4 rounded-full border-4 border-brand-500 bg-slate-50"></span>
                             </div>
-                            <p class="text-xs text-slate-400 leading-relaxed">
+                            <p class="text-xs text-slate-600 leading-relaxed">
                                 Start fresh. Standard system folders (`wiki/`, `raw/`, `schema/`) will be automatically created inside your vault directory.
                             </p>
                         </div>
@@ -151,15 +151,15 @@
 
                     <!-- Option B: Existing Vault Integration -->
                     <div id="setup-type-existing" onclick="setSetupType('existing')" 
-                         class="cursor-pointer border border-dark-700 bg-dark-800/40 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-dark-600">
+                         class="cursor-pointer border border-slate-200 bg-slate-50/40 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-dark-600">
                         <div>
                             <div class="flex items-center justify-between mb-2">
-                                <h4 class="text-sm font-bold text-slate-200 flex items-center gap-1.5">
+                                <h4 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                                     <span>🔄</span> Existing Vault Mapping
                                 </h4>
-                                <span id="setup-type-existing-radio" class="w-4 h-4 rounded-full border border-dark-600 bg-dark-800"></span>
+                                <span id="setup-type-existing-radio" class="w-4 h-4 rounded-full border border-dark-600 bg-slate-50"></span>
                             </div>
-                            <p class="text-xs text-slate-400 leading-relaxed">
+                            <p class="text-xs text-slate-600 leading-relaxed">
                                 Connect an existing Obsidian vault. Map your custom folders (e.g. `20. Wiki`, `00. Inbox`) to prevent cluttering.
                             </p>
                         </div>
@@ -167,12 +167,12 @@
                 </div>
 
                 <!-- Dynamic Preview & Mapping Zone -->
-                <div class="border border-dark-700 rounded-xl bg-dark-900/30 p-4 mt-2">
+                <div class="border border-slate-200 rounded-xl bg-dark-900/30 p-4 mt-2">
                     
                     <!-- NEW SETUP PREVIEW -->
                     <div id="new-setup-preview" class="space-y-3">
-                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Expected Folder Layout</h4>
-                        <p class="text-xs text-slate-400">We will create the following layout to house LLM-Wiki services:</p>
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600">Expected Folder Layout</h4>
+                        <p class="text-xs text-slate-600">We will create the following layout to house LLM-Wiki services:</p>
                         <pre class="bg-dark-900/70 border border-dark-800 rounded-lg p-3 text-xs text-brand-300 font-mono select-none overflow-x-auto">
 📂 <span id="preview-root">[Vault Root]</span>/
 ├── 📁 raw/                         <span class="text-slate-500">← raw source files</span>
@@ -193,14 +193,14 @@
                     <!-- EXISTING SETUP MAPPER -->
                     <div id="existing-setup-mapper" class="hidden space-y-4">
                         <div class="flex justify-between items-center pb-2 border-b border-dark-800">
-                            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Map Custom Folders to Roles</h4>
+                            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700">Map Custom Folders to Roles</h4>
                             <button type="button" onclick="fetchVaultFolders()" class="text-[10px] text-brand-400 hover:text-brand-300 transition">🔄 Refresh Folders</button>
                         </div>
                         
                         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
                             <!-- Left: detected folders (Wider) -->
-                            <div class="lg:col-span-5 border border-dark-700 bg-dark-900/40 p-3 rounded-lg flex flex-col">
-                                <span class="text-[10px] font-bold uppercase text-slate-400 block mb-2">📁 Detected Folders</span>
+                            <div class="lg:col-span-5 border border-slate-200 bg-dark-900/40 p-3 rounded-lg flex flex-col">
+                                <span class="text-[10px] font-bold uppercase text-slate-600 block mb-2">📁 Detected Folders</span>
                                 <div id="detected-folders-list" class="flex flex-col gap-1.5 overflow-y-auto max-h-[300px] p-1">
                                     <span class="text-xs text-slate-500 italic">Enter project path to scan.</span>
                                 </div>
@@ -210,67 +210,67 @@
                             <!-- Right: mapping slots (Narrower) -->
                             <div class="lg:col-span-7 space-y-3">
                                 <!-- Slot 1: Inbox -->
-                                <div id="slot-raw" class="p-3 border border-dark-700 bg-dark-800/20 rounded-lg transition"
+                                <div id="slot-raw" class="p-3 border border-slate-200 bg-slate-50/20 rounded-lg transition"
                                      ondragover="allowDrop(event)" ondrop="handleDrop(event, 'raw')" ondragleave="handleDragLeave(event)">
                                     <div class="flex justify-between items-start">
                                         <div>
-                                            <span class="text-[11px] font-bold text-slate-200">📥 Inbox Folder (Raw Documents)</span>
-                                            <p class="text-[10px] text-slate-400 mt-0.5">Where raw files are dropped. The pipeline reads files from this folder.</p>
+                                            <span class="text-[11px] font-bold text-slate-800">📥 Inbox Folder (Raw Documents)</span>
+                                            <p class="text-[10px] text-slate-600 mt-0.5">Where raw files are dropped. The pipeline reads files from this folder.</p>
                                         </div>
                                     </div>
                                     <div class="flex gap-2 mt-2">
                                         <input type="text" id="raw_dir_input" name="raw_dir_input" value="raw"
-                                               class="w-full bg-dark-800 border border-dark-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                                               class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1 text-xs text-slate-800 focus:outline-none focus:border-brand-500">
                                     </div>
                                 </div>
 
                                 <!-- Slot 2: Wiki -->
-                                <div id="slot-wiki" class="p-3 border border-dark-700 bg-dark-800/20 rounded-lg transition"
+                                <div id="slot-wiki" class="p-3 border border-slate-200 bg-slate-50/20 rounded-lg transition"
                                      ondragover="allowDrop(event)" ondrop="handleDrop(event, 'wiki')" ondragleave="handleDragLeave(event)">
                                     <div class="flex justify-between items-start">
                                         <div>
-                                            <span class="text-[11px] font-bold text-slate-200">📂 Wiki Folder (AI Notes Output)</span>
-                                            <p class="text-[10px] text-slate-400 mt-0.5">Where AI notes (엔티티, 개념, 종합) and review items will be generated. Use `.` for root.</p>
+                                            <span class="text-[11px] font-bold text-slate-800">📂 Wiki Folder (AI Notes Output)</span>
+                                            <p class="text-[10px] text-slate-600 mt-0.5">Where AI notes (엔티티, 개념, 종합) and review items will be generated. Use `.` for root.</p>
                                         </div>
                                     </div>
                                     <div class="flex gap-2 mt-2">
                                         <input type="text" id="wiki_dir_input" name="wiki_dir_input" value="wiki"
-                                               class="w-full bg-dark-800 border border-dark-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                                               class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1 text-xs text-slate-800 focus:outline-none focus:border-brand-500">
                                     </div>
                                 </div>
 
                                 <!-- Slot 3: Schema -->
-                                <div id="slot-schema" class="p-3 border border-dark-700 bg-dark-800/20 rounded-lg transition"
+                                <div id="slot-schema" class="p-3 border border-slate-200 bg-slate-50/20 rounded-lg transition"
                                      ondragover="allowDrop(event)" ondrop="handleDrop(event, 'schema')" ondragleave="handleDragLeave(event)">
                                     <div class="flex justify-between items-start">
                                         <div>
-                                            <span class="text-[11px] font-bold text-slate-200">⚙️ Schema Folder (Routing Rules)</span>
-                                            <p class="text-[10px] text-slate-400 mt-0.5">Where routing rules, templates, and instructions (`AGENTS.md`) are saved.</p>
+                                            <span class="text-[11px] font-bold text-slate-800">⚙️ Schema Folder (Routing Rules)</span>
+                                            <p class="text-[10px] text-slate-600 mt-0.5">Where routing rules, templates, and instructions (`AGENTS.md`) are saved.</p>
                                         </div>
                                     </div>
                                     <div class="flex gap-2 mt-2">
                                         <input type="text" id="schema_dir_input" name="schema_dir_input" value="schema"
-                                               class="w-full bg-dark-800 border border-dark-700 rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                                               class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1 text-xs text-slate-800 focus:outline-none focus:border-brand-500">
                                     </div>
                                 </div>
 
-                                <details open class="p-3 border border-dark-700 bg-dark-950/30 rounded-lg">
-                                    <summary class="cursor-pointer text-[11px] font-bold text-slate-200">🧭 Full folder map shown to new users and saved in config</summary>
+                                <details open class="p-3 border border-slate-200 bg-dark-950/30 rounded-lg">
+                                    <summary class="cursor-pointer text-[11px] font-bold text-slate-800">🧭 Full folder map shown to new users and saved in config</summary>
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3" id="full-path-map">
-                                        <label class="text-[10px] text-slate-400">Source summaries<input id="sources_dir_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value="wiki/sources"></label>
-                                        <label class="text-[10px] text-slate-400">엔티티<input id="entities_dir_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value="wiki/entities"></label>
-                                        <label class="text-[10px] text-slate-400">개념<input id="concepts_dir_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value="wiki/concepts"></label>
-                                        <label class="text-[10px] text-slate-400">종합 / saved queries<input id="synthesis_dir_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value="wiki/synthesis"></label>
-                                        <label class="text-[10px] text-slate-400">Review inbox / non-categories<input id="non_categories_dir_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value="wiki/non_categories"></label>
-                                        <label class="text-[10px] text-slate-400">Assets<input id="assets_dir_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value="wiki/assets"></label>
-                                        <label class="text-[10px] text-slate-400">Generated index file<input id="index_file_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value="wiki/index.md"></label>
-                                        <label class="text-[10px] text-slate-400">Generated log file<input id="log_file_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value="wiki/log.md"></label>
-                                        <label class="text-[10px] text-slate-400">Agents/rules file<input id="agents_file_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value="schema/AGENTS.md"></label>
-                                        <label class="text-[10px] text-slate-400">Internal folder<input id="internal_dir_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value=".wiki"></label>
-                                        <label class="text-[10px] text-slate-400">Config file<input id="config_file_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value=".wiki/config.yml"></label>
-                                        <label class="text-[10px] text-slate-400">State DB<input id="state_db_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value=".wiki/state.sqlite"></label>
-                                        <label class="text-[10px] text-slate-400">Obsidian config folder<input id="obsidian_dir_input" class="mt-1 w-full bg-dark-800 border border-dark-700 rounded px-2 py-1 text-xs text-slate-200" value="wiki/.obsidian"></label>
-                                        <label class="flex items-center gap-2 text-[10px] text-slate-400 md:col-span-2"><input id="obsidian_create_input" type="checkbox" checked class="rounded bg-dark-800 border-dark-700 text-brand-500"> Create default Obsidian config files</label>
+                                        <label class="text-[10px] text-slate-600">Source summaries<input id="sources_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/sources"></label>
+                                        <label class="text-[10px] text-slate-600">엔티티<input id="entities_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/entities"></label>
+                                        <label class="text-[10px] text-slate-600">개념<input id="concepts_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/concepts"></label>
+                                        <label class="text-[10px] text-slate-600">종합 / saved queries<input id="synthesis_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/synthesis"></label>
+                                        <label class="text-[10px] text-slate-600">Review inbox / non-categories<input id="non_categories_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/non_categories"></label>
+                                        <label class="text-[10px] text-slate-600">Assets<input id="assets_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/assets"></label>
+                                        <label class="text-[10px] text-slate-600">Generated index file<input id="index_file_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/index.md"></label>
+                                        <label class="text-[10px] text-slate-600">Generated log file<input id="log_file_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/log.md"></label>
+                                        <label class="text-[10px] text-slate-600">Agents/rules file<input id="agents_file_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="schema/AGENTS.md"></label>
+                                        <label class="text-[10px] text-slate-600">Internal folder<input id="internal_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value=".wiki"></label>
+                                        <label class="text-[10px] text-slate-600">Config file<input id="config_file_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value=".wiki/config.yml"></label>
+                                        <label class="text-[10px] text-slate-600">State DB<input id="state_db_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value=".wiki/state.sqlite"></label>
+                                        <label class="text-[10px] text-slate-600">Obsidian config folder<input id="obsidian_dir_input" class="mt-1 w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-800" value="wiki/.obsidian"></label>
+                                        <label class="flex items-center gap-2 text-[10px] text-slate-600 md:col-span-2"><input id="obsidian_create_input" type="checkbox" checked class="rounded bg-slate-50 border-slate-200 text-brand-500"> Create default Obsidian config files</label>
                                     </div>
                                 </details>
                             </div>
@@ -279,18 +279,18 @@
                 </div>
             </div>
 
-            <hr class="border-dark-700">
+            <hr class="border-slate-200">
 
             <!-- Step 2: LLM Configuration -->
             <div>
-                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">LLM Integration Settings</h3>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600 mb-4">LLM Integration Settings</h3>
                 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <!-- LLM Provider -->
                     <div class="space-y-1">
-                        <label for="llm_provider" class="block text-xs text-slate-400 font-medium">Provider</label>
+                        <label for="llm_provider" class="block text-xs text-slate-600 font-medium">Provider</label>
                         <select id="llm_provider" name="llm_provider"
-                                class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
+                                class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
                             <option value="ollama" selected>Ollama (Local-first)</option>
                             <option value="openai-local">Local OpenAI (LM Studio, LiteLLM)</option>
                             <option value="openai">OpenAI (Cloud)</option>
@@ -301,10 +301,10 @@
 
                     <!-- LLM Model -->
                     <div class="space-y-1">
-                        <label for="llm_model" class="block text-xs text-slate-400 font-medium">Model Name</label>
+                        <label for="llm_model" class="block text-xs text-slate-600 font-medium">Model Name</label>
                         <div id="modelInputContainer">
                             <input type="text" id="llm_model" name="llm_model" value="qwen3:14b" required
-                                   class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
+                                   class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
                         </div>
                     </div>
                 </div>
@@ -312,16 +312,16 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
                     <!-- API Key (Conditional) -->
                     <div id="apiKeyContainer" class="space-y-1">
-                        <label for="api_key" class="block text-xs text-slate-400 font-medium">API Key</label>
+                        <label for="api_key" class="block text-xs text-slate-600 font-medium">API Key</label>
                         <input type="password" id="api_key" name="api_key" placeholder="API Key 입력 (Optional for Ollama)"
-                               class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
+                               class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
                     </div>
 
                     <!-- LLM Host -->
                     <div id="hostContainer" class="space-y-1 col-span-1">
-                        <label for="llm_host" class="block text-xs text-slate-400 font-medium">API Host URL</label>
+                        <label for="llm_host" class="block text-xs text-slate-600 font-medium">API Host URL</label>
                         <input type="text" id="llm_host" name="llm_host" value="http://localhost:11434" required
-                               class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
+                               class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
                     </div>
                 </div>
 
@@ -342,18 +342,18 @@
                     <!-- Temperature -->
                     <div class="space-y-2">
                         <div class="flex justify-between text-xs">
-                            <label for="llm_temperature" class="text-slate-400 font-medium">Temperature</label>
+                            <label for="llm_temperature" class="text-slate-600 font-medium">Temperature</label>
                             <span id="tempVal" class="text-brand-400 font-semibold">0.3</span>
                         </div>
                         <input type="range" id="llm_temperature" name="llm_temperature" min="0" max="1" step="0.1" value="0.3"
-                               class="w-full h-1 bg-dark-700 rounded-lg appearance-none cursor-pointer">
+                               class="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                     </div>
 
                     <!-- Thinking Mode -->
                     <div class="flex items-center space-x-3 pt-4">
                         <input type="checkbox" id="llm_thinking" name="llm_thinking" checked
-                               class="w-4 h-4 rounded text-brand-600 bg-dark-800 border-dark-700 focus:ring-brand-500">
-                        <label for="llm_thinking" class="text-xs text-slate-300 font-medium cursor-pointer">Enable Thinking Mode (e.g. Qwen3/Reasoning)</label>
+                               class="w-4 h-4 rounded text-brand-600 bg-slate-50 border-slate-200 focus:ring-brand-500">
+                        <label for="llm_thinking" class="text-xs text-slate-700 font-medium cursor-pointer">Enable Thinking Mode (e.g. Qwen3/Reasoning)</label>
                     </div>
                 </div>
             </div>
@@ -367,9 +367,9 @@
             <!-- Submit Button -->
             <div class="pt-4">
                 <button type="submit" id="submitBtn"
-                        class="w-full bg-brand-500 hover:bg-brand-600 text-[#1a1d2e] font-semibold font-outfit py-3.5 rounded-lg text-sm tracking-wide shadow-lg shadow-brand-500/20 hover:shadow-brand-600/30 active:scale-[0.99] transition duration-150 flex items-center justify-center gap-2">
+                        class="w-full bg-brand-500 hover:bg-brand-600 text-[#111827] font-semibold font-outfit py-3.5 rounded-lg text-sm tracking-wide shadow-lg shadow-brand-500/20 hover:shadow-brand-600/30 active:scale-[0.99] transition duration-150 flex items-center justify-center gap-2">
                     <span>Initialize & Launch Wiki</span>
-                    <svg id="spinner" class="animate-spin h-4 w-4 text-[#1a1d2e] hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <svg id="spinner" class="animate-spin h-4 w-4 text-[#111827] hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
@@ -380,11 +380,11 @@
 
     <!-- Web-based Folder Explorer Modal -->
     <div id="folderModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm hidden">
-        <div class="bg-dark-900 border border-dark-700 w-full max-w-lg rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
+        <div class="bg-dark-900 border border-slate-200 w-full max-w-lg rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
             <!-- Modal Header -->
             <div class="p-4 border-b border-dark-800 flex justify-between items-center bg-dark-950">
-                <h3 class="text-sm font-semibold font-outfit uppercase tracking-wider text-slate-300">Select Project Folder</h3>
-                <button type="button" id="closeFolderBtn" class="text-slate-400 hover:text-slate-200 text-xl font-bold">&times;</button>
+                <h3 class="text-sm font-semibold font-outfit uppercase tracking-wider text-slate-700">Select Project Folder</h3>
+                <button type="button" id="closeFolderBtn" class="text-slate-600 hover:text-slate-800 text-xl font-bold">&times;</button>
             </div>
             <!-- Current Path Bar -->
             <div class="p-3 bg-dark-950 border-b border-dark-800 text-xs font-mono text-brand-400 break-all flex items-center gap-2">
@@ -399,17 +399,17 @@
             <div class="p-4 border-t border-dark-800 bg-dark-950 space-y-3">
                 <div class="flex items-center gap-2">
                     <input type="text" id="modalNewFolderName" placeholder="New child folder name"
-                           class="flex-1 bg-dark-800 border border-dark-700 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500">
+                           class="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 placeholder-slate-500 focus:outline-none focus:border-brand-500">
                     <button type="button" id="modalCreateFolderBtn" class="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 rounded-lg text-xs font-bold text-emerald-300 active:scale-[0.98] transition">＋ Create</button>
                 </div>
                 <p id="modal상태" class="hidden text-[11px]"></p>
                 <div class="flex justify-between items-center gap-3">
-                    <button type="button" id="modalParentBtn" class="px-3.5 py-2 bg-dark-800 hover:bg-dark-700 border border-dark-700 rounded-lg text-xs font-semibold text-slate-300 active:scale-[0.98] transition">
+                    <button type="button" id="modalParentBtn" class="px-3.5 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 active:scale-[0.98] transition">
                         ⬆️ Up One Level
                     </button>
                     <div class="flex gap-2">
-                        <button type="button" id="modal취소Btn" class="px-4 py-2 bg-dark-800 hover:bg-dark-700 border border-dark-700 rounded-lg text-sm text-slate-300 font-semibold active:scale-[0.98] transition">취소</button>
-                        <button type="button" id="modalSelectBtn" class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-[#1a1d2e] rounded-lg text-sm font-bold shadow-lg shadow-brand-500/10 active:scale-[0.98] transition">Use This Folder</button>
+                        <button type="button" id="modal취소Btn" class="px-4 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-sm text-slate-700 font-semibold active:scale-[0.98] transition">취소</button>
+                        <button type="button" id="modalSelectBtn" class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-[#111827] rounded-lg text-sm font-bold shadow-lg shadow-brand-500/10 active:scale-[0.98] transition">Use This Folder</button>
                     </div>
                 </div>
             </div>
@@ -435,19 +435,19 @@
                 existingMapper.classList.add('hidden');
                 
                 btnNew.className = "cursor-pointer border-2 border-brand-500 bg-brand-500/5 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-brand-400";
-                btnExisting.className = "cursor-pointer border border-dark-700 bg-dark-800/40 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-dark-600";
+                btnExisting.className = "cursor-pointer border border-slate-200 bg-slate-50/40 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-dark-600";
                 
-                radioNew.className = "w-4 h-4 rounded-full border-4 border-brand-500 bg-dark-800";
-                radioExisting.className = "w-4 h-4 rounded-full border border-dark-600 bg-dark-800";
+                radioNew.className = "w-4 h-4 rounded-full border-4 border-brand-500 bg-slate-50";
+                radioExisting.className = "w-4 h-4 rounded-full border border-dark-600 bg-slate-50";
             } else {
                 newPreview.classList.add('hidden');
                 existingMapper.classList.remove('hidden');
                 
-                btnNew.className = "cursor-pointer border border-dark-700 bg-dark-800/40 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-dark-600";
+                btnNew.className = "cursor-pointer border border-slate-200 bg-slate-50/40 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-dark-600";
                 btnExisting.className = "cursor-pointer border-2 border-brand-500 bg-brand-500/5 p-4 rounded-xl flex flex-col justify-between transition duration-200 hover:border-brand-400";
                 
-                radioNew.className = "w-4 h-4 rounded-full border border-dark-600 bg-dark-800";
-                radioExisting.className = "w-4 h-4 rounded-full border-4 border-brand-500 bg-dark-800";
+                radioNew.className = "w-4 h-4 rounded-full border border-dark-600 bg-slate-50";
+                radioExisting.className = "w-4 h-4 rounded-full border-4 border-brand-500 bg-slate-50";
                 
                 fetchVaultFolders();
             }
@@ -474,7 +474,7 @@
                     if (result.subdirs && result.subdirs.length > 0) {
                         result.subdirs.forEach(folder => {
                             const badge = document.createElement('div');
-                            badge.className = "flex items-center justify-between bg-dark-800 hover:bg-dark-700 border border-dark-700 rounded px-2.5 py-1.5 text-xs text-slate-200 transition duration-150 select-none group";
+                            badge.className = "flex items-center justify-between bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded px-2.5 py-1.5 text-xs text-slate-800 transition duration-150 select-none group";
                             badge.setAttribute('draggable', 'true');
                             badge.dataset.folder = folder;
                             
@@ -485,9 +485,9 @@
                             badge.innerHTML = `
                                 <span class="font-medium truncate mr-1 flex-1">${folder}</span>
                                 <div class="flex items-center gap-1 flex-shrink-0">
-                                    <button type="button" onclick="quickMapFolder('${folder}', 'raw')" title="Map to Inbox" class="bg-dark-900/50 hover:bg-dark-600 p-1 rounded text-xs transition active:scale-[0.9]">📥</button>
-                                    <button type="button" onclick="quickMapFolder('${folder}', 'wiki')" title="Map to Wiki" class="bg-dark-900/50 hover:bg-dark-600 p-1 rounded text-xs transition active:scale-[0.9]">📂</button>
-                                    <button type="button" onclick="quickMapFolder('${folder}', 'schema')" title="Map to Schema" class="bg-dark-900/50 hover:bg-dark-600 p-1 rounded text-xs transition active:scale-[0.9]">⚙️</button>
+                                    <button type="button" onclick="quickMapFolder('${folder}', 'raw')" title="Map to Inbox" class="bg-slate-100 hover:bg-slate-200 p-1 rounded text-xs transition active:scale-[0.9]">📥</button>
+                                    <button type="button" onclick="quickMapFolder('${folder}', 'wiki')" title="Map to Wiki" class="bg-slate-100 hover:bg-slate-200 p-1 rounded text-xs transition active:scale-[0.9]">📂</button>
+                                    <button type="button" onclick="quickMapFolder('${folder}', 'schema')" title="Map to Schema" class="bg-slate-100 hover:bg-slate-200 p-1 rounded text-xs transition active:scale-[0.9]">⚙️</button>
                                 </div>
                             `;
                             listContainer.appendChild(badge);
@@ -655,7 +655,7 @@
         }
 
         function setModal상태(message, kind = 'info') {
-            modal상태.className = `text-[11px] ${kind === 'error' ? 'text-rose-400' : kind === 'success' ? 'text-emerald-400' : 'text-slate-400'}`;
+            modal상태.className = `text-[11px] ${kind === 'error' ? 'text-rose-600' : kind === 'success' ? 'text-emerald-600' : 'text-slate-600'}`;
             modal상태.textContent = message;
             modal상태.classList.remove('hidden');
         }
@@ -703,7 +703,7 @@
                     if (data.subdirs && data.subdirs.length > 0) {
                         data.subdirs.forEach(dir => {
                             const item = document.createElement('div');
-                            item.className = "flex items-center justify-between gap-2 p-2.5 rounded-lg hover:bg-dark-800 text-slate-200 cursor-pointer transition";
+                            item.className = "flex items-center justify-between gap-2 p-2.5 rounded-lg hover:bg-slate-50 text-slate-800 cursor-pointer transition";
                             item.innerHTML = `<span class="flex items-center gap-2 min-w-0"><span>📁</span> <span class="font-medium truncate">${dir}</span></span><span class="text-[10px] text-slate-500">open</span>`;
                             item.addEventListener('click', () => {
                                 const newPath = currentModalPath.endsWith('/') ? currentModalPath + dir : currentModalPath + '/' + dir;
@@ -724,10 +724,10 @@
                         modalParentBtn.classList.add('opacity-50');
                     }
                 } else {
-                    modalFoldersList.innerHTML = `<div class="text-xs text-rose-400 p-4 text-center">Error: ${data.error || '실패 to list folders'}</div>`;
+                    modalFoldersList.innerHTML = `<div class="text-xs text-rose-600 p-4 text-center">Error: ${data.error || '실패 to list folders'}</div>`;
                 }
             } catch (err) {
-                modalFoldersList.innerHTML = `<div class="text-xs text-rose-400 p-4 text-center">Network Error: ${err.message}</div>`;
+                modalFoldersList.innerHTML = `<div class="text-xs text-rose-600 p-4 text-center">Network Error: ${err.message}</div>`;
             }
         }
 
@@ -816,7 +816,7 @@
         // 연결 테스트 및 Model 목록 불러오기 handler
         testConnBtn.addEventListener('click', async () => {
             testSpinner.classList.remove('hidden');
-            connection상태.className = "text-[11px] font-medium text-slate-400";
+            connection상태.className = "text-[11px] font-medium text-slate-600";
             connection상태.textContent = "Connecting...";
             connection상태.classList.remove('hidden');
             testConnBtn.setAttribute('disabled', 'true');
@@ -836,14 +836,14 @@
                 const result = await response.json();
                 
                 if (result.status === 'success') {
-                    connection상태.className = "text-[11px] font-medium text-emerald-400";
+                    connection상태.className = "text-[11px] font-medium text-emerald-600";
                     connection상태.textContent = result.message;
                     
                     // Convert Model input to a dropdown select element
                     const container = document.getElementById('modelInputContainer');
                     const previousModelVal = document.getElementById('llm_model')?.value || "";
                     if (result.models && result.models.length > 0) {
-                        let selectHtml = `<select id="llm_model" name="llm_model" class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">`;
+                        let selectHtml = `<select id="llm_model" name="llm_model" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">`;
                         result.models.forEach(model => {
                             const selectedAttr = (model === previousModelVal) ? "selected" : "";
                             selectHtml += `<option value="${model}" ${selectedAttr}>${model}</option>`;
@@ -852,11 +852,11 @@
                         container.innerHTML = selectHtml;
                     }
                 } else {
-                    connection상태.className = "text-[11px] font-medium text-rose-400";
+                    connection상태.className = "text-[11px] font-medium text-rose-600";
                     connection상태.textContent = result.message;
                 }
             } catch (err) {
-                connection상태.className = "text-[11px] font-medium text-rose-400";
+                connection상태.className = "text-[11px] font-medium text-rose-600";
                 connection상태.textContent = "연결 실패: " + err.message;
             } finally {
                 testSpinner.classList.add('hidden');
@@ -871,7 +871,7 @@
                 // Restore model input as text field
                 const container = document.getElementById('modelInputContainer');
                 container.innerHTML = `<input type="text" id="llm_model" name="llm_model" value="${selected.model}" required
-                                           class="w-full bg-dark-800 border border-dark-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">`;
+                                           class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">`;
                 
                 hostInput.value = selected.host;
                 
@@ -925,7 +925,7 @@
                 const chooseBtn = document.createElement('button');
                 chooseBtn.type = 'button';
                 chooseBtn.textContent = 'Choose';
-                chooseBtn.className = 'px-2 py-1 bg-dark-700 hover:bg-dark-600 border border-dark-600 rounded text-[10px] font-semibold text-slate-200 transition';
+                chooseBtn.className = 'px-2 py-1 bg-slate-100 hover:bg-slate-200 border border-dark-600 rounded text-[10px] font-semibold text-slate-800 transition';
                 chooseBtn.addEventListener('click', () => openRoleFolderPicker(inputId));
 
                 const newBtn = document.createElement('button');

@@ -5,26 +5,26 @@
 {% block content %}
 
 <!-- Breadcrumb -->
-<div class="mb-4 text-sm text-[#5a6178]">
-    <a href="/sources" class="hover:text-[#3d4ef3] transition">← 소스</a>
+<div class="mb-4 text-sm text-[#475569]">
+    <a href="/sources" class="hover:text-[#4338ca] transition">← 소스</a>
 </div>
 
 <div class="mb-6 flex items-start justify-between gap-4">
     <div class="min-w-0 flex-1">
-        <h1 class="text-2xl font-semibold text-[#1a1d2e] mb-1">{{ title }}</h1>
-        <p class="text-sm text-[#5a6178] font-mono truncate">{{ source.relpath }}</p>
+        <h1 class="text-2xl font-semibold text-[#111827] mb-1">{{ title }}</h1>
+        <p class="text-sm text-[#475569] font-mono truncate">{{ source.relpath }}</p>
     </div>
     <div class="flex items-center gap-2 flex-shrink-0">
         <form method="post" action="/sources/{{ source.id }}/reingest" class="inline">
             <button type="submit"
-                    class="text-xs px-3 py-1.5 bg-[#ffffff] border border-[#5b6ef5] text-[#5b6ef5] hover:bg-[#5b6ef5] hover:text-[#1a1d2e] rounded font-medium transition">
+                    class="text-xs px-3 py-1.5 bg-[#ffffff] border border-[#4f46e5] text-[#4f46e5] hover:bg-[#4f46e5] hover:text-white rounded font-medium transition">
                 ↻ Re-ingest
             </button>
         </form>
         <form method="post" action="/sources/{{ source.id }}/delete" class="inline"
               onsubmit="return confirm('Delete this source? The file will be removed from raw/ and the database entry deleted. Wiki pages created from this source will stay (run lint --fix to clean up orphans).');">
             <button type="submit"
-                    class="text-xs px-3 py-1.5 bg-[#ffffff] border border-red-500/40 text-red-400 hover:bg-red-500/20 hover:border-red-500 rounded font-medium transition">
+                    class="text-xs px-3 py-1.5 bg-[#ffffff] border border-red-500/40 text-red-600 hover:bg-red-500/20 hover:border-red-500 rounded font-medium transition">
                 🗑 Delete
             </button>
         </form>
@@ -33,7 +33,7 @@
 
 {% if error %}
 <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6">
-    <div class="text-sm text-red-300">{{ error }}</div>
+    <div class="text-sm text-red-600">{{ error }}</div>
 </div>
 {% endif %}
 
@@ -43,14 +43,14 @@
     <div class="col-span-1 space-y-6">
         <!-- 메타데이터 table -->
         <div>
-            <h2 class="text-sm font-semibold text-[#5a6178] uppercase tracking-wide mb-3">메타데이터</h2>
-            <div class="bg-[#ffffff] border border-[#dce0ed] rounded-lg overflow-hidden">
+            <h2 class="text-sm font-semibold text-[#475569] uppercase tracking-wide mb-3">메타데이터</h2>
+            <div class="bg-[#ffffff] border border-[#e2e8f0] rounded-lg overflow-hidden">
                 <table class="w-full text-sm">
-                    <tbody class="divide-y divide-[#dce0ed]">
+                    <tbody class="divide-y divide-[#e2e8f0]">
                         {% for key, value in metadata_rows %}
                         <tr>
-                            <td class="px-4 py-2 text-[#5a6178] font-medium w-1/3 align-top">{{ key }}</td>
-                            <td class="px-4 py-2 text-[#1a1d2e] font-mono text-xs break-all">{{ value }}</td>
+                            <td class="px-4 py-2 text-[#475569] font-medium w-1/3 align-top">{{ key }}</td>
+                            <td class="px-4 py-2 text-[#111827] font-mono text-xs break-all">{{ value }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -60,13 +60,13 @@
 
         <!-- Related wiki pages -->
         <div>
-            <h2 class="text-sm font-semibold text-[#5a6178] uppercase tracking-wide mb-3">
+            <h2 class="text-sm font-semibold text-[#475569] uppercase tracking-wide mb-3">
                 Wiki pages from this source
-                {% if related_pages %}<span class="text-[#8892a4]">({{ related_pages|length }})</span>{% endif %}
+                {% if related_pages %}<span class="text-[#64748b]">({{ related_pages|length }})</span>{% endif %}
             </h2>
             {% if related_pages %}
-            <div class="bg-[#ffffff] border border-[#dce0ed] rounded-lg overflow-hidden">
-                <ul class="divide-y divide-[#dce0ed]">
+            <div class="bg-[#ffffff] border border-[#e2e8f0] rounded-lg overflow-hidden">
+                <ul class="divide-y divide-[#e2e8f0]">
                     {% for p in related_pages %}
                     <li class="px-4 py-2 flex items-center gap-2">
                         {% if p.operation == 'created' %}
@@ -76,16 +76,16 @@
                         {% else %}
                             <span class="text-xs px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-300 font-medium">{{ p.operation[:1] }}</span>
                         {% endif %}
-                        <span class="text-xs font-mono text-[#5a6178]">{{ p.path }}</span>
+                        <span class="text-xs font-mono text-[#475569]">{{ p.path }}</span>
                     </li>
                     {% endfor %}
                 </ul>
             </div>
             {% else %}
-            <div class="bg-[#ffffff] border border-[#dce0ed] rounded-lg p-4 text-center">
-                <div class="text-xs text-[#8892a4]">
+            <div class="bg-[#ffffff] border border-[#e2e8f0] rounded-lg p-4 text-center">
+                <div class="text-xs text-[#64748b]">
                     {% if source.status == 'pending' %}
-                        Not yet ingested. Run <code class="text-[#3d4ef3]">wiki ingest</code> in the CLI.
+                        Not yet ingested. Run <code class="text-[#4338ca]">wiki ingest</code> in the CLI.
                     {% else %}
                         아직 wiki 페이지가 없습니다
                     {% endif %}
@@ -97,14 +97,14 @@
 
     <!-- 텍스트 미리보기 -->
     <div class="col-span-2">
-        <h2 class="text-sm font-semibold text-[#5a6178] uppercase tracking-wide mb-3">텍스트 미리보기</h2>
+        <h2 class="text-sm font-semibold text-[#475569] uppercase tracking-wide mb-3">텍스트 미리보기</h2>
         {% if preview %}
-        <div class="bg-[#ffffff] border border-[#dce0ed] rounded-lg overflow-hidden">
-            <pre class="p-4 text-xs text-[#1a1d2e] font-mono whitespace-pre-wrap break-words leading-relaxed max-h-[600px] overflow-auto">{{ preview }}</pre>
+        <div class="bg-[#ffffff] border border-[#e2e8f0] rounded-lg overflow-hidden">
+            <pre class="p-4 text-xs text-[#111827] font-mono whitespace-pre-wrap break-words leading-relaxed max-h-[600px] overflow-auto">{{ preview }}</pre>
         </div>
         {% else %}
-        <div class="bg-[#ffffff] border border-[#dce0ed] rounded-lg p-8 text-center">
-            <div class="text-sm text-[#8892a4]">사용 가능한 텍스트 미리보기가 없습니다</div>
+        <div class="bg-[#ffffff] border border-[#e2e8f0] rounded-lg p-8 text-center">
+            <div class="text-sm text-[#64748b]">사용 가능한 텍스트 미리보기가 없습니다</div>
         </div>
         {% endif %}
     </div>

@@ -5,12 +5,12 @@
 {% block content %}
 
 <div class="mb-6">
-    <h1 class="text-3xl font-semibold text-[#1a1d2e] mb-1">소스</h1>
-    <p class="text-sm text-[#5a6178]">이 위키에서 추적 중인 모든 소스 문서입니다.</p>
+    <h1 class="text-3xl font-semibold text-[#111827] mb-1">소스</h1>
+    <p class="text-sm text-[#475569]">이 위키에서 추적 중인 모든 소스 문서입니다.</p>
 </div>
 
 <!-- 상태 filter tabs -->
-<div class="flex items-center gap-1 mb-6 border-b border-[#dce0ed]">
+<div class="flex items-center gap-1 mb-6 border-b border-[#e2e8f0]">
     {% set tabs = [
         ('all', '전체', none),
         ('pending', '대기중', 'pending'),
@@ -22,34 +22,34 @@
         {% set is_active = (status_filter == value) or (status_filter is none and value is none) %}
         <a href="{{ href }}"
            class="px-4 py-2 text-sm font-medium border-b-2 transition
-                  {% if is_active %}border-[#5b6ef5] text-[#1a1d2e]{% else %}border-transparent text-[#5a6178] hover:text-[#1a1d2e]{% endif %}">
+                  {% if is_active %}border-[#4f46e5] text-[#111827]{% else %}border-transparent text-[#475569] hover:text-[#111827]{% endif %}">
             {{ label }}
-            <span class="ml-1 text-xs text-[#8892a4]">({{ status_counts[key] }})</span>
+            <span class="ml-1 text-xs text-[#64748b]">({{ status_counts[key] }})</span>
         </a>
     {% endfor %}
 </div>
 
 {% if sources %}
-<div class="bg-white border border-[#dce0ed] rounded-lg overflow-hidden">
+<div class="bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
     <table class="w-full">
         <thead>
-            <tr class="border-b border-[#dce0ed] bg-[#f0f2f8]">
-                <th class="px-4 py-3 text-left text-xs font-semibold text-[#5a6178] uppercase tracking-wide w-12">#</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold text-[#5a6178] uppercase tracking-wide">경로</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold text-[#5a6178] uppercase tracking-wide w-20">유형</th>
-                <th class="px-4 py-3 text-right text-xs font-semibold text-[#5a6178] uppercase tracking-wide w-24">크기</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold text-[#5a6178] uppercase tracking-wide w-28">추가일</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold text-[#5a6178] uppercase tracking-wide w-28">상태</th>
+            <tr class="border-b border-[#e2e8f0] bg-[#f1f5f9]">
+                <th class="px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wide w-12">#</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wide">경로</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wide w-20">유형</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold text-[#475569] uppercase tracking-wide w-24">크기</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wide w-28">추가일</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wide w-28">상태</th>
             </tr>
         </thead>
-        <tbody class="divide-y divide-[#dce0ed]">
+        <tbody class="divide-y divide-[#e2e8f0]">
             {% for row in sources %}
-            <tr class="hover:bg-[#f0f2f8] transition cursor-pointer" onclick="window.location='/sources/{{ row.id }}'">
-                <td class="px-4 py-3 text-sm font-mono text-[#5b6ef5]">{{ row.id }}</td>
-                <td class="px-4 py-3 text-sm font-mono text-[#1a1d2e]">{{ row.relpath }}</td>
-                <td class="px-4 py-3 text-xs uppercase text-[#5a6178]">{{ row.file_type }}</td>
-                <td class="px-4 py-3 text-sm text-right text-[#5a6178]">{{ row.size_human }}</td>
-                <td class="px-4 py-3 text-sm text-[#5a6178]">{{ row.added_short }}</td>
+            <tr class="hover:bg-[#f1f5f9] transition cursor-pointer" onclick="window.location='/sources/{{ row.id }}'">
+                <td class="px-4 py-3 text-sm font-mono text-[#4f46e5]">{{ row.id }}</td>
+                <td class="px-4 py-3 text-sm font-mono text-[#111827]">{{ row.relpath }}</td>
+                <td class="px-4 py-3 text-xs uppercase text-[#475569]">{{ row.file_type }}</td>
+                <td class="px-4 py-3 text-sm text-right text-[#475569]">{{ row.size_human }}</td>
+                <td class="px-4 py-3 text-sm text-[#475569]">{{ row.added_short }}</td>
                 <td class="px-4 py-3">
                     {% if row.status == 'ingested' %}
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-green-500/20 text-green-600">
@@ -78,17 +78,17 @@
     </table>
 </div>
 {% else %}
-<div class="bg-white border border-[#dce0ed] rounded-lg p-12 text-center">
+<div class="bg-white border border-[#e2e8f0] rounded-lg p-12 text-center">
     <div class="text-4xl mb-4">📭</div>
-    <div class="text-[#1a1d2e] font-medium mb-2">
+    <div class="text-[#111827] font-medium mb-2">
         {% if status_filter %}
             '{{ status_filter }}' 상태의 소스가 없습니다
         {% else %}
             아직 추적 중인 소스가 없습니다
         {% endif %}
     </div>
-    <div class="text-sm text-[#5a6178]">
-        CLI로 소스 추가: <code class="bg-[#f0f2f8] px-2 py-0.5 rounded text-[#5b6ef5]">wiki add &lt;파일-또는-폴더&gt;</code>
+    <div class="text-sm text-[#475569]">
+        CLI로 소스 추가: <code class="bg-[#f1f5f9] px-2 py-0.5 rounded text-[#4f46e5]">wiki add &lt;파일-또는-폴더&gt;</code>
     </div>
 </div>
 {% endif %}

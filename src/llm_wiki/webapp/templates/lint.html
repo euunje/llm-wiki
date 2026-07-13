@@ -6,20 +6,20 @@
 
 <div class="mb-6 flex items-start justify-between">
     <div>
-        <h1 class="text-3xl font-semibold text-[#1a1d2e] mb-1">검사</h1>
-        <p class="text-sm text-[#5a6178]">손상된 링크, 고아 페이지, 잘못된 프론트매터 등을 점검하는 상태 검사용 페이지입니다.</p>
+        <h1 class="text-3xl font-semibold text-[#111827] mb-1">검사</h1>
+        <p class="text-sm text-[#475569]">손상된 링크, 고아 페이지, 잘못된 프론트매터 등을 점검하는 상태 검사용 페이지입니다.</p>
     </div>
     <div class="flex items-center gap-2">
         {% if fixable_count > 0 %}
         <form method="post" action="/lint/fix" class="inline">
             <button type="submit"
-                    class="text-sm px-4 py-2 bg-[#5b6ef5] hover:bg-[#3d4ef3] text-[#1a1d2e] rounded-md font-medium transition">
+                    class="text-sm px-4 py-2 bg-[#4f46e5] hover:bg-[#4338ca] text-white rounded-md font-medium transition">
                 {{ fixable_count }}개 문제 자동 수정
             </button>
         </form>
         {% endif %}
         <a href="/lint"
-           class="text-sm px-3 py-2 bg-white border border-[#dce0ed] rounded-md text-[#5a6178] hover:text-[#1a1d2e] hover:border-[#5b6ef5] transition">
+           class="text-sm px-3 py-2 bg-white border border-[#e2e8f0] rounded-md text-[#475569] hover:text-[#111827] hover:border-[#4f46e5] transition">
             다시 실행
         </a>
     </div>
@@ -37,8 +37,8 @@
 
 <!-- Health summary -->
 <div class="grid grid-cols-4 gap-4 mb-8">
-    <div class="bg-white border border-[#dce0ed] rounded-lg p-5">
-        <div class="text-xs text-[#8892a4] uppercase tracking-wide mb-2">상태 점수</div>
+    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5">
+        <div class="text-xs text-[#64748b] uppercase tracking-wide mb-2">상태 점수</div>
         {% if report.score >= 80 %}
             <div class="text-3xl font-semibold text-green-600">{{ report.score }}</div>
         {% elif report.score >= 50 %}
@@ -46,35 +46,35 @@
         {% else %}
             <div class="text-3xl font-semibold text-red-500">{{ report.score }}</div>
         {% endif %}
-        <div class="text-xs text-[#8892a4] mt-2">/ 100</div>
+        <div class="text-xs text-[#64748b] mt-2">/ 100</div>
     </div>
 
-    <div class="bg-white border border-[#dce0ed] rounded-lg p-5">
-        <div class="text-xs text-[#8892a4] uppercase tracking-wide mb-2">오류</div>
-        <div class="text-3xl font-semibold {% if report.errors_count > 0 %}text-red-500{% else %}text-[#8892a4]{% endif %}">{{ report.errors_count }}</div>
-        <div class="text-xs text-[#8892a4] mt-2">조치 필요</div>
+    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5">
+        <div class="text-xs text-[#64748b] uppercase tracking-wide mb-2">오류</div>
+        <div class="text-3xl font-semibold {% if report.errors_count > 0 %}text-red-500{% else %}text-[#64748b]{% endif %}">{{ report.errors_count }}</div>
+        <div class="text-xs text-[#64748b] mt-2">조치 필요</div>
     </div>
 
-    <div class="bg-white border border-[#dce0ed] rounded-lg p-5">
-        <div class="text-xs text-[#8892a4] uppercase tracking-wide mb-2">경고</div>
-        <div class="text-3xl font-semibold {% if report.warnings_count > 0 %}text-yellow-500{% else %}text-[#8892a4]{% endif %}">{{ report.warnings_count }}</div>
-        <div class="text-xs text-[#8892a4] mt-2">스타일 관련</div>
+    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5">
+        <div class="text-xs text-[#64748b] uppercase tracking-wide mb-2">경고</div>
+        <div class="text-3xl font-semibold {% if report.warnings_count > 0 %}text-yellow-500{% else %}text-[#64748b]{% endif %}">{{ report.warnings_count }}</div>
+        <div class="text-xs text-[#64748b] mt-2">스타일 관련</div>
     </div>
 
-    <div class="bg-white border border-[#dce0ed] rounded-lg p-5">
-        <div class="text-xs text-[#8892a4] uppercase tracking-wide mb-2">검사된 페이지</div>
-        <div class="text-3xl font-semibold text-[#1a1d2e]">{{ report.pages_checked }}</div>
-        <div class="text-xs text-[#8892a4] mt-2">{{ "%.2f"|format(report.duration) }}초 소요</div>
+    <div class="bg-white border border-[#e2e8f0] rounded-lg p-5">
+        <div class="text-xs text-[#64748b] uppercase tracking-wide mb-2">검사된 페이지</div>
+        <div class="text-3xl font-semibold text-[#111827]">{{ report.pages_checked }}</div>
+        <div class="text-xs text-[#64748b] mt-2">{{ "%.2f"|format(report.duration) }}초 소요</div>
     </div>
 </div>
 
 {% if report.errors_count == 0 and report.warnings_count == 0 and report.infos_count == 0 %}
-<div class="bg-white border border-[#dce0ed] rounded-lg p-12 text-center">
+<div class="bg-white border border-[#e2e8f0] rounded-lg p-12 text-center">
     <div class="text-5xl mb-4">✨</div>
-    <div class="text-xl text-[#1a1d2e] font-semibold mb-2">위키 상태가 양호합니다!</div>
-    <div class="text-sm text-[#5a6178]">{{ report.pages_checked }}개 페이지 검사 완료 ({{ "%.2f"|format(report.duration) }}초).</div>
-    <div class="mt-6 text-xs text-[#8892a4]">
-        심층 모순 감지를 원하시면 CLI에서 <code class="bg-[#f0f2f8] px-2 py-0.5 rounded text-[#5b6ef5]">wiki lint --deep</code>을 실행하세요.
+    <div class="text-xl text-[#111827] font-semibold mb-2">위키 상태가 양호합니다!</div>
+    <div class="text-sm text-[#475569]">{{ report.pages_checked }}개 페이지 검사 완료 ({{ "%.2f"|format(report.duration) }}초).</div>
+    <div class="mt-6 text-xs text-[#64748b]">
+        심층 모순 감지를 원하시면 CLI에서 <code class="bg-[#f1f5f9] px-2 py-0.5 rounded text-[#4f46e5]">wiki lint --deep</code>을 실행하세요.
     </div>
 </div>
 {% endif %}
@@ -86,7 +86,7 @@
         오류 ({{ errors|length }})
     </h2>
     <div class="bg-white border border-red-500/30 rounded-lg overflow-hidden">
-        <ul class="divide-y divide-[#dce0ed]">
+        <ul class="divide-y divide-[#e2e8f0]">
             {% for issue in errors %}
             <li class="p-4">
                 <div class="flex items-start gap-3">
@@ -94,11 +94,11 @@
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1 flex-wrap">
                             <span class="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-600 font-medium">{{ issue.check }}</span>
-                            <span class="text-xs font-mono text-[#5b6ef5]">{{ issue.page }}</span>
+                            <span class="text-xs font-mono text-[#4f46e5]">{{ issue.page }}</span>
                         </div>
-                        <div class="text-sm text-[#1a1d2e]">{{ issue.message }}</div>
+                        <div class="text-sm text-[#111827]">{{ issue.message }}</div>
                         {% if issue.suggestion %}
-                        <div class="text-xs text-[#5a6178] mt-1">→ {{ issue.suggestion }}</div>
+                        <div class="text-xs text-[#475569] mt-1">→ {{ issue.suggestion }}</div>
                         {% endif %}
                     </div>
                 </div>
@@ -116,10 +116,10 @@
         경고 ({{ warnings|length }})
     </h2>
     <div class="bg-white border border-yellow-500/30 rounded-lg overflow-hidden">
-        <ul class="divide-y divide-[#dce0ed]">
+        <ul class="divide-y divide-[#e2e8f0]">
             {% for page, page_issues in warnings_by_page.items() %}
             <li class="p-4">
-                <div class="text-xs font-mono text-[#5b6ef5] mb-2">{{ page }}</div>
+                <div class="text-xs font-mono text-[#4f46e5] mb-2">{{ page }}</div>
                 <ul class="space-y-2 ml-1">
                     {% for issue in page_issues %}
                     <li class="flex items-start gap-2">
@@ -131,9 +131,9 @@
                                 <span class="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-600 font-medium">자동 수정 가능</span>
                                 {% endif %}
                             </div>
-                            <div class="text-sm text-[#1a1d2e] mt-1">{{ issue.message }}</div>
+                            <div class="text-sm text-[#111827] mt-1">{{ issue.message }}</div>
                             {% if issue.suggestion %}
-                            <div class="text-xs text-[#5a6178] mt-0.5">→ {{ issue.suggestion }}</div>
+                            <div class="text-xs text-[#475569] mt-0.5">→ {{ issue.suggestion }}</div>
                             {% endif %}
                         </div>
                     </li>
@@ -152,8 +152,8 @@
     <h2 class="text-sm font-semibold text-blue-500 uppercase tracking-wide mb-3">
         정보 ({{ infos|length }})
     </h2>
-    <div class="bg-white border border-[#dce0ed] rounded-lg overflow-hidden">
-        <ul class="divide-y divide-[#dce0ed]">
+    <div class="bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
+        <ul class="divide-y divide-[#e2e8f0]">
             {% for issue in infos %}
             <li class="p-4">
                 <div class="flex items-start gap-3">
@@ -161,11 +161,11 @@
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1 flex-wrap">
                             <span class="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-600 font-medium">{{ issue.check }}</span>
-                            <span class="text-xs font-mono text-[#5b6ef5]">{{ issue.page }}</span>
+                            <span class="text-xs font-mono text-[#4f46e5]">{{ issue.page }}</span>
                         </div>
-                        <div class="text-sm text-[#1a1d2e]">{{ issue.message }}</div>
+                        <div class="text-sm text-[#111827]">{{ issue.message }}</div>
                         {% if issue.suggestion %}
-                        <div class="text-xs text-[#5a6178] mt-1">→ {{ issue.suggestion }}</div>
+                        <div class="text-xs text-[#475569] mt-1">→ {{ issue.suggestion }}</div>
                         {% endif %}
                     </div>
                 </div>

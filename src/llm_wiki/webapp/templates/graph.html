@@ -9,8 +9,8 @@
         width: 100%;
         height: calc(100vh - 200px);
         min-height: 500px;
-        background: #f8f9fc;
-        border: 1px solid #dce0ed;
+        background: #f6f7fb;
+        border: 1px solid #e2e8f0;
         border-radius: 8px;
         cursor: grab;
     }
@@ -19,7 +19,7 @@
     }
     .node {
         cursor: pointer;
-        stroke: #f0f2f8;
+        stroke: #f1f5f9;
         stroke-width: 2px;
         transition: stroke 150ms;
     }
@@ -31,11 +31,11 @@
         opacity: 0.15;
     }
     .node.highlight {
-        stroke: #5b6ef5;
+        stroke: #4f46e5;
         stroke-width: 3px;
     }
     .link {
-        stroke: #dce0ed;
+        stroke: #e2e8f0;
         stroke-opacity: 0.6;
         transition: stroke 150ms, stroke-opacity 150ms;
     }
@@ -43,13 +43,13 @@
         stroke-opacity: 0.05;
     }
     .link.highlight {
-        stroke: #5b6ef5;
+        stroke: #4f46e5;
         stroke-opacity: 0.8;
         stroke-width: 1.5px;
     }
     .node-label {
         font-size: 11px;
-        fill: #5a6178;
+        fill: #475569;
         pointer-events: none;
         text-anchor: middle;
         font-family: -apple-system, system-ui, sans-serif;
@@ -58,7 +58,7 @@
         opacity: 0.15;
     }
     .node-label.visible {
-        fill: #1a1d2e;
+        fill: #111827;
         font-weight: 500;
     }
 </style>
@@ -68,40 +68,40 @@
 
 <div class="mb-6 flex items-start justify-between">
     <div>
-        <h1 class="text-3xl font-semibold text-[#1a1d2e] mb-1">그래프</h1>
-        <p class="text-sm text-[#5a6178]">모든 wiki 페이지와 교차 참조를 시각적으로 확인합니다.</p>
+        <h1 class="text-3xl font-semibold text-[#111827] mb-1">그래프</h1>
+        <p class="text-sm text-[#475569]">모든 wiki 페이지와 교차 참조를 시각적으로 확인합니다.</p>
     </div>
     <div class="flex items-center gap-3">
         <input type="text"
                id="graph-search"
                placeholder="노드 검색…"
-               class="bg-[#ffffff] border border-[#dce0ed] rounded-md px-3 py-1.5 text-sm text-[#1a1d2e] placeholder-[#8892a4] focus:border-[#5b6ef5] focus:outline-none">
+               class="bg-[#ffffff] border border-[#e2e8f0] rounded-md px-3 py-1.5 text-sm text-[#111827] placeholder-[#64748b] focus:border-[#4f46e5] focus:outline-none">
         <button id="reset-btn"
-                class="text-xs px-3 py-1.5 bg-[#ffffff] border border-[#dce0ed] rounded-md text-[#5a6178] hover:text-[#1a1d2e] hover:border-[#5b6ef5] transition">
+                class="text-xs px-3 py-1.5 bg-[#ffffff] border border-[#e2e8f0] rounded-md text-[#475569] hover:text-[#111827] hover:border-[#4f46e5] transition">
             화면 초기화
         </button>
     </div>
 </div>
 
 <!-- Stats + legend bar -->
-<div class="bg-[#ffffff] border border-[#dce0ed] rounded-lg px-4 py-3 mb-3 flex items-center justify-between">
-    <div id="graph-stats" class="text-xs text-[#5a6178]">불러오는 중…</div>
+<div class="bg-[#ffffff] border border-[#e2e8f0] rounded-lg px-4 py-3 mb-3 flex items-center justify-between">
+    <div id="graph-stats" class="text-xs text-[#475569]">불러오는 중…</div>
     <div class="flex items-center gap-4 text-xs">
         <div class="flex items-center gap-1.5">
             <div class="w-2.5 h-2.5 rounded-full bg-[#8b5cf6]"></div>
-            <span class="text-[#5a6178]">소스</span>
+            <span class="text-[#475569]">소스</span>
         </div>
         <div class="flex items-center gap-1.5">
             <div class="w-2.5 h-2.5 rounded-full bg-[#f59e0b]"></div>
-            <span class="text-[#5a6178]">엔티티</span>
+            <span class="text-[#475569]">엔티티</span>
         </div>
         <div class="flex items-center gap-1.5">
             <div class="w-2.5 h-2.5 rounded-full bg-[#10b981]"></div>
-            <span class="text-[#5a6178]">개념</span>
+            <span class="text-[#475569]">개념</span>
         </div>
         <div class="flex items-center gap-1.5">
             <div class="w-2.5 h-2.5 rounded-full bg-[#ec4899]"></div>
-            <span class="text-[#5a6178]">종합</span>
+            <span class="text-[#475569]">종합</span>
         </div>
     </div>
 </div>
@@ -110,10 +110,10 @@
 
 <!-- Hover details panel -->
 <div id="hover-info"
-     class="hidden fixed bottom-6 right-6 bg-[#ffffff] border border-[#dce0ed] rounded-lg p-4 max-w-xs shadow-xl z-50">
-    <div id="hover-title" class="text-sm font-semibold text-[#1a1d2e] mb-1"></div>
-    <div id="hover-type" class="text-xs text-[#5a6178] mb-2"></div>
-    <div id="hover-degree" class="text-xs text-[#8892a4]"></div>
+     class="hidden fixed bottom-6 right-6 bg-[#ffffff] border border-[#e2e8f0] rounded-lg p-4 max-w-xs shadow-xl z-50">
+    <div id="hover-title" class="text-sm font-semibold text-[#111827] mb-1"></div>
+    <div id="hover-type" class="text-xs text-[#475569] mb-2"></div>
+    <div id="hover-degree" class="text-xs text-[#64748b]"></div>
 </div>
 
 <script>
@@ -137,7 +137,7 @@
         svg.append('text')
             .attr('x', '50%').attr('y', '50%')
             .attr('text-anchor', 'middle')
-            .attr('fill', '#8892a4')
+            .attr('fill', '#64748b')
             .attr('font-size', 14)
             .text('Empty wiki — nothing to graph.');
         return;
@@ -150,7 +150,7 @@
     if (tc.entities)  parts.push(`${tc.entities} entities`);
     if (tc.concepts)  parts.push(`${tc.concepts} concepts`);
     if (tc.synthesis) parts.push(`${tc.synthesis} synthesis`);
-    statsEl.innerHTML = `<span class="text-[#1a1d2e] font-semibold">${data.stats.node_count}</span> nodes · <span class="text-[#1a1d2e] font-semibold">${data.stats.edge_count}</span> edges · ${parts.join(' · ')}`;
+    statsEl.innerHTML = `<span class="text-[#111827] font-semibold">${data.stats.node_count}</span> nodes · <span class="text-[#111827] font-semibold">${data.stats.edge_count}</span> edges · ${parts.join(' · ')}`;
 
     // Setup SVG dimensions
     const container = svg.node().parentElement;
