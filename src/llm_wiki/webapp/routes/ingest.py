@@ -28,12 +28,14 @@ router = APIRouter()
 @router.get("/ingest", response_class=HTMLResponse)
 async def ingest_page(request: Request) -> HTMLResponse:
     paths: cfg.WikiPaths = request.app.state.wiki_paths
-    pending = [s for s in ingest_raw.list_sources(paths) if s["status"] == "pending"]
+    queue_sources = [
+        s for s in ingest_raw.list_sources(paths) if s["status"] in {"pending", "error"}
+    ]
     recent_jobs = jobs_module.list_jobs(paths, limit=20)
     return request.app.state.templates.TemplateResponse(
         request,
         "ingest.html",
-        {"pending": pending, "recent_jobs": recent_jobs, "page": "ingest"},
+        {"pending": queue_sources, "recent_jobs": recent_jobs, "page": "ingest"},
     )
 
 
@@ -102,7 +104,7 @@ async def ingest_scan(request: Request) -> JSONResponse:
         )
 
     pending_count = len(
-        [s for s in ingest_raw.list_sources(paths) if s["status"] == "pending"]
+        [s for s in ingest_raw.list_sources(paths) if s["status"] in {"pending", "error"}]
     )
     return JSONResponse(
         {
@@ -129,6 +131,10 @@ async def ingest_start(request: Request) -> JSONResponse:
     row = ingest_raw.get_source(paths, source_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"No source with id {source_id}")
+    if row.get("status") == "error":
+        ok, message = ingest_raw.mark_source_pending(paths, source_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail=message)
     manager = jobs_module.get_manager(paths)
     job_id = manager.enqueue(source_id)
     return JSONResponse({"ok": True, "job_id": job_id})

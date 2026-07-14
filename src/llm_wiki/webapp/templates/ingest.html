@@ -72,7 +72,7 @@
                 선택 항목 수집 시작
             </button>
             <button type="button" id="start-all-btn" class="px-3 py-1.5 rounded-md bg-[#4f46e5] hover:bg-[#4338ca] text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed" {% if not pending %}disabled{% endif %}>
-                새 Raw Source 모두 수집
+                대기/재시도 모두 수집
             </button>
             <a href="/sources" class="text-[#4f46e5] hover:text-[#4338ca]">모든 소스 보기 →</a>
         </div>
@@ -83,7 +83,11 @@
             <div class="flex items-center justify-between p-3 gap-3">
                 <label class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
                     <input type="checkbox" class="pending-source-checkbox rounded border-[#e2e8f0] text-[#4f46e5] focus:ring-[#4f46e5]" data-source-id="{{ src.id }}">
+                    {% if src.status == 'error' %}
+                    <span class="state-badge state-failed">재시도 필요</span>
+                    {% else %}
                     <span class="state-badge bg-[#e2e8f0] text-[#ca8a04]">{{ src.file_type }}</span>
+                    {% endif %}
                     <code class="text-sm text-[#111827] truncate">{{ src.relpath }}</code>
                 </label>
                 <button type="button" class="start-job-btn text-xs px-3 py-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white rounded font-medium transition flex-shrink-0"

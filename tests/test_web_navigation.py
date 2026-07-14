@@ -108,8 +108,38 @@ def test_ingest_scan_registers_synced_raw_sources(tmp_path, monkeypatch):
     assert after.status_code == 200
     assert "mobile-synced.md" in after.text
     assert "선택 항목 수집 시작" in after.text
-    assert "새 Raw Source 모두 수집" in after.text
+    assert "대기/재시도 모두 수집" in after.text
     assert "작업으로 보내기" in after.text
+
+
+def test_ingest_page_shows_error_sources_as_retryable_queue_items(tmp_path, monkeypatch):
+    """Previously failed sources are already scanned, so they must remain visible for retry."""
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    paths = scaffold(tmp_path)
+    from llm_wiki import db
+
+    db.init_db(paths.state_db)
+    synced_dir = paths.raw / "Articles"
+    synced_dir.mkdir(parents=True, exist_ok=True)
+    synced_file = synced_dir / "AlexsJones-Ilmfit.md"
+    synced_file.write_text(
+        "# AlexsJones Ilmfit\n\n" + "이미 등록됐지만 실패한 소스가 재시도 대기열에 보여야 합니다. " * 30,
+        encoding="utf-8",
+    )
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, status) VALUES (?, ?, ?, ?, ?, ?)",
+            ("10. Raw Sources/Articles/AlexsJones-Ilmfit.md", "hash-error", "md", synced_file.stat().st_size, "2026-01-01T00:00:00+00:00", "error"),
+        )
+        conn.commit()
+
+    client = TestClient(create_app(paths))
+    response = client.get("/ingest")
+
+    assert response.status_code == 200
+    assert "AlexsJones-Ilmfit.md" in response.text
+    assert "재시도 필요" in response.text
+    assert "작업으로 보내기" in response.text
 
 
 def test_ingest_pending_sources_render_batch_queue_actions(tmp_path, monkeypatch):
@@ -130,7 +160,7 @@ def test_ingest_pending_sources_render_batch_queue_actions(tmp_path, monkeypatch
     assert response.status_code == 200
     assert "수집 대기열" in response.text
     assert "선택 항목 수집 시작" in response.text
-    assert "새 Raw Source 모두 수집" in response.text
+    assert "대기/재시도 모두 수집" in response.text
     assert "작업으로 보내기" in response.text
     assert "분류/라우팅은 Raw Source 경로와 파일 유형을 기준으로" in response.text
 
