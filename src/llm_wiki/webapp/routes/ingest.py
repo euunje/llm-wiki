@@ -70,6 +70,51 @@ async def ingest_upload(
     return JSONResponse({"ok": True, "files": results})
 
 
+@router.post("/ingest/scan")
+async def ingest_scan(request: Request) -> JSONResponse:
+    """Register supported files that were synced directly into Raw Sources."""
+    paths: cfg.WikiPaths = request.app.state.wiki_paths
+    paths.raw.mkdir(parents=True, exist_ok=True)
+
+    counts = {"added": 0, "deduped": 0, "skipped": 0, "errors": 0}
+    files = list(ingest_raw.iter_addable_files(paths.raw, recursive=True))
+    results = []
+    for file_path in files:
+        outcome = ingest_raw.add_file(paths, file_path, copy=False)
+        if outcome.result == ingest_raw.AddResult.ADDED:
+            counts["added"] += 1
+        elif outcome.result == ingest_raw.AddResult.DEDUPED:
+            counts["deduped"] += 1
+        elif outcome.result in {
+            ingest_raw.AddResult.SKIPPED_EMPTY,
+            ingest_raw.AddResult.SKIPPED_UNSUPPORTED,
+        }:
+            counts["skipped"] += 1
+        else:
+            counts["errors"] += 1
+        results.append(
+            {
+                "path": outcome.relpath,
+                "result": outcome.result.value,
+                "source_id": outcome.source_id,
+                "message": outcome.message,
+            }
+        )
+
+    pending_count = len(
+        [s for s in ingest_raw.list_sources(paths) if s["status"] == "pending"]
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "scanned": len(files),
+            "pending_count": pending_count,
+            "counts": counts,
+            "results": results,
+        }
+    )
+
+
 @router.post("/ingest/start")
 async def ingest_start(request: Request) -> JSONResponse:
     paths: cfg.WikiPaths = request.app.state.wiki_paths

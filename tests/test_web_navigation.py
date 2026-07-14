@@ -44,8 +44,43 @@ def test_ingest_page_uses_model_generic_copy(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert "소스를 업로드하고 모델이 읽을 수 있는 작업 대기열로 보냅니다" in response.text
+    assert "수집 대기열" in response.text
+    assert "Raw Sources 스캔" in response.text
+    assert "현재 등록된 대기 항목이 없습니다" in response.text
     assert "Qwen3가 읽는 것을 확인하세요" not in response.text
     assert "Qwen3" not in response.text
+
+
+def test_ingest_scan_registers_synced_raw_sources(tmp_path, monkeypatch):
+    """Files synced directly into Raw Sources should become pending via web scan."""
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    paths = scaffold(tmp_path)
+    synced_dir = paths.raw / "Articles"
+    synced_dir.mkdir(parents=True, exist_ok=True)
+    synced_file = synced_dir / "mobile-synced.md"
+    synced_file.write_text(
+        "# Mobile synced source\n\n"
+        + "모바일 Obsidian에서 동기화된 Raw Source를 웹 수집 대기열에 등록하는 검증 문장입니다. " * 30,
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(paths))
+
+    before = client.get("/ingest")
+    assert before.status_code == 200
+    assert "mobile-synced.md" not in before.text
+
+    scan = client.post("/ingest/scan")
+    assert scan.status_code == 200
+    payload = scan.json()
+    assert payload["counts"]["added"] == 1
+    assert payload["pending_count"] == 1
+
+    after = client.get("/ingest")
+    assert after.status_code == 200
+    assert "mobile-synced.md" in after.text
+    assert "선택 항목 수집 시작" in after.text
+    assert "새 Raw Source 모두 수집" in after.text
+    assert "작업으로 보내기" in after.text
 
 
 def test_ingest_pending_sources_render_batch_queue_actions(tmp_path, monkeypatch):
@@ -68,7 +103,7 @@ def test_ingest_pending_sources_render_batch_queue_actions(tmp_path, monkeypatch
     assert "선택 항목 수집 시작" in response.text
     assert "새 Raw Source 모두 수집" in response.text
     assert "작업으로 보내기" in response.text
-    assert "분류/라우팅은 별도 명령이 아니라" in response.text
+    assert "분류/라우팅은 Raw Source 경로와 파일 유형을 기준으로" in response.text
 
 
 def test_mobile_menu_button_and_drawer_present(tmp_path, monkeypatch):

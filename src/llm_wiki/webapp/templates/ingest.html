@@ -57,41 +57,48 @@
 </div>
 
 <!-- 대기 sources -->
-{% if pending %}
 <div class="mb-6">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between mb-3">
         <div>
             <h2 class="text-xs uppercase tracking-wide text-[#475569] font-medium">수집 대기열</h2>
-            <p class="mt-1 text-xs text-[#64748b]">분류/라우팅은 별도 명령이 아니라 Raw Source 경로와 파일 유형을 기준으로 수집 작업 안에서 자동 판단합니다.</p>
+            <p class="mt-1 text-xs text-[#64748b]">모바일/Obsidian에서 동기화된 Raw Source는 먼저 스캔해서 작업 대기열에 등록합니다. 분류/라우팅은 Raw Source 경로와 파일 유형을 기준으로 수집 작업 안에서 자동 판단합니다.</p>
         </div>
         <div class="flex flex-wrap items-center gap-2 text-xs">
             <span id="selected-count" class="text-[#64748b]">0개 선택</span>
+            <button type="button" id="scan-raw-btn" class="px-3 py-1.5 rounded-md border border-[#e2e8f0] text-[#475569] hover:text-[#111827] hover:bg-[#f1f5f9]">
+                Raw Sources 스캔
+            </button>
             <button type="button" id="start-selected-btn" class="px-3 py-1.5 rounded-md border border-[#e2e8f0] text-[#475569] hover:text-[#111827] hover:bg-[#f1f5f9] disabled:opacity-50 disabled:cursor-not-allowed" disabled>
                 선택 항목 수집 시작
             </button>
-            <button type="button" id="start-all-btn" class="px-3 py-1.5 rounded-md bg-[#4f46e5] hover:bg-[#4338ca] text-white font-medium">
+            <button type="button" id="start-all-btn" class="px-3 py-1.5 rounded-md bg-[#4f46e5] hover:bg-[#4338ca] text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed" {% if not pending %}disabled{% endif %}>
                 새 Raw Source 모두 수집
             </button>
             <a href="/sources" class="text-[#4f46e5] hover:text-[#4338ca]">모든 소스 보기 →</a>
         </div>
     </div>
     <div class="bg-white border border-[#e2e8f0] rounded-lg divide-y divide-[#e2e8f0]">
-        {% for src in pending %}
-        <div class="flex items-center justify-between p-3 gap-3">
-            <label class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
-                <input type="checkbox" class="pending-source-checkbox rounded border-[#e2e8f0] text-[#4f46e5] focus:ring-[#4f46e5]" data-source-id="{{ src.id }}">
-                <span class="state-badge bg-[#e2e8f0] text-[#ca8a04]">{{ src.file_type }}</span>
-                <code class="text-sm text-[#111827] truncate">{{ src.relpath }}</code>
-            </label>
-            <button type="button" class="start-job-btn text-xs px-3 py-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white rounded font-medium transition flex-shrink-0"
-                    data-source-id="{{ src.id }}">
-                작업으로 보내기 →
-            </button>
-        </div>
-        {% endfor %}
+        {% if pending %}
+            {% for src in pending %}
+            <div class="flex items-center justify-between p-3 gap-3">
+                <label class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+                    <input type="checkbox" class="pending-source-checkbox rounded border-[#e2e8f0] text-[#4f46e5] focus:ring-[#4f46e5]" data-source-id="{{ src.id }}">
+                    <span class="state-badge bg-[#e2e8f0] text-[#ca8a04]">{{ src.file_type }}</span>
+                    <code class="text-sm text-[#111827] truncate">{{ src.relpath }}</code>
+                </label>
+                <button type="button" class="start-job-btn text-xs px-3 py-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white rounded font-medium transition flex-shrink-0"
+                        data-source-id="{{ src.id }}">
+                    작업으로 보내기 →
+                </button>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="p-6 text-sm text-center text-[#64748b]">
+                현재 등록된 대기 항목이 없습니다. 모바일/Obsidian에서 동기화한 파일이 있다면 <span class="font-medium text-[#475569]">Raw Sources 스캔</span>을 눌러 등록하세요.
+            </div>
+        {% endif %}
     </div>
 </div>
-{% endif %}
 
 <!-- Active / recent jobs -->
 <div>
@@ -155,6 +162,7 @@
     const logEl = document.getElementById('live-log');
     const watchingIdEl = document.getElementById('watching-job-id');
     const closeWatcherBtn = document.getElementById('close-watcher');
+    const scanRawBtn = document.getElementById('scan-raw-btn');
     const selectedCountEl = document.getElementById('selected-count');
     const startSelectedBtn = document.getElementById('start-selected-btn');
     const startAllBtn = document.getElementById('start-all-btn');
@@ -187,6 +195,30 @@
             alert('업로드 실패: ' + (await r.text()));
         }
     }
+
+    scanRawBtn?.addEventListener('click', async () => {
+        const originalText = scanRawBtn.textContent;
+        scanRawBtn.disabled = true;
+        scanRawBtn.textContent = '스캔 중…';
+        try {
+            const r = await fetch('/ingest/scan', { method: 'POST' });
+            if (!r.ok) throw new Error(await r.text());
+            const data = await r.json();
+            const added = data.counts?.added || 0;
+            const pending = data.pending_count || 0;
+            if (added > 0 || pending > 0) {
+                window.location.reload();
+            } else {
+                alert('새로 등록할 Raw Source가 없습니다.');
+                scanRawBtn.disabled = false;
+                scanRawBtn.textContent = originalText;
+            }
+        } catch (err) {
+            alert('Raw Sources 스캔 실패: ' + err.message);
+            scanRawBtn.disabled = false;
+            scanRawBtn.textContent = originalText;
+        }
+    });
 
     // --- 수집 시작 ---
     function updateSelectionState() {
