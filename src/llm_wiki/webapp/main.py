@@ -49,6 +49,17 @@ def create_app(paths: cfg.WikiPaths) -> FastAPI:
     app.state.wiki_paths = paths
     app.state.version = __version__
 
+    # If the previous process died or was restarted during an ingest, there is
+    # no worker thread left to complete persisted running/queued jobs. Mark
+    # them terminal immediately so the UI does not show stale progress forever.
+    # Only do this for initialized projects; setup/guide pages must also work
+    # before the runtime directory or state DB exists.
+    if paths.is_initialized():
+        from .. import db as db_module
+        from .. import jobs as jobs_module
+        db_module.init_db(paths.state_db)
+        jobs_module.mark_interrupted_on_startup(paths)
+
     from fastapi.responses import RedirectResponse
     @app.middleware("http")
     async def check_setup_middleware(request: Request, call_next):

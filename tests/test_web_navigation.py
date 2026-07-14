@@ -34,6 +34,35 @@ def test_jobs_page_uses_shared_sidebar_navigation(tmp_path, monkeypatch):
     assert "최근 작업" in response.text
 
 
+def test_create_app_marks_stale_jobs_interrupted(tmp_path, monkeypatch):
+    """Server startup should not leave dead running jobs stuck forever."""
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    paths = scaffold(tmp_path)
+    import sqlite3
+    from llm_wiki import db
+
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, status) VALUES (?, ?, ?, ?, ?, ?)",
+            ("10. Raw Sources/example.md", "hash", "md", 100, "2026-01-01T00:00:00+00:00", "pending"),
+        )
+        source_id = conn.execute("SELECT id FROM sources").fetchone()[0]
+        conn.execute(
+            "INSERT INTO ingest_jobs (source_id, state, phase, progress, created_at, started_at) VALUES (?, 'running', 'drafting', 0.4, ?, ?)",
+            (source_id, "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+        )
+        conn.commit()
+
+    create_app(paths)
+
+    with sqlite3.connect(paths.state_db) as conn:
+        row = conn.execute("SELECT state, error, finished_at FROM ingest_jobs").fetchone()
+    assert row[0] == "interrupted"
+    assert row[1] == "Server restarted during ingest"
+    assert row[2]
+
+
 def test_ingest_page_uses_model_generic_copy(tmp_path, monkeypatch):
     """Ingest page must not hard-code a specific model name in user-facing copy."""
     monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
