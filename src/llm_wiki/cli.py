@@ -668,13 +668,14 @@ def ingest(
     llm_cfg = config.get("llm", {})
 
     host = llm_cfg.get("host", "http://localhost:11434")
-    model = llm_cfg.get("model", "qwen3:14b")
+    model = llm_cfg.get("model", "model")
     timeout = float(llm_cfg.get("timeout", 300.0))
+    provider = llm_cfg.get("provider")
 
     # Verify the configured LLM endpoint is reachable before doing anything
     console.print()
     console.print(f"[dim]Checking LLM at {host} …[/dim]")
-    client = OllamaClient(host=host, model=model, timeout=timeout)
+    client = OllamaClient(host=host, model=model, timeout=timeout, provider=provider)
     try:
         client.ensure_ready()
     except OllamaNotRunning as e:
@@ -944,8 +945,10 @@ def query(
 
     # Connect to Ollama
     host = llm_cfg.get("host", "http://localhost:11434")
-    model = llm_cfg.get("model", "qwen3:14b")
-    client = OllamaClient(host=host, model=model)
+    model = llm_cfg.get("model", "model")
+    timeout = float(llm_cfg.get("timeout", 300.0))
+    provider = llm_cfg.get("provider")
+    client = OllamaClient(host=host, model=model, timeout=timeout, provider=provider)
     try:
         client.ensure_ready()
     except OllamaNotRunning as e:
@@ -1116,8 +1119,10 @@ def lint(
         config = cfg.load_config(paths)
         llm_cfg = config.get("llm", {})
         host = llm_cfg.get("host", "http://localhost:11434")
-        model = llm_cfg.get("model", "qwen3:14b")
-        client = OllamaClient(host=host, model=model)
+        model = llm_cfg.get("model", "model")
+        timeout = float(llm_cfg.get("timeout", 300.0))
+        provider = llm_cfg.get("provider")
+        client = OllamaClient(host=host, model=model, timeout=timeout, provider=provider)
         try:
             client.ensure_ready()
         except (OllamaNotRunning, ModelNotFound, LLMError) as e:

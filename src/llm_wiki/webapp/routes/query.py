@@ -123,7 +123,9 @@ async def query_stream(
     def worker() -> None:
         client = OllamaClient(
             host=llm_cfg.get("host", "http://localhost:11434"),
-            model=llm_cfg.get("model", "qwen3:14b"),
+            model=llm_cfg.get("model", "model"),
+            timeout=float(llm_cfg.get("timeout", 300)),
+            provider=llm_cfg.get("provider"),
         )
         try:
             try:
