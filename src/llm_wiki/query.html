@@ -208,7 +208,7 @@
     });
 
     // Naive markdown → HTML for streaming output. Handles wikilinks, bold,
-    // headers, code, lists. Not a full parser — good enough for Qwen3 output.
+    // headers, code, lists. Not a full parser — good enough for model output.
     function renderMarkdown(text) {
         // Escape HTML
         let html = text
@@ -415,7 +415,7 @@
         es.addEventListener('hits', (ev) => {
             const data = JSON.parse(ev.data);
             renderHits(hitsEl, data.hits);
-            statusEl.textContent = 'Synthesizing answer with Qwen3…';
+            statusEl.textContent = 'Synthesizing answer with the selected model…';
         });
 
         es.addEventListener('chunk', (ev) => {

@@ -303,7 +303,7 @@
                     <div class="space-y-1">
                         <label for="llm_model" class="block text-xs text-slate-600 font-medium">Model Name</label>
                         <div id="modelInputContainer">
-                            <input type="text" id="llm_model" name="llm_model" value="qwen3:14b" required
+                            <input type="text" id="llm_model" name="llm_model" value="{{ default_llm_model }}" required
                                    class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
                         </div>
                     </div>
@@ -320,7 +320,7 @@
                     <!-- LLM Host -->
                     <div id="hostContainer" class="space-y-1 col-span-1">
                         <label for="llm_host" class="block text-xs text-slate-600 font-medium">API Host URL</label>
-                        <input type="text" id="llm_host" name="llm_host" value="http://localhost:11434" required
+                        <input type="text" id="llm_host" name="llm_host" value="{{ default_llm_host }}" required
                                class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition">
                     </div>
                 </div>
@@ -353,7 +353,7 @@
                     <div class="flex items-center space-x-3 pt-4">
                         <input type="checkbox" id="llm_thinking" name="llm_thinking" checked
                                class="w-4 h-4 rounded text-brand-600 bg-slate-50 border-slate-200 focus:ring-brand-500">
-                        <label for="llm_thinking" class="text-xs text-slate-700 font-medium cursor-pointer">Enable Thinking Mode (e.g. Qwen3/Reasoning)</label>
+                        <label for="llm_thinking" class="text-xs text-slate-700 font-medium cursor-pointer">Enable Thinking/Reasoning Mode</label>
                     </div>
                 </div>
             </div>
@@ -610,7 +610,7 @@
         // Dynamic Recommended Settings
         const RECOMMENDED = {
             ollama: {
-                model: 'qwen3:14b',
+                model: {{ default_llm_model|tojson }},
                 host: 'http://localhost:11434',
                 apiKeyRequired: false
             },

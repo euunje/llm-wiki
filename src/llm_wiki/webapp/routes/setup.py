@@ -63,12 +63,18 @@ class CreateDirModel(BaseModel):
 async def setup_view(request: Request) -> HTMLResponse:
     paths: cfg.WikiPaths = request.app.state.wiki_paths
     current_dir = str(paths.root.resolve())
+    current_config = cfg.load_config(paths)
+    llm_config = current_config.get("llm", {}) if isinstance(current_config, dict) else {}
+    default_llm_model = os.environ.get("LOCAL_LLM_MODEL") or llm_config.get("model") or "model"
+    default_llm_host = os.environ.get("LOCAL_LLM_BASE_URL") or llm_config.get("host") or "http://localhost:11434"
     
     response = request.app.state.templates.TemplateResponse(
         request,
         "setup.html",
         {
             "current_dir": current_dir,
+            "default_llm_model": default_llm_model,
+            "default_llm_host": default_llm_host,
             "page": "setup",
         },
     )

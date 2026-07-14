@@ -34,6 +34,43 @@ def test_jobs_page_uses_shared_sidebar_navigation(tmp_path, monkeypatch):
     assert "최근 작업" in response.text
 
 
+def test_ingest_page_uses_model_generic_copy(tmp_path, monkeypatch):
+    """Ingest page must not hard-code a specific model name in user-facing copy."""
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    paths = scaffold(tmp_path)
+    client = TestClient(create_app(paths))
+
+    response = client.get("/ingest")
+
+    assert response.status_code == 200
+    assert "소스를 업로드하고 모델이 읽을 수 있는 작업 대기열로 보냅니다" in response.text
+    assert "Qwen3가 읽는 것을 확인하세요" not in response.text
+    assert "Qwen3" not in response.text
+
+
+def test_ingest_pending_sources_render_batch_queue_actions(tmp_path, monkeypatch):
+    """Pending sources should be handled as a queue with batch actions, not CLI commands."""
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    paths = scaffold(tmp_path)
+    client = TestClient(create_app(paths))
+
+    raw_body = ("# Raw note\n\n" + "이 문서는 수집 대기열 렌더링을 검증하기 위한 충분한 길이의 원문입니다. " * 30).encode()
+    upload = client.post(
+        "/ingest/upload",
+        files=[("files", ("raw-note.md", raw_body, "text/markdown"))],
+    )
+    assert upload.status_code == 200
+
+    response = client.get("/ingest")
+
+    assert response.status_code == 200
+    assert "수집 대기열" in response.text
+    assert "선택 항목 수집 시작" in response.text
+    assert "새 Raw Source 모두 수집" in response.text
+    assert "작업으로 보내기" in response.text
+    assert "분류/라우팅은 별도 명령이 아니라" in response.text
+
+
 def test_mobile_menu_button_and_drawer_present(tmp_path, monkeypatch):
     """Mobile shell: topbar hamburger button and right-side drawer exist."""
     monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)

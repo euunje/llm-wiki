@@ -43,7 +43,7 @@
 
 <div class="mb-6">
     <h1 class="text-2xl font-semibold text-[#111827]">수집</h1>
-    <p class="text-sm text-[#475569]">소스를 업로드하고 Qwen3가 읽는 것을 확인하세요. 작업은 탭을 닫거나 서버를 재시작해도 유지됩니다.</p>
+    <p class="text-sm text-[#475569]">소스를 업로드하고 모델이 읽을 수 있는 작업 대기열로 보냅니다. 작업은 탭을 닫거나 서버를 재시작해도 유지됩니다.</p>
 </div>
 
 <!-- Drop zone -->
@@ -59,20 +59,33 @@
 <!-- 대기 sources -->
 {% if pending %}
 <div class="mb-6">
-    <div class="flex items-center justify-between mb-2">
-        <h2 class="text-xs uppercase tracking-wide text-[#475569] font-medium">대기 중인 소스</h2>
-        <a href="/sources" class="text-xs text-[#4f46e5] hover:text-[#4338ca]">모든 소스 보기 →</a>
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between mb-3">
+        <div>
+            <h2 class="text-xs uppercase tracking-wide text-[#475569] font-medium">수집 대기열</h2>
+            <p class="mt-1 text-xs text-[#64748b]">분류/라우팅은 별도 명령이 아니라 Raw Source 경로와 파일 유형을 기준으로 수집 작업 안에서 자동 판단합니다.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span id="selected-count" class="text-[#64748b]">0개 선택</span>
+            <button type="button" id="start-selected-btn" class="px-3 py-1.5 rounded-md border border-[#e2e8f0] text-[#475569] hover:text-[#111827] hover:bg-[#f1f5f9] disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                선택 항목 수집 시작
+            </button>
+            <button type="button" id="start-all-btn" class="px-3 py-1.5 rounded-md bg-[#4f46e5] hover:bg-[#4338ca] text-white font-medium">
+                새 Raw Source 모두 수집
+            </button>
+            <a href="/sources" class="text-[#4f46e5] hover:text-[#4338ca]">모든 소스 보기 →</a>
+        </div>
     </div>
     <div class="bg-white border border-[#e2e8f0] rounded-lg divide-y divide-[#e2e8f0]">
         {% for src in pending %}
         <div class="flex items-center justify-between p-3 gap-3">
-            <div class="flex items-center gap-3 min-w-0">
+            <label class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+                <input type="checkbox" class="pending-source-checkbox rounded border-[#e2e8f0] text-[#4f46e5] focus:ring-[#4f46e5]" data-source-id="{{ src.id }}">
                 <span class="state-badge bg-[#e2e8f0] text-[#ca8a04]">{{ src.file_type }}</span>
                 <code class="text-sm text-[#111827] truncate">{{ src.relpath }}</code>
-            </div>
-            <button type="button" class="start-job-btn text-xs px-3 py-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white rounded font-medium transition"
+            </label>
+            <button type="button" class="start-job-btn text-xs px-3 py-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white rounded font-medium transition flex-shrink-0"
                     data-source-id="{{ src.id }}">
-                수집 →
+                작업으로 보내기 →
             </button>
         </div>
         {% endfor %}
@@ -142,6 +155,10 @@
     const logEl = document.getElementById('live-log');
     const watchingIdEl = document.getElementById('watching-job-id');
     const closeWatcherBtn = document.getElementById('close-watcher');
+    const selectedCountEl = document.getElementById('selected-count');
+    const startSelectedBtn = document.getElementById('start-selected-btn');
+    const startAllBtn = document.getElementById('start-all-btn');
+    const pendingCheckboxes = Array.from(document.querySelectorAll('.pending-source-checkbox'));
 
     let activeStream = null;
     let activeJobId = null;
@@ -172,24 +189,61 @@
     }
 
     // --- 수집 시작 ---
-    document.querySelectorAll('.start-job-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            btn.disabled = true;
-            btn.textContent = '시작 중…';
-            const fd = new FormData();
-            fd.append('source_id', btn.dataset.sourceId);
-            const r = await fetch('/ingest/start', { method: 'POST', body: fd });
-            if (r.ok) {
-                const data = await r.json();
-                watchJob(data.job_id);
-                // Reload after 1s so the jobs list shows the new job
-                setTimeout(() => window.location.reload(), 1200);
-            } else {
-                alert('시작 실패: ' + (await r.text()));
-                btn.disabled = false;
-                btn.textContent = '수집 →';
+    function updateSelectionState() {
+        const count = pendingCheckboxes.filter(cb => cb.checked).length;
+        if (selectedCountEl) selectedCountEl.textContent = count + '개 선택';
+        if (startSelectedBtn) startSelectedBtn.disabled = count === 0;
+    }
+
+    pendingCheckboxes.forEach(cb => cb.addEventListener('change', updateSelectionState));
+    updateSelectionState();
+
+    async function enqueueSource(sourceId) {
+        const fd = new FormData();
+        fd.append('source_id', sourceId);
+        const r = await fetch('/ingest/start', { method: 'POST', body: fd });
+        if (!r.ok) {
+            throw new Error(await r.text());
+        }
+        return await r.json();
+    }
+
+    async function enqueueSources(sourceIds, triggerBtn) {
+        if (!sourceIds.length) return;
+        const originalText = triggerBtn ? triggerBtn.textContent : '';
+        if (triggerBtn) {
+            triggerBtn.disabled = true;
+            triggerBtn.textContent = sourceIds.length > 1 ? '배치 등록 중…' : '시작 중…';
+        }
+        try {
+            let lastJobId = null;
+            for (const sourceId of sourceIds) {
+                const data = await enqueueSource(sourceId);
+                lastJobId = data.job_id;
             }
-        });
+            if (lastJobId !== null) watchJob(lastJobId);
+            setTimeout(() => window.location.reload(), 1200);
+        } catch (err) {
+            alert('시작 실패: ' + err.message);
+            if (triggerBtn) {
+                triggerBtn.disabled = false;
+                triggerBtn.textContent = originalText;
+            }
+        }
+    }
+
+    document.querySelectorAll('.start-job-btn').forEach(btn => {
+        btn.addEventListener('click', () => enqueueSources([btn.dataset.sourceId], btn));
+    });
+
+    startSelectedBtn?.addEventListener('click', () => {
+        const ids = pendingCheckboxes.filter(cb => cb.checked).map(cb => cb.dataset.sourceId);
+        enqueueSources(ids, startSelectedBtn);
+    });
+
+    startAllBtn?.addEventListener('click', () => {
+        const ids = pendingCheckboxes.map(cb => cb.dataset.sourceId);
+        enqueueSources(ids, startAllBtn);
     });
 
     // --- Watch a job (either active or historical) ---
