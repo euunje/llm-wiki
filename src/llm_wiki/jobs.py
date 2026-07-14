@@ -234,9 +234,16 @@ def mark_interrupted_on_startup(paths: cfg.WikiPaths) -> int:
 class _JobCallbacks(ingest_llm.IngestCallbacks):
     """Pipes pipeline progress into the job_events table."""
 
-    def __init__(self, paths: cfg.WikiPaths, job_id: int) -> None:
+    def __init__(
+        self,
+        paths: cfg.WikiPaths,
+        job_id: int,
+        *,
+        thinking_for_extraction: bool = True,
+    ) -> None:
         self.paths = paths
         self.job_id = job_id
+        self.thinking_for_extraction = thinking_for_extraction
 
     def _emit(self, kind: str, data: dict[str, Any]) -> None:
         _append_event(self.paths, self.job_id, kind, data)
@@ -256,10 +263,11 @@ class _JobCallbacks(ingest_llm.IngestCallbacks):
 
     def on_extracting(self) -> None:
         self._set(phase="extracting", progress=0.20)
+        mode_label = "thinking mode" if self.thinking_for_extraction else "no thinking"
         self._emit(
             "status",
             {
-                "text": "Extracting candidates (thinking mode)…",
+                "text": f"Extracting candidates ({mode_label})…",
                 "phase": "extracting",
             },
         )
@@ -444,9 +452,18 @@ class JobManager:
                 )
                 return
 
-            callbacks = _JobCallbacks(self.paths, job_id)
+            thinking_for_extraction = bool(llm_cfg.get("thinking", True))
+            callbacks = _JobCallbacks(
+                self.paths,
+                job_id,
+                thinking_for_extraction=thinking_for_extraction,
+            )
             ingest_llm.ingest_source(
-                self.paths, job.source_id, client, callbacks=callbacks
+                self.paths,
+                job.source_id,
+                client,
+                callbacks=callbacks,
+                thinking_for_extraction=thinking_for_extraction,
             )
             # Prune after each successful job to keep the jobs list short
             try:

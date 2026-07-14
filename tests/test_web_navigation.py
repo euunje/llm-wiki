@@ -63,6 +63,33 @@ def test_create_app_marks_stale_jobs_interrupted(tmp_path, monkeypatch):
     assert row[2]
 
 
+def test_web_job_callbacks_report_no_thinking_mode(tmp_path, monkeypatch):
+    """Job progress should reflect the configured extraction thinking mode."""
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    paths = scaffold(tmp_path)
+    from llm_wiki import db
+    from llm_wiki.jobs import _JobCallbacks, get_events_since
+
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, status) VALUES (?, ?, ?, ?, ?, ?)",
+            ("10. Raw Sources/example.md", "hash", "md", 100, "2026-01-01T00:00:00+00:00", "pending"),
+        )
+        source_id = conn.execute("SELECT id FROM sources").fetchone()[0]
+        conn.execute(
+            "INSERT INTO ingest_jobs (id, source_id, state, created_at) VALUES (99, ?, 'running', ?)",
+            (source_id, "2026-01-01T00:00:00+00:00"),
+        )
+        conn.commit()
+
+    callbacks = _JobCallbacks(paths, 99, thinking_for_extraction=False)
+    callbacks.on_extracting()
+
+    events = get_events_since(paths, 99, -1)
+    assert events[-1]["data"]["text"] == "Extracting candidates (no thinking)…"
+
+
 def test_ingest_page_uses_model_generic_copy(tmp_path, monkeypatch):
     """Ingest page must not hard-code a specific model name in user-facing copy."""
     monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
