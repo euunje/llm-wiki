@@ -169,6 +169,10 @@ def scaffold(
         d.mkdir(parents=True, exist_ok=True)
         (d / ".gitkeep").touch()
 
+    for d in [paths.inbox, paths.inbox_files, paths.inbox_markdown, paths.inbox_text, paths.inbox_failed, paths.inbox_review]:
+        d.mkdir(parents=True, exist_ok=True)
+        (d / ".gitkeep").touch()
+
     # 4. Wiki seed files (index.md, log.md)
     _write(paths.index, _read_template("index.md"))
     _write(paths.log, _read_template("log.md"))

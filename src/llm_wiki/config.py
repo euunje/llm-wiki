@@ -25,6 +25,8 @@ CONFIG_FILE = "config.yml"
 STATE_DB = "state.sqlite"
 
 OBSIDIAN_DIR = ".obsidian"
+INBOX_DIR = "Inbox"
+INBOX_SUBDIRS = ("Files", "Markdown", "Text", "_Failed", "_Review")
 
 
 def _resolve_under(root: Path, value: str | None, default: str) -> Path:
@@ -60,6 +62,18 @@ def default_files(wiki_dir: str = WIKI_DIR, schema_dir: str = SCHEMA_DIR, intern
         "agents": f"{schema_dir}/{AGENTS_FILE}",
         "config": f"{internal_dir}/{CONFIG_FILE}",
         "state_db": f"{internal_dir}/{STATE_DB}",
+    }
+
+
+def default_inbox_dirs(inbox_dir: str = INBOX_DIR) -> dict[str, str]:
+    """Default inbox directory map for Inbox-first ingest inputs and outcomes."""
+    return {
+        "root": inbox_dir,
+        "files": f"{inbox_dir}/Files",
+        "markdown": f"{inbox_dir}/Markdown",
+        "text": f"{inbox_dir}/Text",
+        "failed": f"{inbox_dir}/_Failed",
+        "review": f"{inbox_dir}/_Review",
     }
 
 
@@ -115,6 +129,23 @@ class WikiPaths:
         merged.update(configured)
         return merged
 
+    def _inbox_dirs_config(self) -> dict:
+        paths = self._paths_config()
+        configured = paths.get("inbox_dirs") or paths.get("inbox") or {}
+        merged = default_inbox_dirs()
+        explicit_non_categories = (paths.get("page_dirs") or {}).get("non_categories")
+        if explicit_non_categories:
+            review = Path(str(explicit_non_categories))
+            if review.name == "_Review":
+                merged["root"] = str(review.parent)
+                merged["review"] = explicit_non_categories
+                merged["failed"] = str(review.parent / "_Failed")
+                merged["files"] = str(review.parent / "Files")
+                merged["markdown"] = str(review.parent / "Markdown")
+                merged["text"] = str(review.parent / "Text")
+        merged.update(configured)
+        return merged
+
     @property
     def raw(self) -> Path:
         rel = self._paths_config().get("raw_dir", RAW_DIR)
@@ -163,6 +194,40 @@ class WikiPaths:
     @property
     def assets(self) -> Path:
         return self.page_dir("assets")
+
+    def inbox_dir(self, name: str) -> Path:
+        configured = self._inbox_dirs_config().get(name)
+        fallback = default_inbox_dirs().get(name, f"{INBOX_DIR}/{name}")
+        return _resolve_under(self.root, configured, fallback)
+
+    @property
+    def inbox(self) -> Path:
+        return self.inbox_dir("root")
+
+    @property
+    def inbox_files(self) -> Path:
+        return self.inbox_dir("files")
+
+    @property
+    def inbox_markdown(self) -> Path:
+        return self.inbox_dir("markdown")
+
+    @property
+    def inbox_text(self) -> Path:
+        return self.inbox_dir("text")
+
+    @property
+    def inbox_failed(self) -> Path:
+        return self.inbox_dir("failed")
+
+    @property
+    def inbox_review(self) -> Path:
+        return self.inbox_dir("review")
+
+    @property
+    def raw_archive(self) -> Path:
+        """Raw inputs remain physically under ``raw/`` but semantically act as archive."""
+        return self.raw
 
     def mapped_file(self, name: str) -> Path:
         configured = self._files_config().get(name)

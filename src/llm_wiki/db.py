@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -120,6 +120,45 @@ CREATE TABLE IF NOT EXISTS ingest_logs (
     processed_at    TEXT NOT NULL,
     FOREIGN KEY (source_id) REFERENCES sources(id)
 );
+
+-- Inbox-first ingest domain model (Phase 1)
+CREATE TABLE IF NOT EXISTS inbox_items (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id           INTEGER,
+    input_type          TEXT NOT NULL,       -- document_file|markdown_file|pasted_text
+    state               TEXT NOT NULL DEFAULT 'pending',
+                                            -- pending|processing|failed|review|archived|ingested
+    relpath             TEXT,
+    content_hash        TEXT,
+    title               TEXT,
+    error_message       TEXT,
+    lock_token          TEXT,
+    locked_at           TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    FOREIGN KEY (source_id) REFERENCES sources(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_items_state ON inbox_items(state);
+CREATE INDEX IF NOT EXISTS idx_inbox_items_source ON inbox_items(source_id);
+CREATE INDEX IF NOT EXISTS idx_inbox_items_relpath ON inbox_items(relpath);
+
+CREATE TABLE IF NOT EXISTS inbox_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    inbox_item_id       INTEGER NOT NULL,
+    seq                 INTEGER NOT NULL,
+    event_type          TEXT NOT NULL,
+    from_state          TEXT,
+    to_state            TEXT,
+    relpath             TEXT,
+    message             TEXT,
+    data                TEXT NOT NULL DEFAULT '{}',
+    created_at          TEXT NOT NULL,
+    FOREIGN KEY (inbox_item_id) REFERENCES inbox_items(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_events_item_seq ON inbox_events(inbox_item_id, seq);
+CREATE INDEX IF NOT EXISTS idx_inbox_events_item_created ON inbox_events(inbox_item_id, created_at);
 """
 
 
