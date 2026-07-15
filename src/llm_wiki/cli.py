@@ -6,7 +6,7 @@ Stage 1 commands:
     wiki version             Show version.
 
 Stage 2 commands:
-    wiki add <path> [-r]     Copy a file or folder into raw/, parse, track.
+    wiki add <path> [-r]     Copy a file or folder into Inbox and register it.
     wiki sources list        List all tracked sources.
     wiki sources show <id>   Show details for one source (with text preview).
     wiki sources rm <id>     Remove a source from tracking.
@@ -27,6 +27,7 @@ from rich.table import Table
 from . import __version__
 from . import config as cfg
 from . import db
+from . import inbox
 from . import ingest_llm
 from . import ingest_raw
 from . import lint as lint_module
@@ -110,6 +111,16 @@ def _status_style(status: str) -> str:
         "error": "red",
         "skipped": "dim",
     }.get(status, "white")
+
+
+def _register_file_in_inbox(
+    paths: cfg.WikiPaths,
+    file_path: Path,
+) -> inbox.InboxRegistrationResult:
+    suffix = file_path.suffix.lower()
+    if suffix in {".md", ".markdown"}:
+        return inbox.register_markdown_file(paths, file_path)
+    return inbox.register_document_file(paths, file_path)
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +277,7 @@ def status() -> None:
 def add(
     path: Path = typer.Argument(
         ...,
-        help="File or folder to add. Can be anywhere on disk; it gets copied into raw/.",
+        help="File or folder to add. Can be anywhere on disk; it gets copied into Inbox.",
     ),
     recursive: bool = typer.Option(
         False,
@@ -275,10 +286,10 @@ def add(
         help="When PATH is a folder, walk it recursively.",
     ),
 ) -> None:
-    """Copy one or more files into raw/, parse them, and register in the DB.
+    """Copy one or more files into Inbox and register Inbox items.
 
-    Accepts a single file or a folder. Skips unsupported types and deduplicates
-    by content hash. No LLM calls happen here — that's `wiki ingest` (Stage 3).
+    Accepts a single file or a folder. Skips unsupported types using the existing
+    parser file filter. No LLM calls happen here — that's `wiki ingest` (Stage 3).
     """
     paths = _resolve_root_or_die()
     source = path.expanduser().resolve()
@@ -302,56 +313,47 @@ def add(
     console.print()
     console.print(
         f"Adding [bold]{len(files_to_add)}[/bold] file(s) to "
-        f"[dim]{paths.raw}[/dim]"
+        f"[dim]{paths.inbox}[/dim]"
     )
     console.print()
 
-    added = deduped = skipped = errored = 0
+    added = skipped = errored = deduped = 0
 
     for file_path in files_to_add:
-        outcome = ingest_raw.add_file(paths, file_path)
-
-        if outcome.result == ingest_raw.AddResult.ADDED:
-            added += 1
-            console.print(
-                f"  [green]+[/green] [bold]#{outcome.source_id}[/bold] "
-                f"[cyan]{outcome.relpath}[/cyan]  "
-                f"[dim]{outcome.title}[/dim]"
-            )
-            console.print(
-                f"      [dim]{outcome.file_type} · {_format_bytes(outcome.bytes)} · "
-                f"{outcome.word_count:,} words[/dim]"
-            )
-        elif outcome.result == ingest_raw.AddResult.DEDUPED:
-            deduped += 1
-            console.print(
-                f"  [yellow]≈[/yellow] [dim]{file_path.name}[/dim]  "
-                f"[dim]→ {outcome.message}[/dim]"
-            )
-        elif outcome.result == ingest_raw.AddResult.SKIPPED_EMPTY:
-            skipped += 1
-            console.print(
-                f"  [yellow]![/yellow] [dim]{file_path.name}[/dim]  "
-                f"[yellow]{outcome.message}[/yellow]"
-            )
-        elif outcome.result == ingest_raw.AddResult.SKIPPED_UNSUPPORTED:
-            skipped += 1
-            console.print(
-                f"  [dim]-[/dim] [dim]{file_path.name}  ({outcome.message})[/dim]"
-            )
-        else:
+        try:
+            registration = _register_file_in_inbox(paths, file_path)
+        except Exception as exc:
             errored += 1
             console.print(
                 f"  [red]✗[/red] [dim]{file_path.name}[/dim]  "
-                f"[red]{outcome.message}[/red]"
+                f"[red]{exc}[/red]"
             )
+            continue
+
+        if registration.deduped:
+            deduped += 1
+        else:
+            added += 1
+        item = registration.item
+        if item.relpath is None:
+            relpath_display = str(registration.stored_path)
+        else:
+            relpath_display = item.relpath
+        console.print(
+            f"  [green]+[/green] [bold]inbox #{item.id}[/bold] "
+            f"[cyan]{relpath_display}[/cyan]  "
+            f"[dim]{item.title or file_path.stem}[/dim]"
+        )
+        console.print(
+            f"      [dim]{item.input_type} · {registration.stored_path.name}[/dim]"
+        )
 
     console.print()
     summary_parts = []
     if added:
         summary_parts.append(f"[green]{added} added[/green]")
     if deduped:
-        summary_parts.append(f"[yellow]{deduped} deduped[/yellow]")
+        summary_parts.append(f"[cyan]{deduped} deduped[/cyan]")
     if skipped:
         summary_parts.append(f"[yellow]{skipped} skipped[/yellow]")
     if errored:
@@ -360,7 +362,7 @@ def add(
     console.print()
 
     if added:
-        _hint("See everything with [bold]wiki sources list[/bold]")
+        _hint("Inbox items are ready for Phase 2 processing flows.")
 
 
 @sources_app.command("list")

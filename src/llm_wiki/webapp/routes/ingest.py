@@ -15,14 +15,29 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from ... import config as cfg
+from ... import inbox
 from ... import ingest_raw
 from ... import jobs as jobs_module
 
 router = APIRouter()
+
+
+def _register_upload(paths: cfg.WikiPaths, filename: str, content: bytes) -> inbox.InboxRegistrationResult:
+    return inbox.register_uploaded_bytes(paths, filename=filename, content=content)
+
+
+def _coerce_tags(raw_tags: list[str]) -> list[str]:
+    tags: list[str] = []
+    for raw_tag in raw_tags:
+        for part in raw_tag.split(","):
+            tag = part.strip()
+            if tag:
+                tags.append(tag)
+    return tags
 
 
 @router.get("/ingest", response_class=HTMLResponse)
@@ -43,33 +58,61 @@ async def ingest_page(request: Request) -> HTMLResponse:
 async def ingest_upload(
     request: Request, files: list[UploadFile] = File(...)
 ) -> JSONResponse:
-    import os
-    from pathlib import Path
     paths: cfg.WikiPaths = request.app.state.wiki_paths
-    
-    data_lake = Path("/data/raw_docs")
-    if data_lake.exists() and os.access(data_lake, os.W_OK):
-        dest_dir = data_lake
-    else:
-        dest_dir = paths.raw
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        
+
     results = []
     for up in files:
         if not up.filename:
             continue
-        dest = dest_dir / up.filename
         content = await up.read()
-        dest.write_bytes(content)
-        outcome = ingest_raw.add_file(paths, dest, copy=False)
+        registration = _register_upload(paths, up.filename, content)
+        item = registration.item
         results.append(
             {
                 "filename": up.filename,
-                "result": outcome.result.name,
-                "source_id": outcome.source_id,
+                "inbox_item_id": item.id,
+                "relpath": item.relpath,
+                "state": item.state,
+                "input_type": item.input_type,
+                "source_id": item.source_id,
+                "deduped": registration.deduped,
             }
         )
     return JSONResponse({"ok": True, "files": results})
+
+
+@router.post("/ingest/paste")
+async def ingest_paste(
+    request: Request,
+    title: str = Form(...),
+    body: str = Form(...),
+    source_url: str = Form(""),
+    tags: list[str] = Form(default=[]),
+) -> JSONResponse:
+    paths: cfg.WikiPaths = request.app.state.wiki_paths
+    if not title.strip():
+        raise HTTPException(status_code=400, detail="title required")
+    if not body.strip():
+        raise HTTPException(status_code=400, detail="body required")
+    registration = inbox.register_pasted_text(
+        paths,
+        title=title.strip(),
+        body=body,
+        source_url=source_url.strip() or None,
+        tags=_coerce_tags(tags),
+    )
+    item = registration.item
+    return JSONResponse(
+        {
+            "ok": True,
+            "inbox_item_id": item.id,
+            "relpath": item.relpath,
+            "state": item.state,
+            "input_type": item.input_type,
+            "source_id": item.source_id,
+            "deduped": registration.deduped,
+        }
+    )
 
 
 @router.post("/ingest/scan")
