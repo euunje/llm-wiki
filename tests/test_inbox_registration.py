@@ -241,6 +241,42 @@ def test_move_failure_records_evidence_and_preserves_source(tmp_path, monkeypatc
     assert events[-1].data["retryable"] is True
 
 
+def test_move_to_pending_missing_source_file_returns_moved_false_and_records_event(tmp_path):
+    """move_to_pending on a pending item whose file is missing (same-path case) must surface as failure.
+
+    Regression test for STAB-001: _safe_copy_or_move same-path short-circuit was returning
+    success without checking source_path.is_file(), causing move_to_pending to silently
+    succeed when the physical file was already gone but relpath pointed to the same dest.
+    """
+    paths = _init_paths(tmp_path)
+    # Register a document file - this stores it in inbox_files with PENDING state
+    source = tmp_path / "pending-missing.txt"
+    source.write_text("Pending Title\n\nBody.", encoding="utf-8")
+    registration = inbox.register_document_file(paths, source, copy=False)
+    assert registration.item.state == inbox.InboxState.PENDING.value
+
+    # Physically delete the file while keeping the DB entry
+    actual_file = paths.inbox_files / "pending-missing.txt"
+    actual_file.unlink()
+    assert not actual_file.exists()
+
+    # move_to_pending should detect the missing source and return moved=False
+    result = inbox.move_to_pending(paths, registration.item.id)
+
+    assert result.moved is False
+    assert result.source_path == actual_file
+    assert result.item.state == inbox.InboxState.PENDING.value  # state unchanged
+    with db.connect(paths.state_db) as conn:
+        events = inbox.list_inbox_events(conn, registration.item.id)
+    # Last event should be a failure event
+    last_event = events[-1]
+    assert last_event.event_type == "pending_move_failed"
+    assert "Source file not found" in last_event.message
+    assert last_event.data["source_path"].endswith("Inbox/Files/pending-missing.txt")
+    assert last_event.data["db_state"] == inbox.InboxState.PENDING.value
+    assert last_event.data["retryable"] is True
+
+
 def test_cli_registration_helper_routes_markdown_and_document_files_to_inbox_subfolders(tmp_path):
     paths = _init_paths(tmp_path)
     markdown = tmp_path / "note.md"

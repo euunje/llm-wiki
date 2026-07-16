@@ -124,7 +124,12 @@ def _try_relpath(path: Path, root: Path) -> str:
 
 
 def _safe_copy_or_move(source_path: Path, dest_path: Path, *, copy: bool) -> Path:
+    # Guard: same-path short-circuit must verify source exists to avoid silent
+    # success when move_to_pending is called on a pending item whose file is
+    # missing but whose relpath resolves to the same path as the destination.
     if source_path.resolve() == dest_path.resolve():
+        if not source_path.is_file():
+            raise FileNotFoundError(f"Source file not found: {source_path}")
         return dest_path
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_path, dest_path)
@@ -738,6 +743,38 @@ def move_to_review(
         failed_event_type="review_move_failed",
         message=message,
         data=data,
+    )
+
+
+def move_to_pending(
+    paths: cfg.WikiPaths,
+    inbox_item_id: int,
+    *,
+    message: str | None = None,
+    data: dict[str, Any] | None = None,
+) -> InboxMoveResult:
+    with db.connect(paths.state_db) as conn:
+        item = get_inbox_item(conn, inbox_item_id)
+    if item is None:
+        raise ValueError(f"Inbox item not found: {inbox_item_id}")
+
+    if item.input_type == InboxInputType.MARKDOWN_FILE.value:
+        dest_dir = paths.inbox_markdown
+    elif item.input_type == InboxInputType.PASTED_TEXT.value:
+        dest_dir = paths.inbox_text
+    else:
+        dest_dir = paths.inbox_files
+
+    return _move_item_file(
+        paths,
+        inbox_item_id=inbox_item_id,
+        dest_dir=dest_dir,
+        to_state=InboxState.PENDING,
+        event_type="moved_to_pending",
+        failed_event_type="pending_move_failed",
+        message=message,
+        data=data,
+        error_message=None,
     )
 
 

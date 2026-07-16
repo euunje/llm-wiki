@@ -3,49 +3,106 @@
 {% block title %}수신함 · LLM-Wiki{% endblock %}
 
 {% block content %}
+{% set active_state = active_state | default('all') %}
+{% set fc = filter_counts | default({}) %}
+{% set sel = selected_item %}
+{% set display_items = filtered_items | default(items) %}
 <div class="space-y-6">
     <div>
-        <h1 class="text-2xl font-bold text-[#111827]">문서 수신함 (검토 대기열)</h1>
+        <h1 class="text-2xl font-bold text-[#111827]">문서 수신함</h1>
         <p class="text-sm text-[#475569]">신뢰도가 낮거나 애매한 추출 결과를 핵심 wiki 폴더에 넣기 전에 검토합니다.</p>
     </div>
 
-    {% if not items %}
-    <div class="bg-[#ffffff] rounded-lg border border-[#e2e8f0] p-12 text-center">
-        <span class="text-4xl">🎉</span>
-        <h3 class="mt-4 text-lg font-medium text-[#111827]">수신함이 비어 있습니다!</h3>
-        <p class="mt-2 text-sm text-[#475569]">현재 검토 대기 중인 문서가 없습니다: <code class="bg-[#f6f7fb] px-1 py-0.5 rounded font-mono text-[#111827]">non_categories/</code>.</p>
+    <!-- Filter Tabs -->
+    <div class="flex gap-2 border-b border-[#e2e8f0] pb-2">
+        <button onclick="setFilter('all')" id="filter-all"
+            class="px-4 py-2 rounded-t-lg text-sm font-semibold transition {% if active_state == 'all' %}bg-[#4f46e5] text-white{% else %}bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]{% endif %}">
+            전체 <span class="ml-1 opacity-70">{{ fc.get('all', items | length) }}</span>
+        </button>
+        <button onclick="setFilter('pending')" id="filter-pending"
+            class="px-4 py-2 rounded-t-lg text-sm font-semibold transition {% if active_state == 'pending' %}bg-[#4f46e5] text-white{% else %}bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]{% endif %}">
+            Pending <span class="ml-1 opacity-70">{{ fc.get('pending', 0) }}</span>
+        </button>
+        <button onclick="setFilter('review')" id="filter-review"
+            class="px-4 py-2 rounded-t-lg text-sm font-semibold transition {% if active_state == 'review' %}bg-[#4f46e5] text-white{% else %}bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]{% endif %}">
+            Review <span class="ml-1 opacity-70">{{ fc.get('review', 0) }}</span>
+        </button>
+        <button onclick="setFilter('failed')" id="filter-failed"
+            class="px-4 py-2 rounded-t-lg text-sm font-semibold transition {% if active_state == 'failed' %}bg-[#4f46e5] text-white{% else %}bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]{% endif %}">
+            Failed <span class="ml-1 opacity-70">{{ fc.get('failed', 0) }}</span>
+        </button>
     </div>
-    {% else %}
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[70vh]">
-        <!-- Inbox Sidebar List (Left) -->
+
+    <!-- Empty State -->
+    {% set show_empty = (display_items | length == 0) %}
+    {% if show_empty %}
+    <div class="bg-[#ffffff] rounded-lg border border-[#e2e8f0] p-12 text-center" id="empty-state">
+        <span class="text-4xl">🎉</span>
+        <h3 class="mt-4 text-lg font-medium text-[#111827]" id="empty-title">
+            {% if active_state == 'review' %}검토 대기 항목이 없습니다.
+            {% elif active_state == 'failed' %}실패 항목이 없습니다.
+            {% else %}수신함이 비어 있습니다.{% endif %}
+        </h3>
+        <p class="mt-2 text-sm text-[#475569]">
+            {% if active_state == 'review' %}현재 Review 상태의 문서가 없습니다.
+            {% elif active_state == 'failed' %}현재 Failed 상태의 문서가 없습니다.
+            {% else %}현재 검토 대기 중인 문서가 없습니다: <code class="bg-[#f6f7fb] px-1 py-0.5 rounded font-mono text-[#111827]">non_categories/</code>.{% endif %}
+        </p>
+    </div>
+    {% endif %}
+
+    <!-- Main Grid -->
+    {% if not show_empty %}
+    <div id="main-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[70vh]">
+        <!-- Left Sidebar -->
         <div class="lg:col-span-4 bg-[#ffffff] rounded-lg border border-[#e2e8f0] flex flex-col overflow-hidden h-full">
             <div class="p-4 border-b border-[#e2e8f0]">
-                <h2 class="text-sm font-semibold text-[#111827] uppercase tracking-wider">대기 페이지 ({{ items | length }})</h2>
+                <h2 class="text-sm font-semibold text-[#111827] uppercase tracking-wider" id="sidebar-title">
+                    대기 페이지 (<span id="sidebar-count">{{ display_items | length }}</span>)
+                </h2>
             </div>
-            <div class="flex-1 overflow-y-auto divide-y divide-[#e2e8f0]">
-                {% for item in items %}
-                <button onclick="selectInboxItem('{{ item.slug }}')" id="item-btn-{{ item.slug }}" class="w-full text-left p-4 hover:bg-[#f1f5f9] transition flex flex-col gap-1 items-start {% if loop.first %}bg-[#f1f5f9]{% endif %}">
+            <div id="item-list" class="flex-1 overflow-y-auto divide-y divide-[#e2e8f0]">
+                {% for item in display_items %}
+                {% set item_type = item.type | default('pending') %}
+                <button onclick="selectInboxItem('{{ item.slug }}')" id="item-btn-{{ item.slug }}"
+                    data-type="{{ item_type }}"
+                    class="w-full text-left p-4 hover:bg-[#f1f5f9] transition flex flex-col gap-1 items-start {% if sel and sel.slug == item.slug %}bg-[#eef2ff]{% elif not sel and loop.first %}bg-[#f1f5f9]{% endif %}">
                     <span class="text-sm font-semibold text-[#111827]">{{ item.title }}</span>
                     <span class="text-xs text-[#475569] font-mono">Slug: {{ item.slug }}</span>
-                    
                     <div class="flex items-center gap-2 mt-2">
-                        <span class="px-2 py-0.5 rounded text-xs font-semibold {% if item.confidence == 'low' or (item.confidence | float < 0.5) %}bg-red-50 text-red-700 border border-red-200{% else %}bg-amber-50 text-amber-700 border border-amber-200{% endif %}">
+                        {% if item_type == 'review' %}
+                        <span class="px-2 py-0.5 rounded text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">review{% if item.reason %} · {{ item.reason }}{% endif %}</span>
+                        {% elif item_type == 'failed' %}
+                        <span class="px-2 py-0.5 rounded text-xs font-semibold bg-red-50 text-red-700 border border-red-200">failed{% if item.phase %} · {{ item.phase }}{% endif %}</span>
+                        {% else %}
+                        <span class="px-2 py-0.5 rounded text-xs font-semibold {% if item.confidence == 'low' or (item.confidence is defined and item.confidence is not none and item.confidence | string | length > 0 and item.confidence | float < 0.5) %}bg-red-50 text-red-700 border border-red-200{% else %}bg-amber-50 text-amber-700 border border-amber-200{% endif %}">
                             Confidence: {{ item.confidence }}
                         </span>
+                        {% endif %}
                     </div>
                 </button>
                 {% endfor %}
             </div>
         </div>
 
-        <!-- Preview & Control Panel (Right) -->
+        <!-- Right Detail Panel -->
         <div class="lg:col-span-8 bg-[#ffffff] rounded-lg border border-[#e2e8f0] flex flex-col overflow-hidden h-full">
-            <div class="p-4 border-b border-[#e2e8f0] flex justify-between items-center bg-[#f1f5f9]">
+            <!-- Detail Header -->
+            <div class="p-4 border-b border-[#e2e8f0] flex flex-wrap justify-between items-center gap-3 bg-[#f1f5f9]">
                 <div>
-                    <h2 class="text-base font-semibold text-[#111827]" id="preview-title">{{ items[0].title }}</h2>
-                    <p class="text-xs text-[#475569] font-mono" id="preview-slug">non_categories/{{ items[0].slug }}.md</p>
+                     <h2 class="text-base font-semibold text-[#111827]" id="detail-title">{{ sel.title if sel else (display_items[0].title if display_items else '') }}</h2>
+                    <p class="text-xs text-[#475569] font-mono" id="detail-subtitle">
+                        {%- if sel -%}
+                            {%- if sel.type | default('pending') == 'failed' -%}{{ sel.source_path | default('') }}
+                            {%- elif sel.type | default('pending') == 'review' -%}Inbox/_Review/{{ sel.slug }}.md
+                            {%- else -%}non_categories/{{ sel.slug }}.md
+                            {%- endif -%}
+                        {%- elif display_items -%}non_categories/{{ display_items[0].slug }}.md
+                        {%- endif -%}
+                    </p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div id="detail-header-actions" class="flex items-center gap-2">
+                    {% if not sel or sel.type | default('pending') == 'pending' %}
                     <select id="action-category" class="bg-[#f6f7fb] border border-[#e2e8f0] rounded-md px-3 py-1.5 text-sm text-[#111827]">
                         <option value="entities">entities/</option>
                         <option value="concepts">concepts/</option>
@@ -57,31 +114,32 @@
                     <button onclick="deleteSelectedItem()" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold px-4 py-1.5 rounded-md text-sm transition">
                         삭제
                     </button>
+                    {% endif %}
                 </div>
             </div>
 
-            <!-- Content Split Pane -->
-            <div class="flex-1 grid grid-cols-1 md:grid-cols-2 overflow-hidden">
-                <!-- 메타데이터 Details (Left Side of Pane) -->
+            <!-- Detail Body -->
+            <div id="detail-body" class="flex-1 grid grid-cols-1 md:grid-cols-2 overflow-hidden">
+                {% if sel and sel.type | default('pending') == 'pending' or (not sel and display_items) %}
+                {# ── Pending detail (initial render) ── #}
                 <div class="p-6 border-r border-[#e2e8f0] overflow-y-auto space-y-6">
                     <div>
                         <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">추출 메타데이터</h3>
                         <div class="bg-[#f6f7fb] rounded p-4 space-y-3 text-sm">
                             <div>
                                 <span class="text-[#64748b]">소스 요약 파일:</span>
-                                <div class="font-mono text-xs text-[#4f46e5] mt-1" id="preview-meta-source-file">{{ items[0].source_file | default('N/A') }}</div>
+                                <div class="font-mono text-xs text-[#4f46e5] mt-1" id="preview-meta-source-file">{{ (sel.source_file if sel else display_items[0].source_file) | default('N/A') }}</div>
                             </div>
                             <div>
                                 <span class="text-[#64748b]">처리 시각:</span>
-                                <div class="text-[#111827] mt-1" id="preview-meta-processed-at">{{ items[0].processed_at | default('N/A') }}</div>
+                                <div class="text-[#111827] mt-1" id="preview-meta-processed-at">{{ (sel.processed_at if sel else display_items[0].processed_at) | default('N/A') }}</div>
                             </div>
                             <div>
                                 <span class="text-[#64748b]">제안된 외부 담당:</span>
-                                <div class="font-mono text-xs text-amber-700 mt-1" id="preview-meta-owner">{{ items[0].suggestedExternalOwner | default('N/A') or 'N/A' }}</div>
+                                <div class="font-mono text-xs text-amber-700 mt-1" id="preview-meta-owner">{{ (sel.suggestedExternalOwner if sel else display_items[0].suggestedExternalOwner) | default('N/A') or 'N/A' }}</div>
                             </div>
                         </div>
                     </div>
-                    
                     <div>
                         <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">Wikilink / Backlink 재연결</h3>
                         <p class="text-xs text-[#64748b]">
@@ -89,14 +147,109 @@
                         </p>
                     </div>
                 </div>
-
-                <!-- Markdown Content (Right Side of Pane) -->
                 <div class="p-6 overflow-y-auto bg-[#f6f7fb]">
                     <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-4 border-b border-[#e2e8f0] pb-2">페이지 미리보기</h3>
-                    <div id="preview-body" class="prose prose-invert prose-sm max-w-none text-[#111827] whitespace-pre-wrap font-mono text-xs">
-                        {{ items[0].body }}
+                    <div id="preview-body" class="prose prose-invert prose-sm max-w-none text-[#111827] whitespace-pre-wrap font-mono text-xs">{{ (sel.body if sel else display_items[0].body) | default('') }}</div>
+                </div>
+                {% elif sel and sel.type | default('pending') == 'review' %}
+                {# ── Review detail (initial render) ── #}
+                <div class="p-6 border-r border-[#e2e8f0] overflow-y-auto space-y-4">
+                    <div>
+                        <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">상태</h3>
+                        <div class="bg-[#f6f7fb] rounded p-4 text-sm space-y-1">
+                            <div><span class="text-[#64748b]">상태:</span> <span class="text-amber-700 font-semibold">review{% if sel.reason %} · {{ sel.reason }}{% endif %}</span></div>
+                            <div><span class="text-[#64748b]">소스:</span> <span class="font-mono text-xs">Inbox/_Review/{{ sel.slug }}.md</span></div>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">유사 Wiki 후보</h3>
+                        <div id="candidates-box" class="bg-[#f6f7fb] rounded p-4 space-y-2 text-sm">
+                            {% for c in sel.candidates | default([]) %}
+                            <label class="flex items-center gap-2 p-2 rounded hover:bg-[#eef2ff] cursor-pointer">
+                                <input type="radio" name="review-candidate" value="{{ c.slug }}" class="accent-[#4f46e5]">
+                                <span class="font-mono text-xs text-[#4f46e5]">{{ c.slug }}</span>
+                                <span class="ml-auto text-xs text-[#64748b]">{{ c.similarity | default('?') }}</span>
+                            </label>
+                            {% endfor %}
+                            {% if not sel.candidates %}<p class="text-xs text-[#64748b]">유사 후보 없음</p>{% endif %}
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="reviewMerge()" class="bg-[#4f46e5] hover:bg-[#4338ca] text-white font-semibold px-3 py-1.5 rounded-md text-sm">기존 page에 편입</button>
+                        <button onclick="reviewCreate()" class="bg-[#f1f5f9] hover:bg-[#e2e8f0] border border-[#e2e8f0] text-[#111827] font-semibold px-3 py-1.5 rounded-md text-sm">새 page 생성</button>
+                    </div>
+                    <div>
+                        <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">태깅 / 분류</h3>
+                        <div class="bg-[#f6f7fb] rounded p-4 space-y-3 text-sm">
+                            <div>
+                                <label class="text-[#64748b] text-xs">kind:</label>
+                                <select id="review-kind" class="mt-1 w-full bg-[#fff] border border-[#e2e8f0] rounded px-2 py-1.5 text-sm text-[#111827]">
+                                    <option value="entity">entity</option>
+                                    <option value="concept">concept</option>
+                                    <option value="review">review</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[#64748b] text-xs">tags:</label>
+                                <input id="review-tags" type="text" placeholder="tag1, tag2, …" class="mt-1 w-full bg-[#fff] border border-[#e2e8f0] rounded px-2 py-1.5 text-sm text-[#111827]">
+                            </div>
+                            <button onclick="reviewTag()" class="w-full bg-[#f1f5f9] hover:bg-[#e2e8f0] border border-[#e2e8f0] text-[#111827] font-semibold px-3 py-1.5 rounded-md text-sm">태깅/분류 저장</button>
+                        </div>
                     </div>
                 </div>
+                <div class="p-6 overflow-y-auto bg-[#f6f7fb]">
+                    <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-4 border-b border-[#e2e8f0] pb-2">페이지 미리보기</h3>
+                    <div id="preview-body" class="prose prose-invert prose-sm max-w-none text-[#111827] whitespace-pre-wrap font-mono text-xs">{{ sel.body | default('') }}</div>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                        <button onclick="reviewReprocess()" class="bg-[#f1f5f9] hover:bg-[#e2e8f0] border border-[#e2e8f0] text-[#111827] font-semibold px-3 py-1.5 rounded-md text-sm">수정 후 재처리</button>
+                        <button onclick="reviewHold()" class="bg-[#f1f5f9] hover:bg-[#e2e8f0] border border-[#e2e8f0] text-[#111827] font-semibold px-3 py-1.5 rounded-md text-sm">보류</button>
+                        <button onclick="reviewDelete()" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold px-3 py-1.5 rounded-md text-sm">삭제</button>
+                    </div>
+                </div>
+                {% elif sel and sel.type | default('pending') == 'failed' %}
+                {# ── Failed detail (initial render) ── #}
+                <div class="p-6 border-r border-[#e2e8f0] overflow-y-auto space-y-4">
+                    <div>
+                        <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">상태</h3>
+                        <div class="bg-[#f6f7fb] rounded p-4 text-sm space-y-1">
+                            <div><span class="text-[#64748b]">상태:</span> <span class="text-red-700 font-semibold">failed</span></div>
+                            <div><span class="text-[#64748b]">소스 경로:</span> <span class="font-mono text-xs">{{ sel.source_path | default('N/A') }}</span></div>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">실패 Phase</h3>
+                        <div class="bg-[#f6f7fb] rounded p-4 text-sm">
+                            <span class="font-mono text-xs text-red-700">{{ sel.phase | default('N/A') }}</span>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">오류</h3>
+                        <div class="bg-red-50 border border-red-200 rounded p-4 text-sm">
+                            <pre class="text-xs text-red-800 whitespace-pre-wrap font-mono">{{ sel.error | default('N/A') }}</pre>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">진단 로그</h3>
+                        <div class="bg-[#f6f7fb] rounded p-4 text-sm max-h-48 overflow-y-auto">
+                            <pre class="text-xs text-[#475569] whitespace-pre-wrap font-mono">{{ sel.log_preview | default('') }}</pre>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 overflow-y-auto bg-[#f6f7fb] space-y-4">
+                    <div>
+                        <h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-4 border-b border-[#e2e8f0] pb-2">원본 미리보기</h3>
+                        <div id="preview-body" class="prose prose-invert prose-sm max-w-none text-[#111827] whitespace-pre-wrap font-mono text-xs">{{ sel.body | default('') }}</div>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="failedRetry()" class="bg-[#4f46e5] hover:bg-[#4338ca] text-white font-semibold px-3 py-1.5 rounded-md text-sm">재시도</button>
+                        <button onclick="failedOpen()" class="bg-[#f1f5f9] hover:bg-[#e2e8f0] border border-[#e2e8f0] text-[#111827] font-semibold px-3 py-1.5 rounded-md text-sm">원본 열기</button>
+                        <button onclick="failedDelete()" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold px-3 py-1.5 rounded-md text-sm">삭제</button>
+                    </div>
+                    <div>
+                        <button onclick="failedLogDelete()" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold px-3 py-1.5 rounded-md text-xs">로그만 삭제</button>
+                    </div>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -104,78 +257,433 @@
 </div>
 
 <script>
-    let activeSlug = "{{ items[0].slug if items else '' }}";
-    const itemsData = {
-        {% for item in items %}
-        "{{ item.slug }}": {
-            title: "{{ item.title | escape }}",
-            slug: "{{ item.slug | escape }}",
-            confidence: "{{ item.confidence | escape }}",
-            source_file: "{{ item.source_file | escape }}",
-            processed_at: "{{ item.processed_at | escape }}",
-            suggestedExternalOwner: "{{ item.suggestedExternalOwner | escape }}",
-            body: `{{ item.body | escape }}`
-        },
-        {% endfor %}
-    };
+/* ── Data ────────────────────────────────────────────────────── */
+var itemsData = {};
+{% for item in items %}
+itemsData[{{ item.slug | tojson }}] = {
+    slug: {{ item.slug | tojson }},
+    title: {{ item.title | tojson }},
+    type: {{ (item.type | default('pending')) | tojson }},
+    state: {{ (item.state | default('pending')) | tojson }},
+    confidence: {{ (item.confidence | default('')) | tojson }},
+    source_file: {{ (item.source_file | default('')) | tojson }},
+    processed_at: {{ (item.processed_at | default('')) | tojson }},
+    suggestedExternalOwner: {{ (item.suggestedExternalOwner | default('')) | tojson }},
+    body: {{ (item.body | default('')) | tojson }},
+    item_id: {{ (item.item_id | default(none)) | tojson }},
+    source_path: {{ (item.source_path | default('')) | tojson }},
+    phase: {{ (item.phase | default('')) | tojson }},
+    reason: {{ (item.reason | default('')) | tojson }},
+    error: {{ (item.error | default('')) | tojson }},
+    log_preview: {{ (item.log_preview | default('')) | tojson }},
+    relpath: {{ (item.relpath | default('')) | tojson }},
+    path: {{ (item.path | default('')) | tojson }}
+};
+{% endfor %}
+{% if sel and sel.candidates is defined %}
+itemsData[{{ sel.slug | tojson }}].candidates = {{ sel.candidates | tojson }};
+{% endif %}
 
-    function selectInboxItem(slug) {
-        // Update styling
-        const oldActive = document.getElementById('item-btn-' + activeSlug);
-        if (oldActive) oldActive.classList.remove('bg-[#f1f5f9]');
-        
-        activeSlug = slug;
-        const newActive = document.getElementById('item-btn-' + activeSlug);
-        if (newActive) newActive.classList.add('bg-[#f1f5f9]');
+var activeState = {{ active_state | tojson }};
+var currentFilter = activeState;
+var selectedSlug = {{ (sel.slug if sel else (filtered_items[0].slug if filtered_items else (items[0].slug if items else ''))) | tojson }};
 
-        // Update preview pane
-        const item = itemsData[slug];
-        document.getElementById('preview-title').textContent = item.title;
-        document.getElementById('preview-slug').textContent = `non_categories/${item.slug}.md`;
-        document.getElementById('preview-meta-source-file').textContent = item.source_file || 'N/A';
-        document.getElementById('preview-meta-processed-at').textContent = item.processed_at || 'N/A';
-        document.getElementById('preview-meta-owner').textContent = item.suggestedExternalOwner || 'N/A';
-        document.getElementById('preview-body').textContent = item.body;
+/* ── Helpers ─────────────────────────────────────────────────── */
+function esc(s) {
+    if (s == null) return '';
+    return String(s);
+}
+
+function itemBasePath(it) {
+    if (it.item_id) return '/api/inbox/items/' + it.item_id;
+    return '/api/inbox/' + (it.type === 'pending' ? '' : it.type + '/') + it.slug;
+}
+
+function getFilteredItems() {
+    return Object.values(itemsData).filter(function(it) {
+        if (currentFilter === 'all') return true;
+        if (currentFilter === 'pending') return (it.type || 'pending') === 'pending';
+        return (it.type || 'pending') === currentFilter;
+    });
+}
+
+function typeBadge(it) {
+    var t = it.type || 'pending';
+    if (t === 'review') {
+        return '<span class="px-2 py-0.5 rounded text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">review' + (it.reason ? ' · ' + esc(it.reason) : '') + '</span>';
+    }
+    if (t === 'failed') {
+        return '<span class="px-2 py-0.5 rounded text-xs font-semibold bg-red-50 text-red-700 border border-red-200">failed' + (it.phase ? ' · ' + esc(it.phase) : '') + '</span>';
+    }
+    var conf = it.confidence;
+    var cls = 'bg-amber-50 text-amber-700 border border-amber-200';
+    if (conf === 'low' || (conf !== undefined && conf !== null && !isNaN(parseFloat(conf)) && parseFloat(conf) < 0.5)) {
+        cls = 'bg-red-50 text-red-700 border border-red-200';
+    }
+    return '<span class="px-2 py-0.5 rounded text-xs font-semibold ' + cls + '">Confidence: ' + esc(conf) + '</span>';
+}
+
+/* ── Render: sidebar list ────────────────────────────────────── */
+function renderList() {
+    var list = document.getElementById('item-list');
+    if (!list) return;
+    var filtered = getFilteredItems();
+    var countEl = document.getElementById('sidebar-count');
+    if (countEl) countEl.textContent = filtered.length;
+
+    if (filtered.length === 0) {
+        list.innerHTML = '';
+        showEmpty();
+        return;
+    }
+    hideEmpty();
+
+    var html = '';
+    filtered.forEach(function(it) {
+        var isActive = it.slug === selectedSlug;
+        var bg = isActive ? 'bg-[#eef2ff]' : '';
+        html += '<button onclick="selectInboxItem(\'' + it.slug.replace(/'/g, "\\'") + '\')" '
+            + 'id="item-btn-' + it.slug + '" data-type="' + (it.type || 'pending') + '" '
+            + 'class="w-full text-left p-4 hover:bg-[#f1f5f9] transition flex flex-col gap-1 items-start ' + bg + '">'
+            + '<span class="text-sm font-semibold text-[#111827]">' + esc(it.title) + '</span>'
+            + '<span class="text-xs text-[#475569] font-mono">Slug: ' + esc(it.slug) + '</span>'
+            + '<div class="flex items-center gap-2 mt-2">' + typeBadge(it) + '</div>'
+            + '</button>';
+    });
+    list.innerHTML = html;
+}
+
+/* ── Render: empty state ─────────────────────────────────────── */
+function showEmpty() {
+    var el = document.getElementById('empty-state');
+    if (el) el.style.display = '';
+    var grid = document.getElementById('main-grid');
+    if (grid) grid.style.display = 'none';
+}
+function hideEmpty() {
+    var el = document.getElementById('empty-state');
+    if (el) el.style.display = 'none';
+    var grid = document.getElementById('main-grid');
+    if (grid) grid.style.display = '';
+}
+
+/* ── Render: detail panel ────────────────────────────────────── */
+function renderDetail() {
+    var it = itemsData[selectedSlug];
+    if (!it) {
+        var filtered = getFilteredItems();
+        if (filtered.length > 0) { selectedSlug = filtered[0].slug; it = itemsData[selectedSlug]; }
+    }
+    if (!it) return;
+
+    var type = it.type || 'pending';
+
+    /* header */
+    var titleEl = document.getElementById('detail-title');
+    var subEl = document.getElementById('detail-subtitle');
+    if (titleEl) titleEl.textContent = it.title;
+    var sub = '';
+    if (type === 'failed') sub = it.source_path || '';
+    else if (type === 'review') sub = 'Inbox/_Review/' + it.slug + '.md';
+    else sub = 'non_categories/' + it.slug + '.md';
+    if (subEl) subEl.textContent = sub;
+
+    /* header actions */
+    var ha = document.getElementById('detail-header-actions');
+    if (type === 'pending') {
+        ha.innerHTML = '<select id="action-category" class="bg-[#f6f7fb] border border-[#e2e8f0] rounded-md px-3 py-1.5 text-sm text-[#111827]">'
+            + '<option value="entities">entities/</option><option value="concepts">concepts/</option><option value="synthesis">synthesis/</option></select>'
+            + '<button onclick="promoteSelectedItem()" class="bg-[#4f46e5] hover:bg-[#4338ca] text-white font-semibold px-4 py-1.5 rounded-md text-sm transition">이동 및 승인</button>'
+            + '<button onclick="deleteSelectedItem()" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold px-4 py-1.5 rounded-md text-sm transition">삭제</button>';
+    } else {
+        ha.innerHTML = '';
     }
 
-    async function promoteSelectedItem() {
-        if (!activeSlug) return;
-        const folder = document.getElementById('action-category').value;
-        try {
-            const res = await fetch(`/api/inbox/promote/${activeSlug}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ folder })
-            });
-            if (res.ok) {
-                alert('Document approved and moved successfully!');
-                location.reload();
-            } else {
-                const err = await res.json();
-                alert('Error promoting: ' + err.detail);
-            }
-        } catch (e) {
-            alert('문서 승격 실패: ' + e);
+    /* body */
+    var body = document.getElementById('detail-body');
+    if (type === 'review') body.innerHTML = buildReviewDetail(it);
+    else if (type === 'failed') body.innerHTML = buildFailedDetail(it);
+    else body.innerHTML = buildPendingDetail(it);
+}
+
+function buildPendingDetail(it) {
+    return '<div class="p-6 border-r border-[#e2e8f0] overflow-y-auto space-y-6">'
+        + '<div><h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">추출 메타데이터</h3>'
+        + '<div class="bg-[#f6f7fb] rounded p-4 space-y-3 text-sm">'
+        + '<div><span class="text-[#64748b]">소스 요약 파일:</span><div class="font-mono text-xs text-[#4f46e5] mt-1">' + esc(it.source_file || 'N/A') + '</div></div>'
+        + '<div><span class="text-[#64748b]">처리 시각:</span><div class="text-[#111827] mt-1">' + esc(it.processed_at || 'N/A') + '</div></div>'
+        + '<div><span class="text-[#64748b]">제안된 외부 담당:</span><div class="font-mono text-xs text-amber-700 mt-1">' + esc(it.suggestedExternalOwner || 'N/A') + '</div></div>'
+        + '</div></div>'
+        + '<div><h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">Wikilink / Backlink 재연결</h3>'
+        + '<p class="text-xs text-[#64748b]">Approving this page will automatically scan all documents in the wiki and update any wikilink references targeting this document.</p></div>'
+        + '</div>'
+        + '<div class="p-6 overflow-y-auto bg-[#f6f7fb]">'
+        + '<h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-4 border-b border-[#e2e8f0] pb-2">페이지 미리보기</h3>'
+        + '<div class="prose prose-invert prose-sm max-w-none text-[#111827] whitespace-pre-wrap font-mono text-xs">' + esc(it.body || '') + '</div>'
+        + '</div>';
+}
+
+function buildReviewDetail(it) {
+    var cands = it.candidates || [];
+    var chtml = '';
+    if (cands.length > 0) {
+        cands.forEach(function(c) {
+            chtml += '<label class="flex items-center gap-2 p-2 rounded hover:bg-[#eef2ff] cursor-pointer">'
+                + '<input type="radio" name="review-candidate" value="' + esc(c.slug) + '" class="accent-[#4f46e5]">'
+                + '<span class="font-mono text-xs text-[#4f46e5]">' + esc(c.slug) + '</span>'
+                + '<span class="ml-auto text-xs text-[#64748b]">' + esc(c.similarity || '?') + '</span>'
+                + '</label>';
+        });
+    } else {
+        chtml = '<p class="text-xs text-[#64748b]">유사 후보 없음</p>';
+    }
+
+    return '<div class="p-6 border-r border-[#e2e8f0] overflow-y-auto space-y-4">'
+        + '<div><h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">상태</h3>'
+        + '<div class="bg-[#f6f7fb] rounded p-4 text-sm space-y-1">'
+        + '<div><span class="text-[#64748b]">상태:</span> <span class="text-amber-700 font-semibold">review' + (it.reason ? ' · ' + esc(it.reason) : '') + '</span></div>'
+        + '<div><span class="text-[#64748b]">소스:</span> <span class="font-mono text-xs">Inbox/_Review/' + esc(it.slug) + '.md</span></div>'
+        + '</div></div>'
+        + '<div><h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">유사 Wiki 후보</h3>'
+        + '<div class="bg-[#f6f7fb] rounded p-4 space-y-2 text-sm">' + chtml + '</div></div>'
+        + '<div class="flex flex-wrap gap-2">'
+        + '<button onclick="reviewMerge()" class="bg-[#4f46e5] hover:bg-[#4338ca] text-white font-semibold px-3 py-1.5 rounded-md text-sm">기존 page에 편입</button>'
+        + '<button onclick="reviewCreate()" class="bg-[#f1f5f9] hover:bg-[#e2e8f0] border border-[#e2e8f0] text-[#111827] font-semibold px-3 py-1.5 rounded-md text-sm">새 page 생성</button>'
+        + '</div>'
+        + '<div><h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">태깅 / 분류</h3>'
+        + '<div class="bg-[#f6f7fb] rounded p-4 space-y-3 text-sm">'
+        + '<div><label class="text-[#64748b] text-xs">kind:</label>'
+        + '<select id="review-kind" class="mt-1 w-full bg-[#fff] border border-[#e2e8f0] rounded px-2 py-1.5 text-sm text-[#111827]">'
+        + '<option value="entity">entity</option><option value="concept">concept</option><option value="review">review</option></select></div>'
+        + '<div><label class="text-[#64748b] text-xs">tags:</label>'
+        + '<input id="review-tags" type="text" placeholder="tag1, tag2, …" class="mt-1 w-full bg-[#fff] border border-[#e2e8f0] rounded px-2 py-1.5 text-sm text-[#111827]"></div>'
+        + '<button onclick="reviewTag()" class="w-full bg-[#f1f5f9] hover:bg-[#e2e8f0] border border-[#e2e8f0] text-[#111827] font-semibold px-3 py-1.5 rounded-md text-sm">태깅/분류 저장</button>'
+        + '</div></div></div>'
+        + '<div class="p-6 overflow-y-auto bg-[#f6f7fb]">'
+        + '<h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-4 border-b border-[#e2e8f0] pb-2">페이지 미리보기</h3>'
+        + '<div class="prose prose-invert prose-sm max-w-none text-[#111827] whitespace-pre-wrap font-mono text-xs">' + esc(it.body || '') + '</div>'
+        + '<div class="mt-4 flex flex-wrap gap-2">'
+        + '<button onclick="reviewReprocess()" class="bg-[#f1f5f9] hover:bg-[#e2e8f0] border border-[#e2e8f0] text-[#111827] font-semibold px-3 py-1.5 rounded-md text-sm">수정 후 재처리</button>'
+        + '<button onclick="reviewHold()" class="bg-[#f1f5f9] hover:bg-[#e2e8f0] border border-[#e2e8f0] text-[#111827] font-semibold px-3 py-1.5 rounded-md text-sm">보류</button>'
+        + '<button onclick="reviewDelete()" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold px-3 py-1.5 rounded-md text-sm">삭제</button>'
+        + '</div></div>';
+}
+
+function buildFailedDetail(it) {
+    return '<div class="p-6 border-r border-[#e2e8f0] overflow-y-auto space-y-4">'
+        + '<div><h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">상태</h3>'
+        + '<div class="bg-[#f6f7fb] rounded p-4 text-sm space-y-1">'
+        + '<div><span class="text-[#64748b]">상태:</span> <span class="text-red-700 font-semibold">failed</span></div>'
+        + '<div><span class="text-[#64748b]">소스 경로:</span> <span class="font-mono text-xs">' + esc(it.source_path || 'N/A') + '</span></div>'
+        + '</div></div>'
+        + '<div><h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">실패 Phase</h3>'
+        + '<div class="bg-[#f6f7fb] rounded p-4 text-sm"><span class="font-mono text-xs text-red-700">' + esc(it.phase || 'N/A') + '</span></div></div>'
+        + '<div><h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">오류</h3>'
+        + '<div class="bg-red-50 border border-red-200 rounded p-4 text-sm"><pre class="text-xs text-red-800 whitespace-pre-wrap font-mono">' + esc(it.error || 'N/A') + '</pre></div></div>'
+        + '<div><h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">진단 로그</h3>'
+        + '<div class="bg-[#f6f7fb] rounded p-4 text-sm max-h-48 overflow-y-auto"><pre class="text-xs text-[#475569] whitespace-pre-wrap font-mono">' + esc(it.log_preview || '') + '</pre></div></div>'
+        + '</div>'
+        + '<div class="p-6 overflow-y-auto bg-[#f6f7fb] space-y-4">'
+        + '<div><h3 class="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-4 border-b border-[#e2e8f0] pb-2">원본 미리보기</h3>'
+        + '<div class="prose prose-invert prose-sm max-w-none text-[#111827] whitespace-pre-wrap font-mono text-xs">' + esc(it.body || '') + '</div></div>'
+        + '<div class="flex flex-wrap gap-2">'
+        + '<button onclick="failedRetry()" class="bg-[#4f46e5] hover:bg-[#4338ca] text-white font-semibold px-3 py-1.5 rounded-md text-sm">재시도</button>'
+        + '<button onclick="failedOpen()" class="bg-[#f1f5f9] hover:bg-[#e2e8f0] border border-[#e2e8f0] text-[#111827] font-semibold px-3 py-1.5 rounded-md text-sm">원본 열기</button>'
+        + '<button onclick="failedDelete()" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold px-3 py-1.5 rounded-md text-sm">삭제</button>'
+        + '</div>'
+        + '<div><button onclick="failedLogDelete()" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold px-3 py-1.5 rounded-md text-xs">로그만 삭제</button></div>'
+        + '</div>';
+}
+
+/* ── Filter switching ────────────────────────────────────────── */
+function setFilter(f) {
+    currentFilter = f;
+    ['all','pending','review','failed'].forEach(function(k) {
+        var btn = document.getElementById('filter-' + k);
+        if (!btn) return;
+        if (k === f) {
+            btn.className = 'px-4 py-2 rounded-t-lg text-sm font-semibold transition bg-[#4f46e5] text-white';
+        } else {
+            btn.className = 'px-4 py-2 rounded-t-lg text-sm font-semibold transition bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]';
         }
-    }
+    });
+    selectedSlug = '';
+    renderList();
+    renderDetail();
+}
 
-    async function deleteSelectedItem() {
-        if (!activeSlug) return;
-        if (!confirm('Are you sure you want to delete this draft and remove it from non_categories/?')) return;
-        try {
-            const res = await fetch(`/api/inbox/delete/${activeSlug}`, {
-                method: 'DELETE'
-            });
-            if (res.ok) {
-                alert('Document deleted.');
-                location.reload();
-            } else {
-                const err = await res.json();
-                alert('Error deleting: ' + err.detail);
-            }
-        } catch (e) {
-            alert('문서 삭제 실패: ' + e);
+/* ── Item selection ──────────────────────────────────────────── */
+function selectInboxItem(slug) {
+    selectedSlug = slug;
+    var btns = document.querySelectorAll('#item-list button');
+    btns.forEach(function(b) { b.classList.remove('bg-[#eef2ff]'); });
+    var active = document.getElementById('item-btn-' + slug);
+    if (active) active.classList.add('bg-[#eef2ff]');
+    renderDetail();
+}
+
+/* ── Generic action helper ───────────────────────────────────── */
+async function doAction(url, options, successMsg, failPrefix) {
+    try {
+        var res = await fetch(url, options);
+        if (res.ok) {
+            alert(successMsg);
+            location.reload();
+        } else {
+            var err;
+            try { err = await res.json(); } catch (_) { err = {}; }
+            alert(failPrefix + ': ' + (err.detail || res.statusText));
         }
+    } catch (e) {
+        alert(failPrefix + ': ' + e);
     }
+}
+
+function currentItem() { return itemsData[selectedSlug]; }
+
+/* ── Legacy Pending actions ──────────────────────────────────── */
+async function promoteSelectedItem() {
+    if (!selectedSlug) return;
+    var folder = document.getElementById('action-category').value;
+    await doAction(
+        '/api/inbox/promote/' + encodeURIComponent(selectedSlug),
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder: folder }) },
+        'Document approved and moved successfully!',
+        '문서 승격 실패'
+    );
+}
+
+async function deleteSelectedItem() {
+    if (!selectedSlug) return;
+    if (!confirm('Are you sure you want to delete this draft and remove it from non_categories/?')) return;
+    await doAction(
+        '/api/inbox/delete/' + encodeURIComponent(selectedSlug),
+        { method: 'DELETE' },
+        'Document deleted.',
+        '문서 삭제 실패'
+    );
+}
+
+/* ── Review actions ──────────────────────────────────────────── */
+async function reviewMerge() {
+    var it = currentItem();
+    if (!it) return;
+    var radio = document.querySelector('input[name="review-candidate"]:checked');
+    if (!radio) { alert('편입할 후보를 선택하세요.'); return; }
+    if (!confirm('선택한 후보에 편입하시겠습니까?')) return;
+    var base = it.item_id ? '/api/inbox/items/' + it.item_id : '/api/inbox/review/' + it.slug;
+    await doAction(
+        base + '/classify',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate_action: 'merge', candidate_slug: radio.value }) },
+        '편입 완료',
+        '편입 실패'
+    );
+}
+
+async function reviewCreate() {
+    var it = currentItem();
+    if (!it) return;
+    var kind = document.getElementById('review-kind') ? document.getElementById('review-kind').value : 'entity';
+    if (!confirm('새 page를 생성하시겠습니까?')) return;
+    var base = it.item_id ? '/api/inbox/items/' + it.item_id : '/api/inbox/review/' + it.slug;
+    await doAction(
+        base + '/classify',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate_action: 'create', target_kind: kind }) },
+        '새 page 생성 완료',
+        '생성 실패'
+    );
+}
+
+async function reviewTag() {
+    var it = currentItem();
+    if (!it) return;
+    var kind = document.getElementById('review-kind') ? document.getElementById('review-kind').value : 'entity';
+    var tagsRaw = document.getElementById('review-tags') ? document.getElementById('review-tags').value : '';
+    var tags = tagsRaw.split(',').map(function(t) { return t.trim(); }).filter(Boolean);
+    var base = it.item_id ? '/api/inbox/items/' + it.item_id : '/api/inbox/review/' + it.slug;
+    await doAction(
+        base + '/classify',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_kind: kind, tags: tags }) },
+        '태깅 완료',
+        '태깅 실패'
+    );
+}
+
+async function reviewReprocess() {
+    var it = currentItem();
+    if (!it) return;
+    if (!confirm('수정 후 재처리하시겠습니까?')) return;
+    var base = it.item_id ? '/api/inbox/items/' + it.item_id : '/api/inbox/review/' + it.slug;
+    await doAction(base + '/reprocess', { method: 'POST' }, '재처리 시작', '재처리 실패');
+}
+
+async function reviewHold() {
+    var it = currentItem();
+    if (!it) return;
+    var base = it.item_id ? '/api/inbox/items/' + it.item_id : '/api/inbox/review/' + it.slug;
+    await doAction(base + '/hold', { method: 'POST' }, '보류 처리됨', '보류 실패');
+}
+
+async function reviewDelete() {
+    var it = currentItem();
+    if (!it) return;
+    if (!confirm('Review 항목을 삭제하시겠습니까?')) return;
+    var base = it.item_id ? '/api/inbox/items/' + it.item_id : '/api/inbox/review/' + it.slug;
+    await doAction(base, { method: 'DELETE' }, '삭제 완료', '삭제 실패');
+}
+
+/* ── Failed actions ──────────────────────────────────────────── */
+async function failedRetry() {
+    var it = currentItem();
+    if (!it) return;
+    if (!confirm('재시도하시겠습니까?')) return;
+    var base = it.item_id ? '/api/inbox/items/' + it.item_id : '/api/inbox/failed/' + it.slug;
+    await doAction(base + '/retry', { method: 'POST' }, '재시도 시작', '재시도 실패');
+}
+
+async function failedOpen() {
+    var it = currentItem();
+    if (!it) return;
+    var base = it.item_id ? '/api/inbox/items/' + it.item_id : '/api/inbox/failed/' + it.slug;
+    try {
+        var res = await fetch(base + '/diagnostic');
+        if (res.ok) {
+            var data = await res.json();
+            if (data.diagnostic && data.diagnostic.content) {
+                alert('진단 로그:\n' + data.diagnostic.content.substring(0, 2000));
+            } else {
+                alert('원본 경로: ' + (it.source_path || it.slug));
+            }
+        } else {
+            var err;
+            try { err = await res.json(); } catch (_) { err = {}; }
+            alert('원본 열기 실패: ' + (err.detail || res.statusText));
+        }
+    } catch (e) {
+        alert('원본 열기 요청 실패: ' + e);
+    }
+}
+
+async function failedDelete() {
+    var it = currentItem();
+    if (!it) return;
+    if (!confirm('Failed 항목을 삭제하시겠습니까?')) return;
+    var base = it.item_id ? '/api/inbox/items/' + it.item_id : '/api/inbox/failed/' + it.slug;
+    await doAction(base, { method: 'DELETE' }, '삭제 완료', '삭제 실패');
+}
+
+async function failedLogDelete() {
+    var it = currentItem();
+    if (!it) return;
+    if (!confirm('로그만 삭제하시겠습니까?')) return;
+    var base = it.item_id ? '/api/inbox/items/' + it.item_id : '/api/inbox/failed/' + it.slug;
+    await doAction(base + '/diagnostic', { method: 'DELETE' }, '로그 삭제 완료', '로그 삭제 실패');
+}
+
+/* ── Init ────────────────────────────────────────────────────── */
+(function init() {
+    renderList();
+    renderDetail();
+})();
 </script>
 {% endblock %}
