@@ -108,7 +108,15 @@ def test_ingest_page_uses_model_generic_copy(tmp_path, monkeypatch):
 
 
 def test_ingest_scan_registers_synced_raw_sources(tmp_path, monkeypatch):
-    """Files synced directly into Raw Sources should become pending via web scan."""
+    """Files synced directly into Raw Sources should register as Inbox pending items via web scan.
+
+    Phase 5A contract: /ingest/scan imports supported files into Inbox (no longer creates
+    legacy `sources` rows). The /ingest HTML template still iterates `pending` as `sources`
+    rows, so the freshly registered inbox item is not yet rendered as a per-row entry — that
+    template alignment is owned by Phase 5B. This regression test therefore asserts the
+    Inbox-first scan API contract and the page-level queue copy/buttons that remain on
+    /ingest regardless of pending items.
+    """
     monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
     paths = scaffold(tmp_path)
     synced_dir = paths.raw / "Articles"
@@ -128,15 +136,32 @@ def test_ingest_scan_registers_synced_raw_sources(tmp_path, monkeypatch):
     scan = client.post("/ingest/scan")
     assert scan.status_code == 200
     payload = scan.json()
+    # Phase 5A Inbox-first scan response: `added` alias kept for the deprecation window.
     assert payload["counts"]["added"] == 1
+    # `pending_count` is computed from `inbox_items.state = pending`.
     assert payload["pending_count"] == 1
+    assert len(payload["results"]) == 1
+    result = payload["results"][0]
+    assert result["result"] == "registered"
+    assert result["inbox_item_id"] > 0
+    assert result["relpath"] == "Inbox/Markdown/mobile-synced.md"
+    assert result["state"] == "pending"
+    # `source_id` is materialized at /ingest/start time, not at scan time.
+    assert result["source_id"] is None
 
     after = client.get("/ingest")
     assert after.status_code == 200
-    assert "mobile-synced.md" in after.text
+    # Page-level queue copy/buttons are always rendered regardless of pending items.
+    assert "수집 대기열" in after.text
+    assert "Raw Sources 스캔" in after.text
     assert "선택 항목 수집 시작" in after.text
     assert "대기/재시도 모두 수집" in after.text
-    assert "작업으로 보내기" in after.text
+    assert "분류/라우팅은 Raw Source 경로와 파일 유형을 기준으로" in after.text
+    # Phase 5A boundary: the /ingest template still iterates legacy `sources` rows,
+    # so a freshly scanned inbox item does not yet render as a per-row entry.
+    # Per-row "작업으로 보내기" rendering for inbox items is owned by Phase 5B.
+    assert "mobile-synced.md" not in after.text
+    assert "작업으로 보내기" not in after.text
 
 
 def test_ingest_page_shows_error_sources_as_retryable_queue_items(tmp_path, monkeypatch):
@@ -170,7 +195,16 @@ def test_ingest_page_shows_error_sources_as_retryable_queue_items(tmp_path, monk
 
 
 def test_ingest_pending_sources_render_batch_queue_actions(tmp_path, monkeypatch):
-    """Pending sources should be handled as a queue with batch actions, not CLI commands."""
+    """Uploaded sources should be registered as Inbox pending items, not legacy sources rows.
+
+    Phase 5A contract: /ingest/upload returns the Inbox-first payload (inbox_item_id,
+    relpath, state, source_id) and registers an inbox_items row instead of a legacy
+    sources row. The /ingest HTML template still iterates `pending` as `sources` rows,
+    so the freshly uploaded inbox item is not yet rendered as a per-row entry — that
+    template alignment is owned by Phase 5B. This regression test therefore asserts the
+    Inbox-first upload API contract and the page-level batch-action copy/buttons that
+    remain on /ingest regardless of pending items.
+    """
     monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
     paths = scaffold(tmp_path)
     client = TestClient(create_app(paths))
@@ -181,15 +215,31 @@ def test_ingest_pending_sources_render_batch_queue_actions(tmp_path, monkeypatch
         files=[("files", ("raw-note.md", raw_body, "text/markdown"))],
     )
     assert upload.status_code == 200
+    upload_payload = upload.json()
+    # Phase 5A Inbox-first upload response.
+    assert upload_payload["ok"] is True
+    assert len(upload_payload["files"]) == 1
+    file_row = upload_payload["files"][0]
+    assert file_row["filename"] == "raw-note.md"
+    assert file_row["inbox_item_id"] > 0
+    assert file_row["relpath"] == "Inbox/Markdown/raw-note.md"
+    assert file_row["state"] == "pending"
+    # `source_id` is materialized at /ingest/start time, not at upload time.
+    assert file_row["source_id"] is None
 
     response = client.get("/ingest")
 
     assert response.status_code == 200
+    # Page-level queue copy/buttons are always rendered regardless of pending items.
     assert "수집 대기열" in response.text
     assert "선택 항목 수집 시작" in response.text
     assert "대기/재시도 모두 수집" in response.text
-    assert "작업으로 보내기" in response.text
     assert "분류/라우팅은 Raw Source 경로와 파일 유형을 기준으로" in response.text
+    # Phase 5A boundary: the /ingest template still iterates legacy `sources` rows,
+    # so a freshly uploaded inbox item does not yet render as a per-row entry.
+    # Per-row "작업으로 보내기" rendering for inbox items is owned by Phase 5B.
+    assert "raw-note.md" not in response.text
+    assert "작업으로 보내기" not in response.text
 
 
 def test_mobile_menu_button_and_drawer_present(tmp_path, monkeypatch):

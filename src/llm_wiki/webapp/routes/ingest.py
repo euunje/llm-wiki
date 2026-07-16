@@ -2,8 +2,8 @@
 
 Flow:
   1. GET /ingest — landing page with drag-drop upload + pending list + recent jobs
-  2. POST /ingest/upload — accept files, copy into raw/, register sources
-  3. POST /ingest/start — create a job for a given source_id, queue it
+  2. POST /ingest/upload — accept files and register inbox items
+  3. POST /ingest/start — create a job for a given inbox_item_id/source_id, queue it
   4. GET /ingest/jobs/{job_id}/stream — SSE: replay history + live tail
 
 Because progress is persisted in SQLite (via jobs.py), closing the tab and
@@ -19,6 +19,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from ... import config as cfg
+from ... import db
 from ... import inbox
 from ... import ingest_raw
 from ... import jobs as jobs_module
@@ -38,6 +39,16 @@ def _coerce_tags(raw_tags: list[str]) -> list[str]:
             if tag:
                 tags.append(tag)
     return tags
+
+
+def _register_raw_source_in_inbox(
+    paths: cfg.WikiPaths,
+    file_path,
+) -> inbox.InboxRegistrationResult:
+    suffix = file_path.suffix.lower()
+    if suffix in {".md", ".markdown"}:
+        return inbox.register_markdown_file(paths, file_path, copy=False)
+    return inbox.register_document_file(paths, file_path, copy=False)
 
 
 @router.get("/ingest", response_class=HTMLResponse)
@@ -117,38 +128,56 @@ async def ingest_paste(
 
 @router.post("/ingest/scan")
 async def ingest_scan(request: Request) -> JSONResponse:
-    """Register supported files that were synced directly into Raw Sources."""
+    """Import supported Raw Sources files into Inbox pending items."""
     paths: cfg.WikiPaths = request.app.state.wiki_paths
     paths.raw.mkdir(parents=True, exist_ok=True)
 
-    counts = {"added": 0, "deduped": 0, "skipped": 0, "errors": 0}
+    counts = {"registered": 0, "deduped": 0, "skipped": 0, "errors": 0}
     files = list(ingest_raw.iter_addable_files(paths.raw, recursive=True))
     results = []
     for file_path in files:
-        outcome = ingest_raw.add_file(paths, file_path, copy=False)
-        if outcome.result == ingest_raw.AddResult.ADDED:
-            counts["added"] += 1
-        elif outcome.result == ingest_raw.AddResult.DEDUPED:
-            counts["deduped"] += 1
-        elif outcome.result in {
-            ingest_raw.AddResult.SKIPPED_EMPTY,
-            ingest_raw.AddResult.SKIPPED_UNSUPPORTED,
-        }:
+        try:
+            registration = _register_raw_source_in_inbox(paths, file_path)
+        except ValueError as exc:
             counts["skipped"] += 1
-        else:
+            results.append(
+                {
+                    "path": str(file_path.relative_to(paths.root)),
+                    "result": "skipped_unsupported",
+                    "message": str(exc),
+                }
+            )
+            continue
+        except Exception as exc:
             counts["errors"] += 1
+            results.append(
+                {
+                    "path": str(file_path.relative_to(paths.root)),
+                    "result": "error",
+                    "message": str(exc),
+                }
+            )
+            continue
+
+        item = registration.item
+        if registration.deduped:
+            counts["deduped"] += 1
+        else:
+            counts["registered"] += 1
         results.append(
             {
-                "path": outcome.relpath,
-                "result": outcome.result.value,
-                "source_id": outcome.source_id,
-                "message": outcome.message,
+                "path": str(file_path.relative_to(paths.root)),
+                "result": "deduped" if registration.deduped else "registered",
+                "inbox_item_id": item.id,
+                "relpath": item.relpath,
+                "state": item.state,
+                "source_id": item.source_id,
             }
         )
 
-    pending_count = len(
-        [s for s in ingest_raw.list_sources(paths) if s["status"] in {"pending", "error"}]
-    )
+    counts["added"] = counts["registered"]
+    with db.connect(paths.state_db) as conn:
+        pending_count = len(inbox.list_inbox_items(conn, state=inbox.InboxState.PENDING))
     return JSONResponse(
         {
             "ok": True,
@@ -164,23 +193,43 @@ async def ingest_scan(request: Request) -> JSONResponse:
 async def ingest_start(request: Request) -> JSONResponse:
     paths: cfg.WikiPaths = request.app.state.wiki_paths
     form = await request.form()
+    inbox_item_id_raw = form.get("inbox_item_id")
     source_id_raw = form.get("source_id")
-    if source_id_raw is None:
-        raise HTTPException(status_code=400, detail="source_id required")
-    try:
-        source_id = int(source_id_raw)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="source_id must be int")
+    inbox_item_id: int | None = None
+    source_id: int
+
+    if inbox_item_id_raw is not None:
+        try:
+            inbox_item_id = int(inbox_item_id_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="inbox_item_id must be int")
+        try:
+            materialized = inbox.materialize_source_for_inbox_item(paths, inbox_item_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        source_id = materialized.source_id
+    elif source_id_raw is not None:
+        try:
+            source_id = int(source_id_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="source_id must be int")
+    else:
+        raise HTTPException(status_code=400, detail="inbox_item_id or source_id required")
+
     row = ingest_raw.get_source(paths, source_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"No source with id {source_id}")
-    if row.get("status") == "error":
+    if row.get("status") != "pending":
         ok, message = ingest_raw.mark_source_pending(paths, source_id)
         if not ok:
             raise HTTPException(status_code=400, detail=message)
     manager = jobs_module.get_manager(paths)
     job_id = manager.enqueue(source_id)
-    return JSONResponse({"ok": True, "job_id": job_id})
+    return JSONResponse(
+        {"ok": True, "inbox_item_id": inbox_item_id, "source_id": source_id, "job_id": job_id}
+    )
 
 
 @router.get("/ingest/jobs/{job_id}/stream")

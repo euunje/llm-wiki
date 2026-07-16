@@ -79,6 +79,14 @@ class InboxMoveResult:
     moved: bool = True
 
 
+@dataclass(frozen=True)
+class InboxSourceMaterializationResult:
+    item: InboxItem
+    source_id: int
+    created: bool
+    reused: bool
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -152,6 +160,55 @@ def _read_registered_metadata(path: Path) -> tuple[str | None, str | None]:
         return parsed.title, parsed.content_hash
     except parsers.ParserError:
         return fallback_title_from_path(path), None
+
+
+def _update_inbox_item_source_link(
+    conn: sqlite3.Connection,
+    *,
+    inbox_item_id: int,
+    source_id: int,
+    content_hash: str | None,
+    title: str | None,
+) -> InboxItem:
+    now = _now_iso()
+    conn.execute(
+        """
+        UPDATE inbox_items
+        SET source_id = ?,
+            content_hash = COALESCE(?, content_hash),
+            title = COALESCE(?, title),
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (source_id, content_hash, title, now, inbox_item_id),
+    )
+    item = get_inbox_item(conn, inbox_item_id)
+    assert item is not None
+    return item
+
+
+def _refresh_existing_source_row(
+    conn: sqlite3.Connection,
+    *,
+    source_id: int,
+    relpath: str,
+    content_hash: str,
+    file_type: str,
+    byte_count: int,
+) -> None:
+    conn.execute(
+        """
+        UPDATE sources
+        SET relpath = ?,
+            content_hash = ?,
+            file_type = ?,
+            bytes = ?,
+            status = 'pending',
+            last_ingested = NULL
+        WHERE id = ?
+        """,
+        (relpath, content_hash, file_type, byte_count, source_id),
+    )
 
 
 def _find_existing_inbox_item_by_hash(
@@ -520,6 +577,174 @@ def list_inbox_events(conn: sqlite3.Connection, inbox_item_id: int) -> list[Inbo
     rows = cur.fetchall()
     columns = [col[0] for col in cur.description] if cur.description else []
     return [_coerce_event(row, columns) for row in rows if row is not None]
+
+
+def materialize_source_for_inbox_item(
+    paths: cfg.WikiPaths,
+    inbox_item_id: int,
+) -> InboxSourceMaterializationResult:
+    with db.connect(paths.state_db) as conn:
+        item = get_inbox_item(conn, inbox_item_id)
+        if item is None:
+            raise ValueError(f"Inbox item not found: {inbox_item_id}")
+
+        file_path = _current_file_path(paths, item)
+        if not file_path.exists() or not file_path.is_file():
+            raise FileNotFoundError(f"Inbox item file not found: {file_path}")
+
+        parsed = parsers.parse(file_path)
+        relpath = item.relpath or _try_relpath(file_path, paths.root)
+
+        if item.source_id is not None:
+            existing_by_id = conn.execute(
+                "SELECT id, relpath FROM sources WHERE id = ?",
+                (item.source_id,),
+            ).fetchone()
+            if existing_by_id is not None and existing_by_id["relpath"] == relpath:
+                _refresh_existing_source_row(
+                    conn,
+                    source_id=item.source_id,
+                    relpath=relpath,
+                    content_hash=parsed.content_hash,
+                    file_type=parsed.file_type,
+                    byte_count=parsed.bytes,
+                )
+                updated_item = _update_inbox_item_source_link(
+                    conn,
+                    inbox_item_id=inbox_item_id,
+                    source_id=item.source_id,
+                    content_hash=parsed.content_hash,
+                    title=parsed.title,
+                )
+                append_inbox_event(
+                    conn,
+                    inbox_item_id=inbox_item_id,
+                    event_type="source_materialized_reused",
+                    from_state=updated_item.state,
+                    to_state=updated_item.state,
+                    relpath=relpath,
+                    message=f"Reused linked source #{item.source_id}",
+                    data={
+                        "source_id": item.source_id,
+                        "source_relpath": relpath,
+                        "content_hash": parsed.content_hash,
+                        "reused": True,
+                        "created": False,
+                    },
+                )
+                return InboxSourceMaterializationResult(
+                    item=updated_item,
+                    source_id=item.source_id,
+                    created=False,
+                    reused=True,
+                )
+
+        existing_by_relpath = conn.execute(
+            "SELECT id FROM sources WHERE relpath = ?",
+            (relpath,),
+        ).fetchone()
+        if existing_by_relpath is not None:
+            source_id = int(existing_by_relpath["id"])
+            _refresh_existing_source_row(
+                conn,
+                source_id=source_id,
+                relpath=relpath,
+                content_hash=parsed.content_hash,
+                file_type=parsed.file_type,
+                byte_count=parsed.bytes,
+            )
+            updated_item = _update_inbox_item_source_link(
+                conn,
+                inbox_item_id=inbox_item_id,
+                source_id=source_id,
+                content_hash=parsed.content_hash,
+                title=parsed.title,
+            )
+            append_inbox_event(
+                conn,
+                inbox_item_id=inbox_item_id,
+                event_type="source_materialized_reused",
+                from_state=updated_item.state,
+                to_state=updated_item.state,
+                relpath=relpath,
+                message=f"Reused existing source #{source_id} for {relpath}",
+                data={
+                    "source_id": source_id,
+                    "source_relpath": relpath,
+                    "content_hash": parsed.content_hash,
+                    "reused": True,
+                    "created": False,
+                },
+            )
+            return InboxSourceMaterializationResult(
+                item=updated_item,
+                source_id=source_id,
+                created=False,
+                reused=True,
+            )
+
+        same_hash_other_source = conn.execute(
+            "SELECT id, relpath FROM sources WHERE content_hash = ? ORDER BY id LIMIT 1",
+            (parsed.content_hash,),
+        ).fetchone()
+        if same_hash_other_source is not None:
+            append_inbox_event(
+                conn,
+                inbox_item_id=inbox_item_id,
+                event_type="source_materialization_hash_conflict",
+                from_state=item.state,
+                to_state=item.state,
+                relpath=relpath,
+                message=(
+                    f"Existing source #{same_hash_other_source['id']} has the same content hash "
+                    f"but a different relpath; materializing a new source row for provenance"
+                ),
+                data={
+                    "existing_source_id": int(same_hash_other_source["id"]),
+                    "existing_relpath": same_hash_other_source["relpath"],
+                    "requested_relpath": relpath,
+                    "content_hash": parsed.content_hash,
+                    "reused": False,
+                },
+            )
+
+        cur = conn.execute(
+            """
+            INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, status)
+            VALUES (?, ?, ?, ?, ?, 'pending')
+            """,
+            (relpath, parsed.content_hash, parsed.file_type, parsed.bytes, _now_iso()),
+        )
+        source_id = int(cur.lastrowid)
+        updated_item = _update_inbox_item_source_link(
+            conn,
+            inbox_item_id=inbox_item_id,
+            source_id=source_id,
+            content_hash=parsed.content_hash,
+            title=parsed.title,
+        )
+        append_inbox_event(
+            conn,
+            inbox_item_id=inbox_item_id,
+            event_type="source_materialized",
+            from_state=updated_item.state,
+            to_state=updated_item.state,
+            relpath=relpath,
+            message=f"Materialized source #{source_id} for inbox item #{inbox_item_id}",
+            data={
+                "source_id": source_id,
+                "source_relpath": relpath,
+                "content_hash": parsed.content_hash,
+                "reused": False,
+                "created": True,
+            },
+        )
+        return InboxSourceMaterializationResult(
+            item=updated_item,
+            source_id=source_id,
+            created=True,
+            reused=False,
+        )
 
 
 def transition_inbox_item(
