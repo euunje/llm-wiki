@@ -272,6 +272,42 @@ class _JobCallbacks(ingest_llm.IngestCallbacks):
             },
         )
 
+    def on_chunk_extracting(self, chunk_index: int, total_chunks: int) -> None:
+        progress = 0.20
+        if total_chunks > 0:
+            progress += min(0.19, ((chunk_index + 1) / total_chunks) * 0.19)
+        self._set(phase="extracting", progress=progress)
+        self._emit(
+            "chunk_extracting",
+            {
+                "chunk_index": chunk_index,
+                "total_chunks": total_chunks,
+                "phase": "extracting",
+            },
+        )
+
+    def on_chunk_extracted(self, chunk: ingest_llm.ChunkExtraction, total_chunks: int) -> None:
+        self._emit(
+            "chunk_extracted",
+            {
+                "chunk_index": chunk.chunk_index,
+                "total_chunks": total_chunks,
+                "chunk_summary": chunk.chunk_summary,
+                "key_takeaways": chunk.key_takeaways,
+                "candidate_count": len(chunk.candidates),
+            },
+        )
+
+    def on_chunk_extraction_failed(self, chunk_index: int, total_chunks: int, error: str) -> None:
+        self._emit(
+            "chunk_extraction_failed",
+            {
+                "chunk_index": chunk_index,
+                "total_chunks": total_chunks,
+                "text": error,
+            },
+        )
+
     def on_extracted(self, extraction: ingest_llm.Extraction) -> None:
         self._set(phase="drafting", progress=0.40)
         self._emit(

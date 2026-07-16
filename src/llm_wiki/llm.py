@@ -261,6 +261,11 @@ class OllamaClient:
                 data = r.json()
                 content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                 return self._strip_thinking(content)
+            except httpx.HTTPStatusError as e:
+                body = e.response.text[:2000] if e.response is not None else ""
+                raise LLMError(
+                    f"OpenAI-compatible host error {e.response.status_code}: {body}"
+                ) from e
             except Exception as e:
                 raise LLMError(f"OpenAI-compatible host error: {e}")
                 

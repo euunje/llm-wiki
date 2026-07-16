@@ -133,6 +133,48 @@ Rules:
 """
 
 
+CHUNK_EXTRACTION_INSTRUCTIONS = """Read ONE chunk from a larger source document and extract structured findings for that chunk only.
+
+Return ONLY a valid JSON object matching this exact schema:
+
+{
+  "chunk_index": 0,
+  "chunk_summary": "A 1-2 sentence summary of this chunk",
+  "key_takeaways": [
+    "Substantive takeaway 1",
+    "Substantive takeaway 2"
+  ],
+  "candidates": [
+    {
+      "name": "Canonical name as it would appear in a wiki",
+      "slug": "kebab-case-slug",
+      "pageKind": "entity | concept | review",
+      "description": "1-2 sentences describing this item based on this chunk",
+      "confidence": "high | medium | low",
+      "suggestedExternalOwner": "8000-web-config | mcp-map | (optional, used for review items only)",
+      "reason": "Why this was routed to this pageKind (optional, helpful for review items)"
+    }
+  ],
+  "entities": [],
+  "concepts": [],
+  "tags": ["tag1", "tag2"],
+  "confidence": "high | medium | low"
+}
+
+Rules:
+- Focus only on information present in this chunk. Do not assume missing context.
+- Prefer extracting chunk-specific candidates that are substantive enough for a wiki page.
+- Keep chunk_summary, key_takeaways, and candidate descriptions in Korean by default. Keep proper nouns, technical terms,
+  commands, file paths, APIs, model names, and code identifiers in English.
+- Slugs must be kebab-case ASCII.
+- Use pageKind=entity for people/orgs/models/products/places, pageKind=concept for techniques/ideas/topics,
+  pageKind=review for operational guides, maps/MOCs, low-confidence items, or unclear routing.
+- For review items, set suggestedExternalOwner=8000-web-config (guide-like) or mcp-map (map/MOC-like) or leave blank.
+- entities/concepts arrays are optional legacy compatibility fields; prefer populating candidates.
+- Return ONLY the JSON object. No preamble, no explanation, no markdown fences.
+"""
+
+
 def build_extraction_messages(source_title: str, source_text: str, db_path: Path | None = None, use_draft: bool = False) -> list[ChatMessage]:
     """Pass 1 — extract structured information from a source document."""
     sys_prompt = get_prompt("system", db_path, use_draft)
@@ -160,6 +202,61 @@ def build_extraction_retry_messages(
         f"{extract_instr}\n\n"
         f"---SOURCE TITLE---\n{source_title}\n\n"
         f"---SOURCE TEXT---\n{source_text}\n"
+    )
+    return [
+        ChatMessage(role="system", content=sys_prompt),
+        ChatMessage(role="user", content=user_content),
+        ChatMessage(role="assistant", content=bad_response[:2000]),
+        ChatMessage(
+            role="user",
+            content="That was not valid JSON. Try again. Return ONLY the JSON object.",
+        ),
+    ]
+
+
+def build_chunk_extraction_messages(
+    source_title: str,
+    chunk_text: str,
+    chunk_index: int,
+    total_chunks: int,
+    db_path: Path | None = None,
+    use_draft: bool = False,
+) -> list[ChatMessage]:
+    """Pass 1b — extract structured information from a single source chunk."""
+    sys_prompt = get_prompt("system", db_path, use_draft)
+    extract_instr = get_prompt("chunk_extract", db_path, use_draft)
+    user_content = (
+        f"{extract_instr}\n\n"
+        f"---SOURCE TITLE---\n{source_title}\n\n"
+        f"---CHUNK INDEX---\n{chunk_index}\n\n"
+        f"---TOTAL CHUNKS---\n{total_chunks}\n\n"
+        f"---CHUNK TEXT---\n{chunk_text}\n"
+    )
+    return [
+        ChatMessage(role="system", content=sys_prompt),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
+def build_chunk_extraction_retry_messages(
+    source_title: str,
+    chunk_text: str,
+    chunk_index: int,
+    total_chunks: int,
+    bad_response: str,
+    db_path: Path | None = None,
+    use_draft: bool = False,
+) -> list[ChatMessage]:
+    """Retry prompt after a chunk JSON parse failure."""
+    sys_prompt = get_prompt("system", db_path, use_draft)
+    extract_instr = get_prompt("chunk_extract", db_path, use_draft)
+    user_content = (
+        "Your previous response was not valid JSON. Return ONLY a valid JSON object matching the chunk schema — no markdown fences, no preamble.\n\n"
+        f"{extract_instr}\n\n"
+        f"---SOURCE TITLE---\n{source_title}\n\n"
+        f"---CHUNK INDEX---\n{chunk_index}\n\n"
+        f"---TOTAL CHUNKS---\n{total_chunks}\n\n"
+        f"---CHUNK TEXT---\n{chunk_text}\n"
     )
     return [
         ChatMessage(role="system", content=sys_prompt),
@@ -228,6 +325,159 @@ Do not invent facts. Only use information from the excerpts. Return ONLY the mar
 """
 
 
+NEW_ENTITY_PAGE_JSON_TEMPLATE = """다음 정보를 바탕으로 새 entity 위키 페이지의 본문을 JSON으로 작성하세요.
+
+대상 페이지:
+- title: {name}
+- slug: {slug}
+- type: entity
+- source: sources/{source_slug}.md
+
+소스 제목: {source_title}
+
+설명:
+{description}
+
+관련 발췌:
+{excerpts}
+
+허용된 내부 링크(정확히 이 값만 사용 가능):
+{allowed_links}
+
+반드시 아래 JSON 객체만 반환하세요:
+{{
+  "slug": "{slug}",
+  "type": "entity",
+  "body_markdown": "# {name}\n\n...",
+  "links_used": ["entities/foo", "concepts/bar", "sources/{source_slug}"],
+  "sources": ["sources/{source_slug}.md"]
+}}
+
+규칙:
+- body_markdown 안의 본문과 섹션 설명은 기본적으로 한국어로 작성하세요. 고유명사, technical terms, commands, file paths, APIs, model names, code identifiers는 English 유지.
+- body_markdown은 완성된 markdown 본문이어야 하며 YAML frontmatter는 포함하지 마세요.
+- 첫 줄은 반드시 `# {name}` 이어야 합니다.
+- 내부 참조는 반드시 [[wikilinks]] 만 사용하세요.
+- body_markdown 안에 실제로 등장한 모든 wikilink target을 links_used에 정확히 한 번씩 나열하세요.
+- links_used에는 위 허용 목록에 있는 링크만 포함하세요.
+- sources에는 반드시 "sources/{source_slug}.md" 를 포함하세요.
+- 마지막에는 한국어 출처 섹션(예: `## 출처`)을 두고 [[sources/{source_slug}]] 를 포함하세요.
+- 사실을 꾸며내지 말고 발췌 내용만 사용하세요.
+- 설명, 서론, 코드펜스 없이 JSON 객체만 반환하세요.
+"""
+
+
+NEW_CONCEPT_PAGE_JSON_TEMPLATE = """다음 정보를 바탕으로 새 concept 위키 페이지의 본문을 JSON으로 작성하세요.
+
+대상 페이지:
+- title: {name}
+- slug: {slug}
+- type: concept
+- source: sources/{source_slug}.md
+
+소스 제목: {source_title}
+
+설명:
+{description}
+
+관련 발췌:
+{excerpts}
+
+허용된 내부 링크(정확히 이 값만 사용 가능):
+{allowed_links}
+
+반드시 아래 JSON 객체만 반환하세요:
+{{
+  "slug": "{slug}",
+  "type": "concept",
+  "body_markdown": "# {name}\n\n...",
+  "links_used": ["entities/foo", "concepts/bar", "sources/{source_slug}"],
+  "sources": ["sources/{source_slug}.md"]
+}}
+
+규칙:
+- body_markdown 안의 본문과 섹션 설명은 기본적으로 한국어로 작성하세요. 고유명사, technical terms, commands, file paths, APIs, model names, code identifiers는 English 유지.
+- body_markdown은 완성된 markdown 본문이어야 하며 YAML frontmatter는 포함하지 마세요.
+- 첫 줄은 반드시 `# {name}` 이어야 합니다.
+- 내부 참조는 반드시 [[wikilinks]] 만 사용하세요.
+- body_markdown 안에 실제로 등장한 모든 wikilink target을 links_used에 정확히 한 번씩 나열하세요.
+- links_used에는 위 허용 목록에 있는 링크만 포함하세요.
+- sources에는 반드시 "sources/{source_slug}.md" 를 포함하세요.
+- 마지막에는 한국어 출처 섹션(예: `## 출처`)을 두고 [[sources/{source_slug}]] 를 포함하세요.
+- 본문은 개념의 의미, 중요성, 관련 entity/concept와의 연결을 한국어로 설명하세요.
+- 사실을 꾸며내지 말고 발췌 내용만 사용하세요.
+- 설명, 코드펜스 없이 JSON 객체만 반환하세요.
+"""
+
+
+MERGE_PAGE_JSON_TEMPLATE = """기존 위키 페이지를 새로운 source 정보로 보강하세요. 반드시 JSON 객체만 반환하세요.
+
+대상 페이지:
+- title: {name}
+- slug: {slug}
+- type: {kind}
+- source: sources/{source_slug}.md
+
+기존 페이지 전체 markdown:
+---EXISTING PAGE---
+{existing_content}
+---END EXISTING PAGE---
+
+새 source 제목: {source_title}
+
+새 설명:
+{description}
+
+관련 발췌:
+{excerpts}
+
+허용된 내부 링크(정확히 이 값만 사용 가능):
+{allowed_links}
+
+반드시 아래 JSON 객체만 반환하세요:
+{{
+  "slug": "{slug}",
+  "type": "{kind}",
+  "body_markdown": "# {name}\n\n...",
+  "links_used": ["entities/foo", "concepts/bar", "sources/{source_slug}"],
+  "sources": ["sources/old-source.md", "sources/{source_slug}.md"]
+}}
+
+규칙:
+- 기존 페이지의 사실과 구조를 보존하고, 새 정보만 자연스럽게 추가하세요.
+- body_markdown에는 YAML frontmatter를 넣지 마세요.
+- body_markdown은 최종 전체 본문이어야 합니다.
+- 첫 줄은 반드시 `# {name}` 이어야 합니다.
+- 본문과 섹션 설명은 기본적으로 한국어로 작성하세요. 고유명사, technical terms, commands, file paths, APIs, model names, code identifiers는 English 유지.
+- 내부 참조는 반드시 [[wikilinks]] 만 사용하세요.
+- body_markdown 안에 실제로 등장한 모든 wikilink target을 links_used에 정확히 한 번씩 나열하세요.
+- links_used에는 허용된 링크만 포함하세요.
+- sources에는 기존 source들을 유지하고 반드시 "sources/{source_slug}.md" 를 포함하세요.
+- 마지막에는 한국어 출처 섹션을 두고 [[sources/{source_slug}]] 를 포함하세요.
+- 사실을 꾸며내지 말고 제공된 정보만 사용하세요.
+- 설명, 코드펜스 없이 JSON 객체만 반환하세요.
+"""
+
+
+PAGE_JSON_RETRY_TEMPLATE = """이전 응답은 페이지 JSON 계약을 만족하지 못했습니다.
+
+반드시 JSON 객체만 다시 반환하세요. markdown code fence, 설명, 서문은 금지입니다.
+
+필수 조건:
+- slug 는 정확히 `{slug}`
+- type 는 정확히 `{kind}`
+- body_markdown 안의 모든 [[wikilinks]] 대상과 links_used가 정확히 일치
+- links_used의 모든 값은 허용 목록 안에 있어야 함
+- sources에는 반드시 `sources/{source_slug}.md` 포함
+
+허용 링크:
+{allowed_links}
+
+검증 오류:
+{validation_errors}
+"""
+
+
 def build_draft_page_messages(
     kind: str,
     name: str,
@@ -256,6 +506,84 @@ def build_draft_page_messages(
     )
     return [
         ChatMessage(role="system", content=sys_prompt),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
+def build_structured_page_messages(
+    *,
+    kind: str,
+    name: str,
+    slug: str,
+    source_title: str,
+    source_slug: str,
+    description: str,
+    excerpts: str,
+    allowed_links: list[str],
+    existing_content: str | None = None,
+    db_path: Path | None = None,
+    use_draft: bool = False,
+) -> list[ChatMessage]:
+    """Pass 2 — draft/merge an entity or concept page as validated JSON."""
+    sys_prompt = get_prompt("system", db_path, use_draft)
+    allowed_links_str = "\n".join(f"- {link}" for link in allowed_links) if allowed_links else "- sources/{source_slug}"
+    if existing_content is None:
+        template_key = "new_entity_json" if kind == "entity" else "new_concept_json"
+        template = get_prompt(template_key, db_path, use_draft)
+        user_content = template.format(
+            kind=kind,
+            name=name,
+            slug=slug,
+            source_title=source_title,
+            source_slug=source_slug,
+            description=description,
+            excerpts=excerpts,
+            allowed_links=allowed_links_str,
+        )
+    else:
+        template = get_prompt("merge_page_json", db_path, use_draft)
+        user_content = template.format(
+            kind=kind,
+            name=name,
+            slug=slug,
+            existing_content=existing_content,
+            source_title=source_title,
+            source_slug=source_slug,
+            description=description,
+            excerpts=excerpts,
+            allowed_links=allowed_links_str,
+        )
+    return [
+        ChatMessage(role="system", content=sys_prompt),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+
+def build_structured_page_retry_messages(
+    *,
+    kind: str,
+    slug: str,
+    source_slug: str,
+    allowed_links: list[str],
+    bad_response: str,
+    validation_errors: list[str],
+    db_path: Path | None = None,
+    use_draft: bool = False,
+) -> list[ChatMessage]:
+    """Retry prompt for structured page JSON validation failures."""
+    sys_prompt = get_prompt("system", db_path, use_draft)
+    template = get_prompt("page_json_retry", db_path, use_draft)
+    allowed_links_str = "\n".join(f"- {link}" for link in allowed_links) if allowed_links else f"- sources/{source_slug}"
+    user_content = template.format(
+        kind=kind,
+        slug=slug,
+        source_slug=source_slug,
+        allowed_links=allowed_links_str,
+        validation_errors="\n".join(f"- {err}" for err in validation_errors),
+    )
+    return [
+        ChatMessage(role="system", content=sys_prompt),
+        ChatMessage(role="assistant", content=bad_response[:4000]),
         ChatMessage(role="user", content=user_content),
     ]
 
@@ -447,9 +775,14 @@ from pathlib import Path
 DEFAULT_PROMPTS = {
     "system": SYSTEM_PROMPT,
     "extract": EXTRACTION_INSTRUCTIONS,
+    "chunk_extract": CHUNK_EXTRACTION_INSTRUCTIONS,
     "new_entity": NEW_ENTITY_PAGE_TEMPLATE,
     "new_concept": NEW_CONCEPT_PAGE_TEMPLATE,
+    "new_entity_json": NEW_ENTITY_PAGE_JSON_TEMPLATE,
+    "new_concept_json": NEW_CONCEPT_PAGE_JSON_TEMPLATE,
     "merge_page": MERGE_PAGE_TEMPLATE,
+    "merge_page_json": MERGE_PAGE_JSON_TEMPLATE,
+    "page_json_retry": PAGE_JSON_RETRY_TEMPLATE,
     "source_page": SOURCE_PAGE_TEMPLATE,
 }
 

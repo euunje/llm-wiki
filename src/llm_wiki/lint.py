@@ -760,8 +760,13 @@ def apply_fixes(paths: cfg.WikiPaths, issues: list[LintIssue]) -> int:
             by_page[issue.page].append(issue)
 
         pages_modified_this_round = 0
+        configured_page_dirs = paths._page_dirs_config()
         for relpath, page_issues in by_page.items():
-            full_path = paths.wiki / relpath
+            rel = Path(relpath)
+            if rel.parts and rel.parts[0] in configured_page_dirs:
+                full_path = paths.page_dir(rel.parts[0]) / Path(*rel.parts[1:])
+            else:
+                full_path = paths.wiki / relpath
             if not full_path.exists():
                 continue
             try:
