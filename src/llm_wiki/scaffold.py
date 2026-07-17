@@ -30,6 +30,7 @@ def _base_paths_config(
     *,
     wiki_dir: str,
     raw_dir: str,
+    inbox_dir: str,
     schema_dir: str,
     internal_dir: str,
     sources_dir: str | None,
@@ -72,6 +73,7 @@ def _base_paths_config(
     return {
         "wiki_dir": wiki_dir,
         "raw_dir": raw_dir,
+        "inbox_dirs": cfg.default_inbox_dirs(inbox_dir),
         "schema_dir": schema_dir,
         "internal_dir": internal_dir,
         "page_dirs": page_dirs,
@@ -88,6 +90,7 @@ def scaffold(
     force: bool = False,
     wiki_dir: str = "wiki",
     raw_dir: str = "raw",
+    inbox_dir: str = cfg.INBOX_DIR,
     schema_dir: str = "schema",
     internal_dir: str = ".wiki",
     sources_dir: str | None = None,
@@ -126,6 +129,7 @@ def scaffold(
     config["paths"] = _base_paths_config(
         wiki_dir=wiki_dir,
         raw_dir=raw_dir,
+        inbox_dir=inbox_dir,
         schema_dir=schema_dir,
         internal_dir=internal_dir,
         sources_dir=sources_dir,

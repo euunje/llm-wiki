@@ -54,14 +54,48 @@ def _register_raw_source_in_inbox(
 @router.get("/ingest", response_class=HTMLResponse)
 async def ingest_page(request: Request) -> HTMLResponse:
     paths: cfg.WikiPaths = request.app.state.wiki_paths
-    queue_sources = [
-        s for s in ingest_raw.list_sources(paths) if s["status"] in {"pending", "error"}
-    ]
+    queue_items: list[dict] = []
+
+    # Primary queue: Inbox pending items (Phase 5B Inbox-first flow)
+    with db.connect(paths.state_db) as conn:
+        inbox_pending = inbox.list_inbox_items(conn, state=inbox.InboxState.PENDING)
+    for item in inbox_pending:
+        queue_items.append(
+            {
+                "inbox_item_id": item.id,
+                "source_id": item.source_id,
+                "relpath": item.relpath or "",
+                "input_type": item.input_type,
+                "status": item.state,
+                "is_legacy": False,
+            }
+        )
+
+    # Legacy error sources: kept for backward-compatible retry visibility
+    # Filter out sources with linked inbox items to prevent duplicates when an
+    # inbox-linked ingest fails (source shows "error", inbox item shows "pending")
+    legacy_error_sources = []
+    for s in ingest_raw.list_sources(paths):
+        if s.get("status") == "error":
+            if inbox.linked_inbox_item_id_for_source(paths, s["id"]) is None:
+                legacy_error_sources.append(s)
+    for src in legacy_error_sources:
+        queue_items.append(
+            {
+                "inbox_item_id": None,
+                "source_id": src["id"],
+                "relpath": src.get("relpath", ""),
+                "input_type": src.get("file_type", ""),
+                "status": "error",
+                "is_legacy": True,
+            }
+        )
+
     recent_jobs = jobs_module.list_jobs(paths, limit=20)
     return request.app.state.templates.TemplateResponse(
         request,
         "ingest.html",
-        {"pending": queue_sources, "recent_jobs": recent_jobs, "page": "ingest"},
+        {"queue_items": queue_items, "recent_jobs": recent_jobs, "page": "ingest"},
     )
 
 
@@ -240,12 +274,14 @@ async def ingest_job_stream(request: Request, job_id: int) -> StreamingResponse:
 
     async def generator():
         last_seq = -1
+        last_job_snapshot: tuple | None = None
         terminal_states = {"done", "failed", "interrupted"}
         job = jobs_module.get_job(paths, job_id)
         if job:
+            last_job_snapshot = (job.state, job.phase, job.progress, job.pages_created, job.pages_updated, job.error)
             yield (
                 f"event: job\ndata: "
-                f"{json.dumps({'state': job.state, 'phase': job.phase, 'progress': job.progress})}\n\n"
+                f"{json.dumps({'state': job.state, 'phase': job.phase, 'progress': job.progress, 'pages_created': job.pages_created, 'pages_updated': job.pages_updated, 'error': job.error})}\n\n"
             )
         for _ in range(3600):
             if await request.is_disconnected():
@@ -257,11 +293,14 @@ async def ingest_job_stream(request: Request, job_id: int) -> StreamingResponse:
             job = jobs_module.get_job(paths, job_id)
             if job is None:
                 break
-            if job.state in terminal_states:
+            snapshot = (job.state, job.phase, job.progress, job.pages_created, job.pages_updated, job.error)
+            if snapshot != last_job_snapshot:
                 yield (
                     f"event: job\ndata: "
                     f"{json.dumps({'state': job.state, 'phase': job.phase, 'progress': job.progress, 'pages_created': job.pages_created, 'pages_updated': job.pages_updated, 'error': job.error})}\n\n"
                 )
+                last_job_snapshot = snapshot
+            if job.state in terminal_states:
                 break
             await asyncio.sleep(0.5)
 
@@ -295,6 +334,7 @@ async def api_jobs(request: Request) -> JSONResponse:
             "jobs": [
                 {
                     "id": j.id,
+                    "inbox_item_id": j.inbox_item_id,
                     "source_id": j.source_id,
                     "source_relpath": j.source_relpath,
                     "source_type": j.source_type,

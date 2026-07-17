@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
 from llm_wiki.scaffold import scaffold
@@ -32,6 +34,46 @@ def test_jobs_page_uses_shared_sidebar_navigation(tmp_path, monkeypatch):
     ]:
         assert f">{label}<" in response.text
     assert "최근 작업" in response.text
+
+
+def test_jobs_page_shows_inbox_item_id_and_phase_progress(tmp_path, monkeypatch):
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    paths = scaffold(tmp_path)
+    from llm_wiki import db, inbox
+
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, status) VALUES (?, ?, ?, ?, ?, ?)",
+            ("Inbox/Markdown/jobs-page.md", "hash-jobs-page", "md", 100, "2026-01-01T00:00:00+00:00", "pending"),
+        )
+        source_id = conn.execute("SELECT id FROM sources").fetchone()[0]
+        conn.execute(
+            "INSERT INTO inbox_items (source_id, input_type, state, relpath, content_hash, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                source_id,
+                inbox.InboxInputType.MARKDOWN_FILE.value,
+                inbox.InboxState.PENDING.value,
+                "Inbox/Markdown/jobs-page.md",
+                "hash-jobs-page",
+                "Jobs Page",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+        inbox_item_id = conn.execute("SELECT id FROM inbox_items").fetchone()[0]
+        conn.execute(
+            "INSERT INTO ingest_jobs (source_id, state, phase, progress, created_at, started_at) VALUES (?, 'running', 'extracting', 0.39, ?, ?)",
+            (source_id, "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+        )
+        conn.commit()
+
+    client = TestClient(create_app(paths))
+    response = client.get("/jobs")
+
+    assert response.status_code == 200
+    assert f"Inbox #{inbox_item_id}" in response.text
+    assert "extracting · 39%" in response.text
 
 
 def test_create_app_marks_stale_jobs_interrupted(tmp_path, monkeypatch):
@@ -99,23 +141,52 @@ def test_ingest_page_uses_model_generic_copy(tmp_path, monkeypatch):
     response = client.get("/ingest")
 
     assert response.status_code == 200
-    assert "소스를 업로드하고 모델이 읽을 수 있는 작업 대기열로 보냅니다" in response.text
-    assert "수집 대기열" in response.text
-    assert "Raw Sources 스캔" in response.text
-    assert "현재 등록된 대기 항목이 없습니다" in response.text
+    assert "새 입력을 Inbox에 등록하고 처리 대기열로 보냅니다" in response.text
+    assert "텍스트 붙여넣기" in response.text
+    assert "Inbox에 등록" in response.text
+    assert "Inbox/Text" in response.text
+    assert "Inbox 대기열" in response.text
+    assert "Raw Sources에서 Inbox로 가져오기" in response.text
+    assert "Inbox 대기 항목이 없습니다" in response.text
     assert "Qwen3가 읽는 것을 확인하세요" not in response.text
     assert "Qwen3" not in response.text
+
+
+def test_ingest_page_can_live_update_job_card_progress(tmp_path, monkeypatch):
+    """The ingest page should not leave cards visually stuck on old phases."""
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    paths = scaffold(tmp_path)
+    from llm_wiki import db
+
+    client = TestClient(create_app(paths))
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, status) VALUES (?, ?, ?, ?, ?, ?)",
+            ("Inbox/Markdown/live-card.md", "hash-live-card", "md", 100, "2026-01-01T00:00:00+00:00", "pending"),
+        )
+        source_id = conn.execute("SELECT id FROM sources").fetchone()[0]
+        conn.execute(
+            "INSERT INTO ingest_jobs (source_id, state, phase, progress, created_at, started_at) VALUES (?, 'running', 'extracting', 0.20, ?, ?)",
+            (source_id, "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+        )
+        conn.commit()
+
+    response = client.get("/ingest")
+
+    assert response.status_code == 200
+    assert "job-state state-badge state-running" in response.text
+    assert "job-progress-wrap progress-bar-bg" in response.text
+    assert 'job-detail text-xs text-[#64748b] mt-1">extracting' in response.text
+    assert "function updateJobCard(jobId, data)" in response.text
+    assert "updateJobCard(jobId, d);" in response.text
 
 
 def test_ingest_scan_registers_synced_raw_sources(tmp_path, monkeypatch):
     """Files synced directly into Raw Sources should register as Inbox pending items via web scan.
 
-    Phase 5A contract: /ingest/scan imports supported files into Inbox (no longer creates
-    legacy `sources` rows). The /ingest HTML template still iterates `pending` as `sources`
-    rows, so the freshly registered inbox item is not yet rendered as a per-row entry — that
-    template alignment is owned by Phase 5B. This regression test therefore asserts the
-    Inbox-first scan API contract and the page-level queue copy/buttons that remain on
-    /ingest regardless of pending items.
+    Phase 5B: /ingest now renders Inbox pending items as the primary queue, so a freshly
+    scanned inbox item should appear as a per-row entry with a per-row action button.
     """
     monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
     paths = scaffold(tmp_path)
@@ -151,17 +222,15 @@ def test_ingest_scan_registers_synced_raw_sources(tmp_path, monkeypatch):
 
     after = client.get("/ingest")
     assert after.status_code == 200
-    # Page-level queue copy/buttons are always rendered regardless of pending items.
-    assert "수집 대기열" in after.text
-    assert "Raw Sources 스캔" in after.text
-    assert "선택 항목 수집 시작" in after.text
-    assert "대기/재시도 모두 수집" in after.text
-    assert "분류/라우팅은 Raw Source 경로와 파일 유형을 기준으로" in after.text
-    # Phase 5A boundary: the /ingest template still iterates legacy `sources` rows,
-    # so a freshly scanned inbox item does not yet render as a per-row entry.
-    # Per-row "작업으로 보내기" rendering for inbox items is owned by Phase 5B.
-    assert "mobile-synced.md" not in after.text
-    assert "작업으로 보내기" not in after.text
+    # Phase 5B: Inbox pending items render as per-row entries in the queue.
+    assert "Inbox 대기열" in after.text
+    assert "Raw Sources에서 Inbox로 가져오기" in after.text
+    assert "선택 처리 시작" in after.text
+    assert "전체 처리" in after.text
+    assert "mobile-synced.md" in after.text
+    assert "작업으로 보내기" in after.text
+    assert "markdown_file" in after.text
+    assert "pending" in after.text
 
 
 def test_ingest_page_shows_error_sources_as_retryable_queue_items(tmp_path, monkeypatch):
@@ -195,15 +264,10 @@ def test_ingest_page_shows_error_sources_as_retryable_queue_items(tmp_path, monk
 
 
 def test_ingest_pending_sources_render_batch_queue_actions(tmp_path, monkeypatch):
-    """Uploaded sources should be registered as Inbox pending items, not legacy sources rows.
+    """Uploaded sources should be registered as Inbox pending items and rendered in /ingest.
 
-    Phase 5A contract: /ingest/upload returns the Inbox-first payload (inbox_item_id,
-    relpath, state, source_id) and registers an inbox_items row instead of a legacy
-    sources row. The /ingest HTML template still iterates `pending` as `sources` rows,
-    so the freshly uploaded inbox item is not yet rendered as a per-row entry — that
-    template alignment is owned by Phase 5B. This regression test therefore asserts the
-    Inbox-first upload API contract and the page-level batch-action copy/buttons that
-    remain on /ingest regardless of pending items.
+    Phase 5B: /ingest now renders Inbox pending items as the primary queue, so a freshly
+    uploaded inbox item should appear as a per-row entry with a per-row action button.
     """
     monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
     paths = scaffold(tmp_path)
@@ -230,16 +294,14 @@ def test_ingest_pending_sources_render_batch_queue_actions(tmp_path, monkeypatch
     response = client.get("/ingest")
 
     assert response.status_code == 200
-    # Page-level queue copy/buttons are always rendered regardless of pending items.
-    assert "수집 대기열" in response.text
-    assert "선택 항목 수집 시작" in response.text
-    assert "대기/재시도 모두 수집" in response.text
-    assert "분류/라우팅은 Raw Source 경로와 파일 유형을 기준으로" in response.text
-    # Phase 5A boundary: the /ingest template still iterates legacy `sources` rows,
-    # so a freshly uploaded inbox item does not yet render as a per-row entry.
-    # Per-row "작업으로 보내기" rendering for inbox items is owned by Phase 5B.
-    assert "raw-note.md" not in response.text
-    assert "작업으로 보내기" not in response.text
+    # Phase 5B: Inbox pending items render as per-row entries in the queue.
+    assert "Inbox 대기열" in response.text
+    assert "선택 처리 시작" in response.text
+    assert "전체 처리" in response.text
+    assert "raw-note.md" in response.text
+    assert "작업으로 보내기" in response.text
+    assert "markdown_file" in response.text
+    assert "pending" in response.text
 
 
 def test_mobile_menu_button_and_drawer_present(tmp_path, monkeypatch):
@@ -286,3 +348,93 @@ def test_mobile_menu_button_and_drawer_present(tmp_path, monkeypatch):
         assert marker not in response.text
     # Desktop sidebar still present (hidden on mobile but exists in markup)
     assert 'class="hidden md:flex w-60' in response.text
+
+
+def test_lint_fix_stream_emits_progress_and_completion(tmp_path, monkeypatch):
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    from llm_wiki import search
+    monkeypatch.setattr(search, "update_index", lambda *args, **kwargs: None)
+    paths = scaffold(tmp_path)
+    (paths.sources / "alpha.md").write_text(
+        "---\n"
+        "title: Alpha Source\n"
+        "type: source\n"
+        "created: 2026-01-01\n"
+        "---\n\n"
+        "# Alpha Source\n",
+        encoding="utf-8",
+    )
+    entity_path = paths.entities / "stream-test.md"
+    entity_path.write_text(
+        "---\n"
+        "title: Stream Test\n"
+        "type: entity\n"
+        "created: 2026-01-01\n"
+        "updated: 2026-01-01\n"
+        "sources:\n"
+        "- sources/alpha.md\n"
+        "---\n\n"
+        "# Stream Test\n\n"
+        "See [[sources/alpha.md]].\n",
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(paths))
+
+    with client.stream("GET", "/lint/fix/stream") as response:
+        body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: progress" in body
+    assert "event: complete" in body
+    chunks = [chunk for chunk in body.strip().split("\n\n") if chunk.strip()]
+    payloads: dict[str, list[dict]] = {}
+    for chunk in chunks:
+        lines = chunk.splitlines()
+        event = lines[0].split(": ", 1)[1]
+        data = json.loads(lines[1].split(": ", 1)[1])
+        payloads.setdefault(event, []).append(data)
+
+    complete = payloads["complete"][-1]
+    assert complete["phase"] == "complete"
+    assert complete["progress"] == 1.0
+    assert complete["fixed_count"] >= 1
+    assert complete["remaining_fixable"] == 0
+    assert complete["redirect_url"] == "/lint"
+    assert "[[sources/alpha]]" in entity_path.read_text(encoding="utf-8")
+
+
+def test_lint_fix_post_preserves_sync_template_flow(tmp_path, monkeypatch):
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+    from llm_wiki import search
+    monkeypatch.setattr(search, "update_index", lambda *args, **kwargs: None)
+    paths = scaffold(tmp_path)
+    (paths.sources / "beta.md").write_text(
+        "---\n"
+        "title: Beta Source\n"
+        "type: source\n"
+        "created: 2026-01-01\n"
+        "---\n\n"
+        "# Beta Source\n",
+        encoding="utf-8",
+    )
+    entity_path = paths.entities / "post-fix.md"
+    entity_path.write_text(
+        "---\n"
+        "title: Post Fix\n"
+        "type: entity\n"
+        "created: 2026-01-01\n"
+        "updated: 2026-01-01\n"
+        "sources:\n"
+        "- sources/beta.md\n"
+        "---\n\n"
+        "# Post Fix\n\n"
+        "See [[sources/beta.md]].\n",
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(paths))
+
+    response = client.post("/lint/fix")
+
+    assert response.status_code == 200
+    assert "검사" in response.text
+    assert "[[sources/beta]]" in entity_path.read_text(encoding="utf-8")

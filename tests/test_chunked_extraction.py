@@ -13,8 +13,10 @@ from llm_wiki.ingest_llm import (
     IngestCallbacks,
     LLMError,
     _aggregate_chunk_extractions,
+    _coalesce_extraction_chunks,
     _exact_slug_candidates,
     _extract_chunked,
+    _parse_chunk_extraction,
     _resolve_slug,
     ingest_source,
 )
@@ -369,6 +371,49 @@ def test_chunk_retry_parse_failure_emits_failed_callback_once(tmp_path):
     assert client.chunk_calls == [0, 0]
     assert callbacks.chunk_failed and len(callbacks.chunk_failed) == 1
     assert callbacks.chunk_failed[0][:2] == (0, 1)
+
+
+def test_parse_chunk_extraction_repairs_only_invalid_string_escapes():
+    raw = r'''{
+  "chunk_summary": "Path C:\\Users\\name\\project\\foo\_bar keeps newline \n and tab \t intact",
+  "key_takeaways": ["Literal foo\_bar", "Quote: \"hi\"", "Unicode: \u1234"],
+  "candidates": [
+    {
+      "name": "Windows Path",
+      "slug": "windows-path",
+      "pageKind": "entity",
+      "description": "Uses C:\\Users\\name\\project\\foo\_bar and foo\_bar",
+      "confidence": "medium"
+    }
+  ],
+  "tags": ["paths"]
+}'''
+
+    parsed = _parse_chunk_extraction(raw, expected_chunk_index=7)
+
+    assert parsed.chunk_index == 7
+    assert parsed.chunk_summary == "Path C:\\Users\\name\\project\\foo\\_bar keeps newline \n and tab \t intact"
+    assert parsed.key_takeaways == ["Literal foo\\_bar", 'Quote: "hi"', "Unicode: ሴ"]
+    assert parsed.candidates[0].description == "Uses C:\\Users\\name\\project\\foo\\_bar and foo\\_bar"
+
+
+def test_parse_chunk_extraction_still_rejects_malformed_json_structure():
+    raw = '{"chunk_summary": "broken", "key_takeaways": [1, 2]'
+
+    with pytest.raises(ValueError, match="Invalid chunk JSON"):
+        _parse_chunk_extraction(raw, expected_chunk_index=0)
+
+
+def test_coalesce_extraction_chunks_reduces_parser_chunk_count():
+    chunks = [f"chunk-{i} " + ("x" * 1400) for i in range(20)]
+
+    grouped = _coalesce_extraction_chunks(chunks, target_chars=12_000)
+
+    assert len(grouped) < len(chunks)
+    assert len(grouped) == 3
+    assert all(len(chunk) <= 12_000 for chunk in grouped)
+    assert grouped[0].startswith("chunk-0")
+    assert "chunk-19" in grouped[-1]
 
 
 def test_exact_slug_candidates_distinguish_non_categories_from_entities(tmp_path):

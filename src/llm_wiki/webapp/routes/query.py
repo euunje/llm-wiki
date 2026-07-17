@@ -131,7 +131,8 @@ async def query_stream(
             try:
                 client.ensure_ready()
             except Exception as e:
-                event_q.put(("error", {"text": f"Ollama not ready: {e}"}))
+                label = client.provider or "LLM"
+                event_q.put(("error", {"text": f"{label} not ready: {e}"}))
                 return
 
             callbacks = _SSECallbacks(event_q)

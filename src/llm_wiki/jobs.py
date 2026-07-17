@@ -29,6 +29,7 @@ from typing import Any, Callable, Optional
 
 from . import config as cfg
 from . import db
+from . import inbox
 from . import ingest_llm
 from . import ingest_raw
 from .llm import LLMError, OllamaClient
@@ -50,6 +51,7 @@ def _now() -> str:
 class JobRow:
     id: int
     source_id: int
+    inbox_item_id: Optional[int]
     state: str
     phase: Optional[str]
     progress: float
@@ -68,6 +70,7 @@ def _row_to_job(row: sqlite3.Row) -> JobRow:
     return JobRow(
         id=row["id"],
         source_id=row["source_id"],
+        inbox_item_id=row["inbox_item_id"] if "inbox_item_id" in row.keys() else None,
         state=row["state"],
         phase=row["phase"],
         progress=row["progress"] or 0.0,
@@ -131,9 +134,19 @@ def get_job(paths: cfg.WikiPaths, job_id: int) -> Optional[JobRow]:
         conn.row_factory = sqlite3.Row
         cur = conn.execute(
             """
-            SELECT j.*, s.relpath AS source_relpath, s.file_type AS source_type
+            SELECT
+                j.*,
+                s.relpath AS source_relpath,
+                s.file_type AS source_type,
+                ii.inbox_item_id AS inbox_item_id
             FROM ingest_jobs j
             LEFT JOIN sources s ON s.id = j.source_id
+            LEFT JOIN (
+                SELECT source_id, MIN(id) AS inbox_item_id
+                FROM inbox_items
+                WHERE source_id IS NOT NULL
+                GROUP BY source_id
+            ) ii ON ii.source_id = j.source_id
             WHERE j.id = ?
             """,
             (job_id,),
@@ -151,9 +164,19 @@ def list_jobs(
     with db.connect(paths.state_db) as conn:
         conn.row_factory = sqlite3.Row
         sql = """
-            SELECT j.*, s.relpath AS source_relpath, s.file_type AS source_type
+            SELECT
+                j.*,
+                s.relpath AS source_relpath,
+                s.file_type AS source_type,
+                ii.inbox_item_id AS inbox_item_id
             FROM ingest_jobs j
             LEFT JOIN sources s ON s.id = j.source_id
+            LEFT JOIN (
+                SELECT source_id, MIN(id) AS inbox_item_id
+                FROM inbox_items
+                WHERE source_id IS NOT NULL
+                GROUP BY source_id
+            ) ii ON ii.source_id = j.source_id
         """
         args: list[Any] = []
         if state:
@@ -224,6 +247,10 @@ def mark_interrupted_on_startup(paths: cfg.WikiPaths) -> int:
         )
         conn.commit()
         return cur.rowcount
+
+
+def _linked_inbox_item_id_for_source(paths: cfg.WikiPaths, source_id: int) -> int | None:
+    return inbox.linked_inbox_item_id_for_source(paths, source_id)
 
 
 # ---------------------------------------------------------------------------
@@ -425,6 +452,30 @@ class JobManager:
         self._queue.put(job_id)
         return job_id
 
+    def _mark_inbox_failed(
+        self, source_id: int, error: str, phase: str | None = None
+    ) -> None:
+        """Mark the linked inbox item as failed if one exists.
+
+        This is called when a background job fails so that the inbox item
+        does not remain stuck in 'pending' state while the source shows 'error'.
+        """
+        linked_inbox_item_id = _linked_inbox_item_id_for_source(self.paths, source_id)
+        if linked_inbox_item_id is not None:
+            try:
+                inbox.move_to_failed(
+                    self.paths,
+                    linked_inbox_item_id,
+                    error=error,
+                    phase=phase,
+                    message=f"Background job failed: {error}",
+                    data={"source_id": source_id},
+                )
+            except Exception:
+                # Inbox failure marking is best-effort; don't let it bubble up
+                # and derail the worker loop.
+                pass
+
     def _worker_loop(self) -> None:
         while not self._stop.is_set():
             try:
@@ -464,28 +515,33 @@ class JobManager:
             try:
                 client.ensure_ready()
             except LLMError as e:
+                label = client.provider or "LLM"
+                error_msg = f"{label} not ready: {e}"
                 _update_job(
                     self.paths,
                     job_id,
                     state="failed",
-                    error=f"Ollama not ready: {e}",
+                    error=error_msg,
                     finished_at=_now(),
                 )
                 _append_event(
-                    self.paths, job_id, "error", {"text": f"Ollama not ready: {e}"}
+                    self.paths, job_id, "error", {"text": error_msg}
                 )
+                self._mark_inbox_failed(job.source_id, error_msg, phase="llm_ready")
                 return
 
             # Reload source to make sure it exists + has status='pending'
             source_row = ingest_raw.get_source(self.paths, job.source_id)
             if source_row is None:
+                error_msg = "Source no longer exists"
                 _update_job(
                     self.paths,
                     job_id,
                     state="failed",
-                    error="Source no longer exists",
+                    error=error_msg,
                     finished_at=_now(),
                 )
+                self._mark_inbox_failed(job.source_id, error_msg, phase="source_lookup")
                 return
 
             thinking_for_extraction = bool(llm_cfg.get("thinking", True))
@@ -494,13 +550,32 @@ class JobManager:
                 job_id,
                 thinking_for_extraction=thinking_for_extraction,
             )
-            ingest_llm.ingest_source(
+            result = ingest_llm.ingest_source(
                 self.paths,
                 job.source_id,
                 client,
                 callbacks=callbacks,
                 thinking_for_extraction=thinking_for_extraction,
             )
+            if result.ok:
+                linked_inbox_item_id = _linked_inbox_item_id_for_source(
+                    self.paths, job.source_id
+                )
+                if linked_inbox_item_id is not None:
+                    inbox.finalize_successful_ingest(
+                        self.paths,
+                        linked_inbox_item_id,
+                        job.source_id,
+                        event_type="job_ingest_completed",
+                        message=f"Background ingest completed for source #{job.source_id}.",
+                        data={"job_id": job_id, "requested_via": "job"},
+                    )
+            else:
+                # Ingest returned not-ok (e.g., extraction/drafting failed)
+                # Mark the linked inbox item as failed so it doesn't remain pending
+                # while the legacy source shows "error"
+                error_msg = result.error or "Ingest pipeline failed"
+                self._mark_inbox_failed(job.source_id, error_msg, phase=job.phase or "ingest")
             # Prune after each successful job to keep the jobs list short
             try:
                 prune_old_jobs(self.paths, keep=50)

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Build Compatibility Mockup — Review Workspace</title>
+  <style>
+    body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#f8fafc; color:#111827; }
+    .wrap { padding:24px; max-width:1180px; margin:0 auto; }
+    h1 { margin:0 0 6px; font-size:28px; }
+    p { margin:0 0 20px; color:#475569; }
+    .grid { display:grid; grid-template-columns: 340px 1fr; gap:20px; }
+    .panel { background:#fff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; }
+    .head { padding:12px 14px; background:#f1f5f9; border-bottom:1px solid #e2e8f0; font-weight:700; color:#475569; }
+    .item { padding:14px; border-bottom:1px solid #e2e8f0; }
+    .item.active { background:#eef2ff; }
+    .badge { display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; font-weight:700; }
+    .review { background:#fef3c7; color:#92400e; border:1px solid #fde68a; }
+    .failed { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
+    .content { padding:18px; display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    .box { border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc; padding:12px; margin-bottom:12px; }
+    button { border:1px solid #e2e8f0; border-radius:8px; background:#fff; padding:8px 10px; font-weight:700; margin-right:6px; }
+    button.primary { background:#4f46e5; border-color:#4f46e5; color:#fff; }
+    button.danger { background:#fff1f2; border-color:#fecdd3; color:#be123c; }
+    @media(max-width:850px){ .grid,.content{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Review Workspace</h1>
+    <p>Build 호환 경로용 목업입니다. 승인된 Review/Failed workbench HTML과 동일한 UX 결정을 요약합니다.</p>
+    <div class="grid">
+      <aside class="panel">
+        <div class="head">Inbox queues</div>
+        <div class="item active"><strong>rag-temperature.md</strong><br/><span class="badge review">review · similar candidates</span></div>
+        <div class="item"><strong>meeting.pdf</strong><br/><span class="badge failed">failed · parser_error</span></div>
+      </aside>
+      <main class="panel">
+        <div class="head">Selected item</div>
+        <div class="content">
+          <section>
+            <div class="box"><strong>Status</strong><br/>review · low merge confidence<br/>source: Inbox/_Review/rag-temperature.md</div>
+            <div class="box"><strong>Similar Wiki candidates</strong><br/>concepts/rag · 0.86<br/>concepts/political-discourse · 0.72</div>
+            <button class="primary">기존 page에 편입</button><button>새 concept 생성</button><button>태깅/분류</button>
+          </section>
+          <section>
+            <div class="box"><strong>Failed diagnostics example</strong><br/>phase: parsing<br/>error: empty extracted text<br/>actions: retry/open/delete log</div>
+            <button>재시도</button><button>원본 열기</button><button class="danger">삭제</button>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

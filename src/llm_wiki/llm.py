@@ -25,6 +25,20 @@ DEFAULT_MODEL = "qwen3:14b"
 DEFAULT_TIMEOUT = 300.0  # 5 minutes — thinking-mode extraction can be slow
 
 
+def normalize_openai_compatible_host(host: str, provider: str | None) -> str:
+    """Normalize OpenAI-compatible base URLs.
+
+    LM Studio exposes chat completions under /v1/chat/completions.  Its server
+    can return HTTP 200 for the wrong /chat/completions endpoint with an error
+    JSON body, so local OpenAI-compatible hosts must be normalized before any
+    request is made.
+    """
+    normalized = host.rstrip("/")
+    if provider == "openai-local" and not normalized.endswith("/v1"):
+        normalized = f"{normalized}/v1"
+    return normalized
+
+
 class LLMError(Exception):
     """Raised when an LLM call fails in a user-recoverable way."""
 
@@ -92,6 +106,8 @@ class OllamaClient:
                 
         if not self.provider:
             self.provider = "ollama"
+
+        self.host = normalize_openai_compatible_host(self.host, self.provider)
 
         if not self.api_key and self.provider in ("openai", "openai-local"):
             self.api_key = self._resolve_api_key()
@@ -183,8 +199,10 @@ class OllamaClient:
                 f"{self.provider} isn't reachable at {self.host}.\n"
                 f"Please verify your LLM host settings."
             )
-        # Skip model check for remote endpoints (like openai) since listing models is not always accurate or needed
-        if self.provider in ("openai", "openai-local") and "api.openai.com" in self.host:
+        # Skip model-list validation for OpenAI-compatible endpoints.  Some
+        # local gateways return an empty /models list even though
+        # /v1/chat/completions works with the configured model.
+        if self.provider in ("openai", "openai-local"):
             return
             
         models = self.list_models()
@@ -259,13 +277,27 @@ class OllamaClient:
                 r = self._client.post(f"{self.host}/chat/completions", json=payload, headers=headers)
                 r.raise_for_status()
                 data = r.json()
+                if isinstance(data, dict) and data.get("error"):
+                    error = data["error"]
+                    if isinstance(error, dict):
+                        message = error.get("message") or json.dumps(error)
+                    else:
+                        message = str(error)
+                    raise LLMError(f"OpenAI-compatible host error: {message}")
                 content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if not content.strip():
+                    raise LLMError(
+                        "OpenAI-compatible host returned an empty assistant message. "
+                        "Verify the configured host includes /v1 and that the selected model is loaded."
+                    )
                 return self._strip_thinking(content)
             except httpx.HTTPStatusError as e:
                 body = e.response.text[:2000] if e.response is not None else ""
                 raise LLMError(
                     f"OpenAI-compatible host error {e.response.status_code}: {body}"
                 ) from e
+            except LLMError:
+                raise
             except Exception as e:
                 raise LLMError(f"OpenAI-compatible host error: {e}")
                 

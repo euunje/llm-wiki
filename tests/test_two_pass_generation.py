@@ -117,6 +117,22 @@ def test_parse_generated_page_strips_markdown_fences():
     assert generated.slug == "openai"
 
 
+def test_parse_generated_page_repairs_invalid_string_escapes_only():
+    raw = json.dumps(
+        {
+            "slug": "openai",
+            "type": "entity",
+            "body_markdown": "Path C:\\Users\\name\\project\\foo\\_bar\n\t[[sources/two-pass-source]]",
+            "links_used": ["sources/two-pass-source"],
+            "sources": ["sources/two-pass-source.md"],
+        }
+    ).replace("\\\\_bar", "\\_bar")
+
+    generated = _parse_generated_page(raw)
+
+    assert generated.body_markdown == "Path C:\\Users\\name\\project\\foo\\_bar\n\t[[sources/two-pass-source]]"
+
+
 def test_parse_generated_page_rejects_invalid_json():
     import pytest
 

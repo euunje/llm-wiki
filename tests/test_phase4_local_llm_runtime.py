@@ -9,12 +9,13 @@ import yaml
 
 from llm_wiki import config as cfg
 from llm_wiki import lint, page_writer, search
-from llm_wiki.llm import ChatMessage, OllamaClient
+from llm_wiki.llm import ChatMessage, LLMError, OllamaClient
 
 
 class _FakeResponse:
     def __init__(self, data: dict):
         self._data = data
+        self.text = json.dumps(data)
 
     def raise_for_status(self):
         return None
@@ -27,8 +28,10 @@ class _CapturingHttpClient:
     def __init__(self):
         self.payloads = []
         self.headers = []
+        self.urls = []
 
     def post(self, url, *, json=None, headers=None):
+        self.urls.append(url)
         self.payloads.append(json)
         self.headers.append(headers or {})
         return _FakeResponse({"choices": [{"message": {"content": "{\"ok\": true}"}}]})
@@ -65,8 +68,47 @@ def test_openai_local_json_mode_uses_text_response_format(monkeypatch):
     result = client.chat([ChatMessage("user", "Return JSON")], json_mode=True)
 
     assert result == '{"ok": true}'
+    assert fake_http.urls[0] == "http://192.168.1.31:1234/v1/chat/completions"
     assert fake_http.payloads[0]["response_format"] == {"type": "text"}
     assert fake_http.headers[0]["Authorization"] == "Bearer local-secret"
+
+
+def test_openai_local_normalizes_missing_v1_base_url(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_API_KEY", "local-secret")
+    client = OllamaClient(
+        host="http://192.168.1.31:1234",
+        model="google/gemma-4-26b-a4b-qat",
+        provider="openai-local",
+    )
+    fake_http = _CapturingHttpClient()
+    client._client = fake_http
+
+    result = client.chat([ChatMessage("user", "Return JSON")], json_mode=True)
+
+    assert result == '{"ok": true}'
+    assert client.host == "http://192.168.1.31:1234/v1"
+    assert fake_http.urls[0] == "http://192.168.1.31:1234/v1/chat/completions"
+
+
+def test_openai_local_200_error_json_raises_llm_error(monkeypatch):
+    class _ErrorHttpClient:
+        def post(self, url, *, json=None, headers=None):
+            return _FakeResponse({"error": {"message": "Unexpected endpoint or method. (POST /chat/completions). Returning 200 anyway"}})
+
+    monkeypatch.setenv("LOCAL_LLM_API_KEY", "local-secret")
+    client = OllamaClient(
+        host="http://192.168.1.31:1234/v1",
+        model="google/gemma-4-26b-a4b-qat",
+        provider="openai-local",
+    )
+    client._client = _ErrorHttpClient()
+
+    try:
+        client.chat([ChatMessage("user", "Return JSON")], json_mode=True)
+    except LLMError as exc:
+        assert "Unexpected endpoint or method" in str(exc)
+    else:
+        raise AssertionError("Expected LLMError")
 
 
 def test_lint_resolves_source_refs_through_mapped_page_dirs(tmp_path, monkeypatch):

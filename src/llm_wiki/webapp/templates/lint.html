@@ -1,6 +1,39 @@
 {% extends "base.html" %}
 
-{% block title %}Lint — LLM-Wiki{% endblock %}
+{% block extra_head %}
+<style>
+    .progress-bar-bg { background: #f1f5f9; height: 8px; border-radius: 4px; overflow: hidden; }
+    .progress-bar-fill { background: #4f46e5; height: 100%; transition: width 0.3s ease; border-radius: 4px; }
+    .live-log {
+        background: #f6f7fb;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 12px;
+        max-height: 320px;
+        overflow-y: auto;
+        font-family: ui-monospace, SFMono-Regular, monospace;
+        font-size: 12px;
+        line-height: 1.6;
+    }
+    .log-line { margin-bottom: 2px; }
+    .log-phase  { color: #4f46e5; }
+    .log-page   { color: #16a34a; }
+    .log-error  { color: #dc2626; }
+    .log-done   { color: #16a34a; font-weight: 600; }
+    .fix-panel { transition: opacity 0.2s ease; }
+    .fix-panel[hidden] { display: none; }
+    .phase-badge {
+        font-size: 10px; padding: 2px 8px; border-radius: 9999px;
+        font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .phase-scan    { background: rgba(124, 140, 255, 0.2); color: #4f46e5; }
+    .phase-apply   { background: rgba(34, 197, 94, 0.15);  color: #16a34a; }
+    .phase-recheck { background: rgba(234, 179, 8, 0.18);  color: #ca8a04; }
+    .phase-index   { background: rgba(79, 70, 229, 0.14);  color: #4f46e5; }
+    .phase-complete { background: rgba(34, 197, 94, 0.15); color: #16a34a; }
+    .phase-error   { background: rgba(239, 68, 68, 0.18);  color: #dc2626; }
+</style>
+{% endblock %}
 
 {% block content %}
 
@@ -11,12 +44,19 @@
     </div>
     <div class="flex items-center gap-2">
         {% if fixable_count > 0 %}
-        <form method="post" action="/lint/fix" class="inline">
-            <button type="submit"
-                    class="text-sm px-4 py-2 bg-[#4f46e5] hover:bg-[#4338ca] text-white rounded-md font-medium transition">
-                {{ fixable_count }}개 문제 자동 수정
-            </button>
-        </form>
+        <button type="button" id="start-fix-btn"
+                class="text-sm px-4 py-2 bg-[#4f46e5] hover:bg-[#4338ca] text-white rounded-md font-medium transition disabled:opacity-50 disabled:cursor-not-allowed">
+            {{ fixable_count }}개 문제 자동 수정
+        </button>
+        <!-- No-JS fallback -->
+        <noscript>
+            <form method="post" action="/lint/fix" class="inline">
+                <button type="submit"
+                        class="text-sm px-4 py-2 bg-[#4f46e5] hover:bg-[#4338ca] text-white rounded-md font-medium transition">
+                    {{ fixable_count }}개 문제 자동 수정
+                </button>
+            </form>
+        </noscript>
         {% endif %}
         <a href="/lint"
            class="text-sm px-3 py-2 bg-white border border-[#e2e8f0] rounded-md text-[#475569] hover:text-[#111827] hover:border-[#4f46e5] transition">
@@ -34,6 +74,48 @@
     </div>
 </div>
 {% endif %}
+
+<!-- Live fix progress panel (hidden until user clicks the fix button) -->
+<div id="fix-panel" class="fix-panel bg-white border border-[#e2e8f0] rounded-lg p-5 mb-6" hidden>
+    <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+            <h2 class="text-sm font-semibold text-[#111827]">자동 수정 진행중</h2>
+            <span id="phase-badge" class="phase-badge phase-scan">scan</span>
+        </div>
+        <button type="button" id="cancel-fix-btn" class="text-xs text-[#64748b] hover:text-[#111827]">✕ 취소</button>
+    </div>
+
+    <!-- Progress bar -->
+    <div class="progress-bar-bg mb-3">
+        <div id="progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
+    </div>
+
+    <!-- Stats row -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3 text-center">
+        <div>
+            <div class="text-xs text-[#64748b] uppercase tracking-wide mb-1">진행률</div>
+            <div id="stat-percent" class="text-lg font-semibold text-[#111827]">0%</div>
+        </div>
+        <div>
+            <div class="text-xs text-[#64748b] uppercase tracking-wide mb-1">수정 완료</div>
+            <div id="stat-fixed" class="text-lg font-semibold text-green-600">0</div>
+        </div>
+        <div>
+            <div class="text-xs text-[#64748b] uppercase tracking-wide mb-1">남은 항목</div>
+            <div id="stat-remaining" class="text-lg font-semibold text-[#111827]">0</div>
+        </div>
+        <div>
+            <div class="text-xs text-[#64748b] uppercase tracking-wide mb-1">현재 페이지</div>
+            <div id="stat-page" class="text-sm font-mono text-[#4f46e5] truncate" title="">—</div>
+        </div>
+    </div>
+
+    <!-- Phase message -->
+    <div id="phase-message" class="text-xs text-[#475569] mb-3">준비중…</div>
+
+    <!-- Live log -->
+    <div class="live-log" id="fix-log"></div>
+</div>
 
 <!-- Health summary -->
 <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
@@ -175,5 +257,170 @@
     </div>
 </div>
 {% endif %}
+
+<script>
+(function() {
+    const startBtn = document.getElementById('start-fix-btn');
+    const cancelBtn = document.getElementById('cancel-fix-btn');
+    const panel = document.getElementById('fix-panel');
+    const phaseBadge = document.getElementById('phase-badge');
+    const progressFill = document.getElementById('progress-fill');
+    const statPercent = document.getElementById('stat-percent');
+    const statFixed = document.getElementById('stat-fixed');
+    const statRemaining = document.getElementById('stat-remaining');
+    const statPage = document.getElementById('stat-page');
+    const phaseMessage = document.getElementById('phase-message');
+    const logEl = document.getElementById('fix-log');
+
+    let activeStream = null;
+
+    const PHASE_LABELS = {
+        scan: '검사',
+        apply: '수정',
+        recheck: '재검사',
+        index: '색인',
+        complete: '완료',
+        error: '오류',
+    };
+
+    function escapeHtml(s) {
+        return String(s || '').replace(/[&<>"']/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+        );
+    }
+
+    function logLine(html, cls) {
+        const div = document.createElement('div');
+        div.className = 'log-line ' + (cls || '');
+        div.innerHTML = html;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setPhase(phase) {
+        phaseBadge.textContent = PHASE_LABELS[phase] || phase;
+        phaseBadge.className = 'phase-badge phase-' + (phase || 'scan');
+    }
+
+    function updateProgress(d) {
+        const pct = Math.round((d.progress || 0) * 100);
+        progressFill.style.width = pct + '%';
+        statPercent.textContent = pct + '%';
+        statFixed.textContent = d.fixed_count || 0;
+        statRemaining.textContent = d.remaining_fixable || 0;
+        if (d.current_page) {
+            statPage.textContent = d.current_page;
+            statPage.title = d.current_page;
+        } else {
+            statPage.textContent = '—';
+            statPage.title = '';
+        }
+        if (d.message) {
+            phaseMessage.textContent = d.message;
+        }
+        setPhase(d.phase);
+    }
+
+    function startFix() {
+        if (activeStream) activeStream.close();
+        panel.hidden = false;
+        logEl.innerHTML = '';
+        progressFill.style.width = '0%';
+        statPercent.textContent = '0%';
+        statFixed.textContent = '0';
+        statRemaining.textContent = '0';
+        statPage.textContent = '—';
+        phaseMessage.textContent = '연결중…';
+        setPhase('scan');
+        startBtn.disabled = true;
+        startBtn.textContent = '수정 진행중…';
+
+        const es = new EventSource('/lint/fix/stream');
+        activeStream = es;
+
+        es.addEventListener('progress', function(ev) {
+            try {
+                const d = JSON.parse(ev.data);
+                updateProgress(d);
+                const pagePart = d.current_page
+                    ? ' <span class="text-[#4f46e5]">' + escapeHtml(d.current_page) + '</span>'
+                    : '';
+                logLine(
+                    '<span class="log-phase">[' + escapeHtml(d.phase) + ']</span> ' +
+                    escapeHtml(d.message) + pagePart +
+                    ' <span class="text-[#64748b]">(' + Math.round((d.progress || 0) * 100) + '%, 수정 ' +
+                    (d.fixed_count || 0) + '/' + ((d.fixed_count || 0) + (d.remaining_fixable || 0)) + ')</span>'
+                );
+            } catch (e) {}
+        });
+
+        es.addEventListener('complete', function(ev) {
+            try {
+                const d = JSON.parse(ev.data);
+                updateProgress(d);
+                logLine(
+                    '✓ 완료 — ' + (d.fixed_count || 0) + '개 문제 수정. 페이지를 새로고침합니다…',
+                    'log-done'
+                );
+                es.close();
+                activeStream = null;
+                startBtn.disabled = false;
+                startBtn.textContent = startBtn.dataset.originalText || '자동 수정';
+                setTimeout(function() {
+                    window.location.href = d.redirect_url || '/lint';
+                }, 1500);
+            } catch (e) {}
+        });
+
+        es.addEventListener('error', function(ev) {
+            try {
+                const d = JSON.parse(ev.data);
+                updateProgress(d);
+                setPhase('error');
+                logLine('✗ 오류: ' + escapeHtml(d.message), 'log-error');
+                phaseMessage.textContent = '오류가 발생했습니다: ' + d.message;
+            } catch (e) {
+                // SSE transport error (not a backend error event)
+                logLine('✗ 연결 오류. 페이지를 새로고침 후 다시 시도해 주세요.', 'log-error');
+                setPhase('error');
+                phaseMessage.textContent = '연결 오류가 발생했습니다.';
+            }
+            es.close();
+            activeStream = null;
+            startBtn.disabled = false;
+            startBtn.textContent = startBtn.dataset.originalText || '자동 수정';
+        });
+
+        es.onerror = function() {
+            // Browser-level reconnect; if stream ended cleanly we already closed.
+            if (es.readyState === EventSource.CLOSED && activeStream === es) {
+                logLine('✗ 연결이 끊어졌습니다. 페이지를 새로고침 후 다시 시도해 주세요.', 'log-error');
+                setPhase('error');
+                phaseMessage.textContent = '연결이 끊어졌습니다.';
+                activeStream = null;
+                startBtn.disabled = false;
+                startBtn.textContent = startBtn.dataset.originalText || '자동 수정';
+            }
+        };
+    }
+
+    if (startBtn) {
+        startBtn.dataset.originalText = startBtn.textContent.trim();
+        startBtn.addEventListener('click', startFix);
+    }
+
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', function() {
+            if (activeStream) {
+                activeStream.close();
+                activeStream = null;
+            }
+            panel.hidden = true;
+            startBtn.disabled = false;
+            startBtn.textContent = startBtn.dataset.originalText || '자동 수정';
+        });
+    }
+})();
+</script>
 
 {% endblock %}

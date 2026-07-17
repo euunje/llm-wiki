@@ -44,6 +44,7 @@ from .llm import (
 MAX_SOURCE_CHARS = 100_000  # ~25K tokens roughly
 EXCERPT_CHARS = 4000        # how much of the source we include in draft prompts
 OPENAI_LOCAL_MAX_SOURCE_CHARS = 25_000
+DEFAULT_EXTRACTION_CHUNK_CHARS = 12_000
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +240,75 @@ def _extract_json_object(text: str) -> str:
     return text[start:]
 
 
+def _repair_invalid_json_string_escapes(text: str) -> str:
+    """Double only unknown backslashes inside JSON strings.
+
+    This preserves valid JSON escapes while repairing local-LLM output such as
+    ``foo\\_bar`` that would otherwise fail with ``Invalid \\escape``.
+    """
+    simple_escapes = {'"', "\\", "/", "b", "f", "n", "r", "t"}
+    out: list[str] = []
+    in_string = False
+    i = 0
+
+    while i < len(text):
+        char = text[i]
+
+        if not in_string:
+            out.append(char)
+            if char == '"':
+                in_string = True
+            i += 1
+            continue
+
+        if char == '"':
+            out.append(char)
+            in_string = False
+            i += 1
+            continue
+
+        if char != "\\":
+            out.append(char)
+            i += 1
+            continue
+
+        if i + 1 >= len(text):
+            out.append(char)
+            i += 1
+            continue
+
+        next_char = text[i + 1]
+        if next_char in simple_escapes:
+            out.extend((char, next_char))
+            i += 2
+            continue
+
+        if next_char == "u":
+            unicode_digits = text[i + 2 : i + 6]
+            if len(unicode_digits) == 4 and all(c in "0123456789abcdefABCDEF" for c in unicode_digits):
+                out.extend((char, "u", *unicode_digits))
+                i += 6
+                continue
+            # Keep malformed unicode escapes unchanged so json.loads still fails
+            # with a clear structural error.
+            out.append(char)
+            i += 1
+            continue
+
+        out.extend(("\\", "\\"))
+        i += 1
+
+    return "".join(out)
+
+
+def _load_llm_json(json_str: str, *, error_prefix: str) -> dict:
+    repaired_json = _repair_invalid_json_string_escapes(json_str)
+    try:
+        return json.loads(repaired_json)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{error_prefix}: {e}") from e
+
+
 def _normalize_extraction_data(data: dict) -> dict:
     """Normalize old/new extraction JSON into one internal contract.
 
@@ -326,10 +396,7 @@ def _parse_extraction(raw: str) -> Extraction:
     and the new candidates[] format are available on the returned Extraction object.
     """
     json_str = _extract_json_object(raw)
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON from LLM: {e}") from e
+    data = _load_llm_json(json_str, error_prefix="Invalid JSON from LLM")
     try:
         return Extraction(**_normalize_extraction_data(data))
     except ValidationError as e:
@@ -339,10 +406,7 @@ def _parse_extraction(raw: str) -> Extraction:
 def _parse_chunk_extraction(raw: str, *, expected_chunk_index: int | None = None) -> ChunkExtraction:
     """Parse chunk extraction JSON, allowing omitted chunk_index via caller context."""
     json_str = _extract_json_object(raw)
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid chunk JSON from LLM: {e}") from e
+    data = _load_llm_json(json_str, error_prefix="Invalid chunk JSON from LLM")
     if expected_chunk_index is not None and "chunk_index" not in data:
         data["chunk_index"] = expected_chunk_index
     try:
@@ -472,6 +536,41 @@ def _should_use_chunked_extraction(parsed: parsers.ParsedDocument, max_source_ch
     return len(parsed.text) > max_source_chars and bool(parsed.chunks)
 
 
+def _coalesce_extraction_chunks(chunks: list[str], target_chars: int) -> list[str]:
+    """Combine parser-sized chunks into larger extraction chunks.
+
+    Parser chunks are intentionally small for search/indexing, but extraction
+    sends one LLM request per chunk.  A 200KB markdown file can otherwise become
+    100+ LLM calls.  Coalescing keeps requests below the configured extraction
+    budget while preserving document order.
+    """
+    cleaned = [chunk.strip() for chunk in chunks if chunk and chunk.strip()]
+    if not cleaned:
+        return []
+    target = max(1, target_chars)
+    grouped: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    sep_len = 2
+    for chunk in cleaned:
+        chunk_len = len(chunk)
+        if not current:
+            current = [chunk]
+            current_len = chunk_len
+            continue
+        next_len = current_len + sep_len + chunk_len
+        if next_len > target:
+            grouped.append("\n\n".join(current))
+            current = [chunk]
+            current_len = chunk_len
+        else:
+            current.append(chunk)
+            current_len = next_len
+    if current:
+        grouped.append("\n\n".join(current))
+    return grouped
+
+
 def _extract_single_pass(
     *,
     parsed: parsers.ParsedDocument,
@@ -513,8 +612,11 @@ def _extract_chunked(
     client: OllamaClient,
     callbacks: IngestCallbacks,
     db_path: Path,
+    chunk_chars: int = DEFAULT_EXTRACTION_CHUNK_CHARS,
+    coalesce_chunks: bool = True,
 ) -> tuple[Extraction, str]:
-    chunks = parsed.chunks or [parsed.text]
+    source_chunks = parsed.chunks or [parsed.text]
+    chunks = _coalesce_extraction_chunks(source_chunks, chunk_chars) if coalesce_chunks else source_chunks
     total_chunks = len(chunks)
     chunk_results: list[ChunkExtraction] = []
     raw_responses: list[str] = []
@@ -593,6 +695,17 @@ def _max_source_chars_for_extraction(config: dict, provider: str | None) -> int:
     if provider == "openai-local":
         return OPENAI_LOCAL_MAX_SOURCE_CHARS
     return MAX_SOURCE_CHARS
+
+
+def _chunk_chars_for_extraction(config: dict, max_source_chars: int) -> int:
+    ingest_cfg = config.get("ingest", {}) if isinstance(config, dict) else {}
+    configured = ingest_cfg.get("extraction_chunk_chars") if isinstance(ingest_cfg, dict) else None
+    if configured is not None:
+        try:
+            return max(1_500, min(int(configured), max_source_chars))
+        except (TypeError, ValueError):
+            pass
+    return min(DEFAULT_EXTRACTION_CHUNK_CHARS, max_source_chars)
 
 
 def _logical_prefix(kind: str) -> str:
@@ -743,10 +856,7 @@ def _build_allowed_links(
 
 def _parse_generated_page(raw: str) -> GeneratedPage:
     json_str = _extract_json_object(raw)
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid page JSON from LLM: {e}") from e
+    data = _load_llm_json(json_str, error_prefix="Invalid page JSON from LLM")
     try:
         return GeneratedPage(**data)
     except ValidationError as e:
@@ -1173,7 +1283,7 @@ def _generate_page_content(
     return parsed_page.to_markdown(), False, []
 
 
-def _lint_changed_pages(paths: cfg.WikiPaths, changed_paths: set[str]) -> list[str]:
+def _lint_changed_pages(paths: cfg.WikiPaths, changed_paths: set[str]) -> list[lint.LintIssue]:
     report = lint.run_lint(paths, deep=False, client=None)
     fixable_errors = [
         issue for issue in report.errors
@@ -1182,7 +1292,12 @@ def _lint_changed_pages(paths: cfg.WikiPaths, changed_paths: set[str]) -> list[s
     if fixable_errors:
         lint.apply_fixes(paths, fixable_errors)
         report = lint.run_lint(paths, deep=False, client=None)
-    return [issue.page for issue in report.errors if issue.page in changed_paths]
+    return [issue for issue in report.errors if issue.page in changed_paths]
+
+
+def _format_lint_issue_summary(issue: lint.LintIssue) -> str:
+    fixable = "fixable" if issue.fixable else "not fixable"
+    return f"{issue.page} · {issue.check.value} · {issue.message} ({fixable})"
 
 
 def _stage_review_candidate_file(
@@ -1356,6 +1471,7 @@ def ingest_source(
     # 3. Pass 1 — extraction
     callbacks.on_extracting()
     max_source_chars = _max_source_chars_for_extraction(config, client.provider)
+    extraction_chunk_chars = _chunk_chars_for_extraction(config, max_source_chars)
     use_chunked_extraction = _should_use_chunked_extraction(parsed, max_source_chars)
     raw_response: str | None = None
     try:
@@ -1365,6 +1481,7 @@ def ingest_source(
                 client=client,
                 callbacks=callbacks,
                 db_path=paths.state_db,
+                chunk_chars=extraction_chunk_chars,
             )
         else:
             extraction, raw_response = _extract_single_pass(
@@ -1394,6 +1511,8 @@ def ingest_source(
                     client=client,
                     callbacks=callbacks,
                     db_path=paths.state_db,
+                    chunk_chars=extraction_chunk_chars,
+                    coalesce_chunks=False,
                 )
             except (LLMError, ValueError) as e2:
                 result = IngestResult(
@@ -1914,18 +2033,19 @@ def ingest_source(
             staged_files=staged_files,
         )
         try:
-            lint_error_pages = _lint_changed_pages(lint_paths, changed_paths)
+            lint_error_issues = _lint_changed_pages(lint_paths, changed_paths)
         finally:
             shutil.rmtree(lint_root, ignore_errors=True)
 
-        if lint_error_pages:
+        if lint_error_issues:
+            issue_summaries = [_format_lint_issue_summary(issue) for issue in lint_error_issues]
             result = IngestResult(
                 source_id=source_id,
                 source_title=parsed.title,
                 source_slug=source_slug,
                 error=(
                     "Lint errors remain on staged pages after auto-fix: "
-                    + ", ".join(sorted(lint_error_pages))
+                    + "; ".join(sorted(issue_summaries))
                 ),
             )
             _mark_source_status(paths, source_id, "error")

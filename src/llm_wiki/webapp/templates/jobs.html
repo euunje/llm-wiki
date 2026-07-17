@@ -47,6 +47,7 @@
                 <div class="flex items-center gap-2 mb-1">
                     <span class="state-badge state-{{ job.state }}">{{ job.state }}</span>
                     <span class="text-xs text-[#64748b]">#{{ job.id }}</span>
+                    {% if job.inbox_item_id %}<span class="text-xs text-[#64748b]">Inbox #{{ job.inbox_item_id }}</span>{% endif %}
                     {% if job.source_type %}<span class="text-xs text-[#64748b]">{{ job.source_type }}</span>{% endif %}
                 </div>
                 <code class="block text-sm text-[#111827] truncate">{{ job.source_relpath or ('소스 #' ~ job.source_id) }}</code>
@@ -58,7 +59,7 @@
             </div>
             <div class="text-right text-xs text-[#475569] flex-shrink-0 mt-2 sm:mt-0">
                 <div>{{ job.pages_created }}개 생성 · {{ job.pages_updated }}개 업데이트</div>
-                {% if job.phase %}<div class="mt-1">{{ job.phase }}</div>{% endif %}
+                {% if job.phase %}<div class="mt-1">{{ job.phase }} · {{ '%.0f'|format((job.progress or 0) * 100) }}%</div>{% endif %}
             </div>
         </div>
 

@@ -273,6 +273,10 @@ def test_staged_lint_gate_rejects_broken_wikilink(tmp_path, monkeypatch):
     assert "lint" in result.error.lower(), (
         f"error message should reference lint failure, got: {result.error!r}"
     )
+    assert "sources/lint-gate-source.md" in result.error
+    assert "broken_wikilink" in result.error
+    assert "non-existent-target" in result.error
+    assert "not fixable" in result.error
 
     # 2. New entity is NOT committed to entities/.
     entity_path = vault_root / "20. Wiki/22. Entities/new-entity.md"
@@ -340,3 +344,52 @@ def test_staged_lint_gate_rejects_broken_wikilink(tmp_path, monkeypatch):
     assert any("non-existent-target" in i.message for i in issues), (
         f"lint should flag the missing target, got: {[i.message for i in issues]}"
     )
+
+
+def test_staged_lint_gate_preserves_existing_source_page_on_abort(tmp_path, monkeypatch):
+    """If a generated update fails staged lint, the existing source page remains unchanged.
+
+    The ingest pipeline stages generated files first and only copies them into the
+    real wiki after the staged lint gate passes.  This test verifies the common
+    user-visible case where a source summary page already exists: a later retry
+    that fails lint must not partially overwrite that existing page.
+    """
+    monkeypatch.delenv("LLM_WIKI_CONFIG", raising=False)
+
+    vault_root = tmp_path / "vault"
+    _write_internal_config(tmp_path, vault_root)
+    paths = cfg.WikiPaths(vault_root)
+
+    existing_source = paths.sources / "lint-gate-source.md"
+    existing_source.parent.mkdir(parents=True, exist_ok=True)
+    existing_text = (
+        "---\n"
+        "title: Existing Lint Gate Source\n"
+        "type: source\n"
+        "created: 2026-07-14\n"
+        "updated: 2026-07-14\n"
+        "---\n\n"
+        "# Existing Lint Gate Source\n\n"
+        "This existing source page must survive a failed staged update.\n"
+    )
+    existing_source.write_text(existing_text, encoding="utf-8")
+
+    source_id = _register_markdown_source(
+        paths,
+        "10. Raw Sources/lint-gate-source.md",
+        "# Lint Gate Source\n\nA retry tries to update the source page.",
+    )
+
+    result = ingest_source(
+        paths,
+        source_id,
+        _LintGateFakeClient(),
+        IngestCallbacks(),
+        mode="batch",
+        thinking_for_extraction=False,
+    )
+
+    assert not result.ok
+    assert "Lint errors remain on staged pages after auto-fix" in (result.error or "")
+    assert existing_source.read_text(encoding="utf-8") == existing_text
+    assert not (paths.entities / "new-entity.md").exists()

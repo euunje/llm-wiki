@@ -132,17 +132,28 @@ class WikiPaths:
     def _inbox_dirs_config(self) -> dict:
         paths = self._paths_config()
         configured = paths.get("inbox_dirs") or paths.get("inbox") or {}
-        merged = default_inbox_dirs()
+        if not isinstance(configured, dict):
+            configured = {}
         explicit_non_categories = (paths.get("page_dirs") or {}).get("non_categories")
-        if explicit_non_categories:
+        configured_root = configured.get("root") or paths.get("inbox_dir")
+        if explicit_non_categories and not configured_root:
             review = Path(str(explicit_non_categories))
             if review.name == "_Review":
+                configured_root = str(review.parent)
+        merged = default_inbox_dirs(str(configured_root or INBOX_DIR))
+        if explicit_non_categories:
+            review = Path(str(explicit_non_categories))
+            if review.name == "_Review" and "review" not in configured:
                 merged["root"] = str(review.parent)
                 merged["review"] = explicit_non_categories
-                merged["failed"] = str(review.parent / "_Failed")
-                merged["files"] = str(review.parent / "Files")
-                merged["markdown"] = str(review.parent / "Markdown")
-                merged["text"] = str(review.parent / "Text")
+                if "failed" not in configured:
+                    merged["failed"] = str(review.parent / "_Failed")
+                if "files" not in configured:
+                    merged["files"] = str(review.parent / "Files")
+                if "markdown" not in configured:
+                    merged["markdown"] = str(review.parent / "Markdown")
+                if "text" not in configured:
+                    merged["text"] = str(review.parent / "Text")
         merged.update(configured)
         return merged
 

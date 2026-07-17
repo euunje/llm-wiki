@@ -16,9 +16,53 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from ... import config as cfg
 from ... import scaffold
+from ...llm import normalize_openai_compatible_host
 
 router = APIRouter()
 logger = logging.getLogger("llm_wiki.setup")
+
+
+def _read_runtime_env_values() -> dict[str, str]:
+    """Read non-persistent runtime LLM env values without exposing secrets.
+
+    The setup page should reflect the same local runtime convention used by the
+    CLI/LLM client.  Values from the current process environment win over the
+    optional ENV_FILE_PATH / ~/.hermes/.env files.  Callers must never print the
+    secret values returned here.
+    """
+    values: dict[str, str] = {}
+    env_paths: list[Path] = []
+    if os.environ.get("ENV_FILE_PATH"):
+        env_paths.append(Path(os.environ["ENV_FILE_PATH"]).expanduser())
+    env_paths.append(Path.home() / ".hermes" / ".env")
+
+    interesting = {
+        "LOCAL_LLM_BASE_URL",
+        "LOCAL_LLM_MODEL",
+        "LOCAL_LLM_API_KEY",
+        "OPENAI_BASE_URL",
+        "OPENAI_MODEL",
+        "OPENAI_API_KEY",
+    }
+    for env_path in env_paths:
+        if not env_path.exists() or not env_path.is_file():
+            continue
+        try:
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+                key, value = stripped.split("=", 1)
+                key = key.strip()
+                if key in interesting and value.strip():
+                    values.setdefault(key, value.strip().strip('"').strip("'"))
+        except OSError:
+            continue
+
+    for key in interesting:
+        if os.environ.get(key):
+            values[key] = os.environ[key]
+    return values
 
 
 class SetupConfigModel(BaseModel):
@@ -31,6 +75,7 @@ class SetupConfigModel(BaseModel):
     api_key: str | None = None
     wiki_dir: str = "wiki"
     raw_dir: str = "raw"
+    inbox_dir: str = "Inbox"
     schema_dir: str = "schema"
     internal_dir: str = ".wiki"
     sources_dir: str | None = None
@@ -65,16 +110,38 @@ async def setup_view(request: Request) -> HTMLResponse:
     current_dir = str(paths.root.resolve())
     current_config = cfg.load_config(paths)
     llm_config = current_config.get("llm", {}) if isinstance(current_config, dict) else {}
-    default_llm_model = os.environ.get("LOCAL_LLM_MODEL") or llm_config.get("model") or "model"
-    default_llm_host = os.environ.get("LOCAL_LLM_BASE_URL") or llm_config.get("host") or "http://localhost:11434"
+    env_values = _read_runtime_env_values()
+    configured_provider = llm_config.get("provider")
+    has_local_llm_env = bool(env_values.get("LOCAL_LLM_BASE_URL") or env_values.get("LOCAL_LLM_MODEL"))
+    has_openai_env = bool(env_values.get("OPENAI_BASE_URL") or env_values.get("OPENAI_MODEL"))
+    default_llm_provider = configured_provider or (
+        "openai-local" if has_local_llm_env else "openai" if has_openai_env else "ollama"
+    )
+    default_llm_model = (
+        env_values.get("LOCAL_LLM_MODEL")
+        or env_values.get("OPENAI_MODEL")
+        or llm_config.get("model")
+        or "model"
+    )
+    default_llm_host = (
+        env_values.get("LOCAL_LLM_BASE_URL")
+        or env_values.get("OPENAI_BASE_URL")
+        or llm_config.get("host")
+        or "http://localhost:11434"
+    )
+    default_api_key_present = bool(
+        env_values.get("LOCAL_LLM_API_KEY") or env_values.get("OPENAI_API_KEY")
+    )
     
     response = request.app.state.templates.TemplateResponse(
         request,
         "setup.html",
         {
             "current_dir": current_dir,
+            "default_llm_provider": default_llm_provider,
             "default_llm_model": default_llm_model,
             "default_llm_host": default_llm_host,
+            "default_api_key_present": default_api_key_present,
             "page": "setup",
         },
     )
@@ -198,7 +265,8 @@ async def test_connection(data: TestConnectionModel) -> JSONResponse:
     """Test connection to LLM host and retrieve list of available models."""
     provider = data.llm_provider
     host = data.llm_host.strip().rstrip("/")
-    api_key = data.api_key
+    env_values = _read_runtime_env_values()
+    api_key = data.api_key or env_values.get("LOCAL_LLM_API_KEY") or env_values.get("OPENAI_API_KEY")
     
     print(f"[Setup Test Connection] Testing {provider} connection at host: '{host}'...", file=sys.stderr, flush=True)
     
@@ -232,6 +300,7 @@ async def test_connection(data: TestConnectionModel) -> JSONResponse:
             })
             
     elif provider in ("openai", "openai-local"):
+        host = normalize_openai_compatible_host(host, provider)
         url = f"{host}/models"
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         try:
@@ -282,6 +351,7 @@ async def execute_setup(request: Request, data: SetupConfigModel) -> JSONRespons
             force=True,
             wiki_dir=data.wiki_dir,
             raw_dir=data.raw_dir,
+            inbox_dir=data.inbox_dir,
             schema_dir=data.schema_dir,
             internal_dir=data.internal_dir,
             sources_dir=data.sources_dir,
@@ -307,13 +377,14 @@ async def execute_setup(request: Request, data: SetupConfigModel) -> JSONRespons
         config["llm"] = {
             "provider": data.llm_provider,
             "model": data.llm_model,
-            "host": data.llm_host,
+            "host": normalize_openai_compatible_host(data.llm_host, data.llm_provider),
             "temperature": data.llm_temperature,
             "thinking": data.llm_thinking,
         }
         config["paths"] = {
             "wiki_dir": data.wiki_dir,
             "raw_dir": data.raw_dir,
+            "inbox_dirs": cfg.default_inbox_dirs(data.inbox_dir),
             "schema_dir": data.schema_dir,
             "internal_dir": data.internal_dir,
             "page_dirs": {

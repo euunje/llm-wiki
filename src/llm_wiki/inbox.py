@@ -238,6 +238,14 @@ def _item_stored_path(paths: cfg.WikiPaths, item: InboxItem) -> Path | None:
     return (paths.root / item.relpath).resolve()
 
 
+def _is_within_directory(path: Path, directory: Path) -> bool:
+    try:
+        path.relative_to(directory)
+        return True
+    except ValueError:
+        return False
+
+
 def _sanitize_error_detail(error: str | BaseException) -> str:
     message = str(error).replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.strip() for line in message.split("\n") if line.strip()]
@@ -577,6 +585,28 @@ def list_inbox_events(conn: sqlite3.Connection, inbox_item_id: int) -> list[Inbo
     rows = cur.fetchall()
     columns = [col[0] for col in cur.description] if cur.description else []
     return [_coerce_event(row, columns) for row in rows if row is not None]
+
+
+def linked_inbox_item_id_for_source(
+    paths: cfg.WikiPaths,
+    source_id: int,
+) -> int | None:
+    """Return the most recent inbox item id linked to ``source_id``.
+
+    Used by both the CLI `wiki ingest <source_id>` flow and the background
+    `JobManager` worker so the success path can finalize the linked inbox
+    item into the raw archive after `ingest_llm.ingest_source` returns.
+
+    Returns ``None`` when no inbox item is linked to ``source_id`` (the
+    legacy source-only ingest path), in which case callers should leave
+    the source row alone.
+    """
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute(
+            "SELECT id FROM inbox_items WHERE source_id = ? ORDER BY id DESC LIMIT 1",
+            (source_id,),
+        ).fetchone()
+    return int(row["id"]) if row is not None else None
 
 
 def materialize_source_for_inbox_item(
@@ -950,6 +980,82 @@ def move_to_archive(
         message=message,
         data=data,
     )
+
+
+def finalize_successful_ingest(
+    paths: cfg.WikiPaths,
+    inbox_item_id: int,
+    source_id: int,
+    *,
+    event_type: str,
+    message: str | None = None,
+    data: dict[str, Any] | None = None,
+) -> InboxItem:
+    _ensure_inbox_dirs(paths)
+    with db.connect(paths.state_db) as conn:
+        item = get_inbox_item(conn, inbox_item_id)
+        if item is None:
+            raise ValueError(f"Inbox item not found: {inbox_item_id}")
+        source_row = conn.execute(
+            "SELECT id, relpath FROM sources WHERE id = ?",
+            (source_id,),
+        ).fetchone()
+        if source_row is None:
+            raise ValueError(f"Source not found: {source_id}")
+
+        item_path = _item_stored_path(paths, item)
+        archived_path: Path | None = None
+        archived_relpath: str | None = None
+
+        if item_path is not None and item_path.exists() and _is_within_directory(item_path, paths.raw_archive):
+            archived_path = item_path
+            archived_relpath = _try_relpath(archived_path, paths.root)
+        elif item.relpath == source_row["relpath"] and item.relpath is not None:
+            source_path = (paths.root / item.relpath).resolve()
+            if source_path.exists() and _is_within_directory(source_path, paths.raw_archive):
+                archived_path = source_path
+                archived_relpath = item.relpath
+
+    if archived_relpath is None:
+        move_result = move_to_archive(
+            paths,
+            inbox_item_id,
+            message=message,
+            data={"source_id": source_id, **(data or {})},
+        )
+        if not move_result.moved or move_result.target_path is None:
+            raise OSError(f"Failed to archive inbox item #{inbox_item_id}")
+        archived_path = move_result.target_path
+        archived_relpath = move_result.item.relpath
+
+    assert archived_path is not None
+    assert archived_relpath is not None
+
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE sources SET relpath = ? WHERE id = ?",
+            (archived_relpath, source_id),
+        )
+        finalized = transition_inbox_item(
+            conn,
+            inbox_item_id=inbox_item_id,
+            to_state=InboxState.INGESTED,
+            event_type=event_type,
+            relpath=archived_relpath,
+            message=message,
+            data={
+                "source_id": source_id,
+                "archive_relpath": archived_relpath,
+                "archive_path": str(archived_path),
+                "db_state": InboxState.INGESTED.value,
+                "retryable": False,
+                **(data or {}),
+            },
+            error_message=None,
+            lock_token=None,
+            locked_at=None,
+        )
+    return finalized
 
 
 def move_to_review(

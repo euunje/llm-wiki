@@ -29,5 +29,9 @@ wiki/.obsidian/workspace-mobile.json
 # Runtime content — not shipped with the code
 raw/
 wiki/
+Inbox/
 .wiki/
 .env
+
+# Local planning/review session cache
+.prv/

@@ -16,6 +16,7 @@ Later stages add: ingest, query, lint, serve.
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -123,6 +124,145 @@ def _register_file_in_inbox(
     return inbox.register_document_file(paths, file_path)
 
 
+def _inbox_state_counts(paths: cfg.WikiPaths) -> dict[str, int]:
+    counts = {
+        inbox.InboxState.PENDING.value: 0,
+        inbox.InboxState.PROCESSING.value: 0,
+        inbox.InboxState.REVIEW.value: 0,
+        inbox.InboxState.FAILED.value: 0,
+    }
+    if not paths.state_db.exists():
+        return counts
+    with db.connect(paths.state_db) as conn:
+        rows = conn.execute(
+            "SELECT state, COUNT(*) AS count FROM inbox_items GROUP BY state"
+        ).fetchall()
+    for row in rows:
+        state = row["state"]
+        if state in counts:
+            counts[state] = int(row["count"])
+    return counts
+
+
+def _linked_inbox_item_for_source(paths: cfg.WikiPaths, source_id: int) -> inbox.InboxItem | None:
+    linked_id = inbox.linked_inbox_item_id_for_source(paths, source_id)
+    if linked_id is None:
+        return None
+    with db.connect(paths.state_db) as conn:
+        return inbox.get_inbox_item(conn, linked_id)
+
+
+def _set_inbox_item_state(
+    paths: cfg.WikiPaths,
+    item_id: int,
+    *,
+    to_state: inbox.InboxState,
+    event_type: str,
+    message: str,
+    error_message: str | None = None,
+) -> inbox.InboxItem:
+    with db.connect(paths.state_db) as conn:
+        return inbox.transition_inbox_item(
+            conn,
+            inbox_item_id=item_id,
+            to_state=to_state,
+            event_type=event_type,
+            message=message,
+            data={"db_state": to_state.value, "retryable": to_state == inbox.InboxState.FAILED},
+            error_message=error_message,
+            lock_token=None,
+            locked_at=None,
+        )
+
+
+def _finalize_successful_inbox_ingest(
+    paths: cfg.WikiPaths,
+    *,
+    item_id: int,
+    source_id: int,
+    event_type: str,
+    message: str,
+) -> inbox.InboxItem:
+    return inbox.finalize_successful_ingest(
+        paths,
+        item_id,
+        source_id,
+        event_type=event_type,
+        message=message,
+        data={"requested_via": "cli"},
+    )
+
+
+def _retry_diagnostic_path(paths: cfg.WikiPaths, item: inbox.InboxItem) -> Path | None:
+    if item.state != inbox.InboxState.FAILED.value or not item.relpath:
+        return None
+    failed_path = paths.root / item.relpath
+    return failed_path.parent / f"{failed_path.name}.diagnostic.md"
+
+
+def _process_inbox_item(
+    paths: cfg.WikiPaths,
+    *,
+    inbox_item: inbox.InboxItem,
+    client: OllamaClient,
+    mode: str,
+    thinking: bool,
+) -> ingest_llm.IngestResult:
+    materialized = inbox.materialize_source_for_inbox_item(paths, inbox_item.id)
+    row = ingest_raw.get_source(paths, materialized.source_id)
+    if row is None:
+        raise ValueError(f"No source with id {materialized.source_id}")
+    if row.get("status") != "pending":
+        ok, message = ingest_raw.mark_source_pending(paths, materialized.source_id)
+        if not ok:
+            raise ValueError(message)
+
+    inbox.acquire_processing_lock(
+        paths,
+        inbox_item.id,
+        lock_token=f"cli-ingest-{uuid.uuid4().hex}",
+        message="CLI ingest started.",
+        data={"source_id": materialized.source_id},
+    )
+
+    cb = CliIngestCallbacks(mode=mode)
+    result = ingest_llm.ingest_source(
+        paths,
+        materialized.source_id,
+        client,
+        cb,
+        mode=mode,
+        thinking_for_extraction=thinking,
+    )
+
+    if result.ok:
+        _finalize_successful_inbox_ingest(
+            paths,
+            item_id=inbox_item.id,
+            source_id=materialized.source_id,
+            event_type="cli_ingest_completed",
+            message=f"CLI ingest completed for source #{materialized.source_id}.",
+        )
+    elif result.skipped:
+        _set_inbox_item_state(
+            paths,
+            inbox_item.id,
+            to_state=inbox.InboxState.PENDING,
+            event_type="cli_ingest_skipped",
+            message="CLI ingest skipped by user.",
+        )
+    else:
+        _set_inbox_item_state(
+            paths,
+            inbox_item.id,
+            to_state=inbox.InboxState.FAILED,
+            event_type="cli_ingest_failed",
+            message="CLI ingest failed.",
+            error_message=result.error,
+        )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Stage 1 commands
 # ---------------------------------------------------------------------------
@@ -193,6 +333,7 @@ def status() -> None:
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
     stats = db.get_stats(paths.state_db)
+    inbox_counts = _inbox_state_counts(paths)
 
     def _count_md(folder: Path) -> int:
         if not folder.exists():
@@ -226,6 +367,15 @@ def status() -> None:
     table.add_row("Sources ingested", str(stats["sources_ingested"]))
     table.add_row("Ingest runs", str(stats["ingest_runs"]))
     console.print(table)
+
+    inbox_table = Table(title="Inbox", show_header=False, box=None, padding=(0, 2))
+    inbox_table.add_column(style="dim", width=22)
+    inbox_table.add_column()
+    inbox_table.add_row("Pending", str(inbox_counts["pending"]))
+    inbox_table.add_row("Processing", str(inbox_counts["processing"]))
+    inbox_table.add_row("Review", str(inbox_counts["review"]))
+    inbox_table.add_row("Failed", str(inbox_counts["failed"]))
+    console.print(inbox_table)
 
     pages_table = Table(title="Wiki pages", show_header=False, box=None, padding=(0, 2))
     pages_table.add_column(style="dim", width=22)
@@ -261,10 +411,15 @@ def status() -> None:
     console.print()
     if stats["sources_total"] == 0:
         _hint("No sources yet. Add one with [bold]wiki add <file>[/bold]")
+    elif inbox_counts["review"] > 0:
+        _hint(
+            f"{inbox_counts['review']} item(s) need review in the Web UI: "
+            f"[bold]/inbox?state=review[/bold]"
+        )
     elif stats["sources_ingested"] == 0:
         _hint(
             f"{stats['sources_total']} source(s) tracked but not ingested. "
-            f"Stage 3 will add [bold]wiki ingest[/bold] to process them with the LLM."
+            f"Run [bold]wiki ingest[/bold] to process pending Inbox/source items."
         )
 
 
@@ -362,7 +517,7 @@ def add(
     console.print()
 
     if added:
-        _hint("Inbox items are ready for Phase 2 processing flows.")
+        _hint("Inbox items are ready for [bold]wiki ingest[/bold].")
 
 
 @sources_app.command("list")
@@ -638,7 +793,7 @@ class CliIngestCallbacks(ingest_llm.IngestCallbacks):
 def ingest(
     source_id: Optional[int] = typer.Argument(
         None,
-        help="Specific source ID to ingest. If omitted, processes all pending sources.",
+        help="Specific source ID to ingest. If omitted, processes pending Inbox items first, then legacy pending sources.",
     ),
     batch: bool = typer.Option(
         False,
@@ -656,7 +811,7 @@ def ingest(
         help="Disable Qwen3 thinking mode in Pass 1 (faster, slightly lower quality).",
     ),
 ) -> None:
-    """Ingest pending sources: extract candidates, write wiki/review pages.
+    """Ingest pending Inbox/source items: extract candidates, write wiki/review pages.
 
     The pipeline runs three phases per source:
       1. Extraction (thinking mode) — structured candidate JSON
@@ -666,6 +821,13 @@ def ingest(
     Then rebuilds index.md and appends to log.md.
     """
     paths = _resolve_root_or_die()
+    pending_inbox_items: list[inbox.InboxItem] = []
+    if source_id is None:
+        with db.connect(paths.state_db) as conn:
+            pending_inbox_items = inbox.list_inbox_items(
+                conn, state=inbox.InboxState.PENDING
+            )
+
     config = cfg.load_config(paths)
     llm_cfg = config.get("llm", {})
 
@@ -698,6 +860,15 @@ def ingest(
     try:
         if source_id is not None:
             # Single source
+            linked_item = _linked_inbox_item_for_source(paths, source_id)
+            if linked_item is not None:
+                inbox.acquire_processing_lock(
+                    paths,
+                    linked_item.id,
+                    lock_token=f"cli-ingest-{uuid.uuid4().hex}",
+                    message="CLI ingest started for linked source.",
+                    data={"source_id": source_id},
+                )
             cb = CliIngestCallbacks(mode=mode)
             result = ingest_llm.ingest_source(
                 paths,
@@ -707,9 +878,47 @@ def ingest(
                 mode=mode,
                 thinking_for_extraction=thinking,
             )
+            if linked_item is not None:
+                if result.ok:
+                    _finalize_successful_inbox_ingest(
+                        paths,
+                        item_id=linked_item.id,
+                        source_id=source_id,
+                        event_type="cli_ingest_completed",
+                        message=f"CLI ingest completed for source #{source_id}.",
+                    )
+                elif result.skipped:
+                    _set_inbox_item_state(
+                        paths,
+                        linked_item.id,
+                        to_state=inbox.InboxState.PENDING,
+                        event_type="cli_ingest_skipped",
+                        message="CLI ingest skipped by user.",
+                    )
+                else:
+                    _set_inbox_item_state(
+                        paths,
+                        linked_item.id,
+                        to_state=inbox.InboxState.FAILED,
+                        event_type="cli_ingest_failed",
+                        message="CLI ingest failed.",
+                        error_message=result.error,
+                    )
             results = [result]
+        elif pending_inbox_items:
+            results = []
+            for item in pending_inbox_items:
+                results.append(
+                    _process_inbox_item(
+                        paths,
+                        inbox_item=item,
+                        client=client,
+                        mode=mode,
+                        thinking=thinking,
+                    )
+                )
         else:
-            # All pending (with auto-discovery)
+            # Legacy fallback: pending sources (with auto-discovery)
             results = ingest_llm.ingest_pending(
                 paths,
                 client,
@@ -723,8 +932,8 @@ def ingest(
 
     if not results:
         console.print()
-        _warn("No pending sources to ingest.")
-        _hint("Add sources with [bold]wiki add <file>[/bold] first.")
+        _warn("No pending Inbox or source items to ingest.")
+        _hint("Add files with [bold]wiki add <file>[/bold] first.")
         return
 
     console.print()
@@ -769,6 +978,57 @@ def ingest(
         _hint("Open the vault in Obsidian and check the graph view!")
         _hint("Run [bold]wiki status[/bold] to see updated page counts.")
         _hint("Ask a question with [bold]wiki query \"<your question>\"[/bold]")
+
+
+@app.command()
+def retry(
+    inbox_item_id: int = typer.Argument(..., help="Inbox item ID to move back to pending."),
+) -> None:
+    """Move a failed/review Inbox item back to pending for reprocessing."""
+    paths = _resolve_root_or_die()
+    with db.connect(paths.state_db) as conn:
+        item = inbox.get_inbox_item(conn, inbox_item_id)
+
+    if item is None:
+        _err(f"No inbox item with id {inbox_item_id}")
+        raise typer.Exit(code=1)
+
+    if item.state not in {inbox.InboxState.FAILED.value, inbox.InboxState.REVIEW.value}:
+        _err(
+            f"Inbox item #{inbox_item_id} is in state '{item.state}'. "
+            "Only failed/review items can be retried."
+        )
+        raise typer.Exit(code=1)
+
+    diagnostic_path = _retry_diagnostic_path(paths, item)
+    try:
+        result = inbox.move_to_pending(
+            paths,
+            inbox_item_id,
+            message="Retry requested from CLI.",
+            data={"requested_action": "retry", "requested_via": "cli"},
+        )
+    except Exception as exc:
+        _err(str(exc))
+        raise typer.Exit(code=1)
+
+    if not result.moved:
+        _err(f"Failed to move inbox item #{inbox_item_id} back to pending.")
+        raise typer.Exit(code=1)
+
+    diagnostic_deleted = False
+    if diagnostic_path is not None and diagnostic_path.exists():
+        try:
+            diagnostic_path.unlink()
+            diagnostic_deleted = True
+        except OSError:
+            diagnostic_deleted = False
+
+    _ok(f"Inbox item #{inbox_item_id} moved back to pending.")
+    console.print(f"  [dim]{result.item.input_type} · {result.item.relpath}[/dim]")
+    if diagnostic_deleted:
+        _hint("Removed stale failure diagnostic report.")
+    _hint("Run [bold]wiki ingest[/bold] to process it again.")
 
 
 # ---------------------------------------------------------------------------

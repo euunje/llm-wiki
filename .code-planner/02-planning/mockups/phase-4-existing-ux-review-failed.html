@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inbox Review/Failed Workbench Mockup</title>
+  <style>
+    body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#f8fafc; color:#111827; }
+    .wrap { padding:24px; max-width:1280px; margin:0 auto; }
+    h1 { font-size:28px; margin:0 0 4px; }
+    p { color:#475569; margin:0; }
+    .tabs { display:flex; gap:8px; margin:20px 0; }
+    .tab { padding:8px 12px; border:1px solid #e2e8f0; border-radius:8px; background:#fff; color:#475569; font-size:13px; }
+    .tab.active { background:#4f46e5; color:white; border-color:#4f46e5; }
+    .grid { display:grid; grid-template-columns: 360px 1fr; gap:24px; height:70vh; }
+    .panel { background:#fff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; }
+    .panel-head { padding:14px 16px; border-bottom:1px solid #e2e8f0; background:#f1f5f9; font-weight:700; font-size:13px; text-transform:uppercase; color:#475569; }
+    .item { padding:14px 16px; border-bottom:1px solid #e2e8f0; cursor:pointer; }
+    .item.active { background:#eef2ff; }
+    .item-title { font-weight:700; font-size:14px; }
+    .item-meta { font-family: ui-monospace, SFMono-Regular, monospace; color:#64748b; font-size:12px; margin-top:4px; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; margin-top:8px; }
+    .review { background:#fef3c7; color:#92400e; border:1px solid #fde68a; }
+    .failed { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
+    .content { display:grid; grid-template-columns: 1fr 1.2fr; height:calc(70vh - 49px); }
+    .meta, .preview { padding:20px; overflow:auto; }
+    .meta { border-right:1px solid #e2e8f0; }
+    .section { margin-bottom:22px; }
+    .section h3 { font-size:12px; color:#475569; text-transform:uppercase; letter-spacing:.05em; margin:0 0 10px; }
+    .box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; font-size:13px; }
+    .candidate { border:1px solid #e2e8f0; border-radius:8px; padding:10px; margin-bottom:8px; background:#fff; }
+    .candidate strong { color:#111827; }
+    .candidate code { color:#4f46e5; }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    button { border:1px solid #e2e8f0; background:#fff; border-radius:8px; padding:8px 10px; font-weight:700; color:#475569; }
+    button.primary { background:#4f46e5; color:white; border-color:#4f46e5; }
+    button.danger { background:#fff1f2; color:#be123c; border-color:#fecdd3; }
+    input, select, textarea { width:100%; box-sizing:border-box; border:1px solid #e2e8f0; border-radius:8px; padding:8px; margin-top:6px; background:#fff; }
+    .mono { font-family: ui-monospace, SFMono-Regular, monospace; white-space:pre-wrap; font-size:12px; color:#334155; }
+    @media(max-width:900px){ .grid{grid-template-columns:1fr;height:auto}.content{grid-template-columns:1fr;height:auto}.meta{border-right:0;border-bottom:1px solid #e2e8f0} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>문서 수신함</h1>
+    <p>기존 /inbox UX 기반 Review/Failed 작업대 목업입니다.</p>
+    <div class="tabs">
+      <div class="tab">All</div><div class="tab">Pending</div><div class="tab active">Review</div><div class="tab">Failed</div>
+    </div>
+    <div class="grid">
+      <aside class="panel">
+        <div class="panel-head">대기 항목</div>
+        <div class="item active"><div class="item-title">RAG Temperature Discourse</div><div class="item-meta">Inbox/_Review/rag-temperature.md</div><span class="badge review">review · 유사 후보 2개</span></div>
+        <div class="item"><div class="item-title">Scanned Meeting PDF</div><div class="item-meta">Inbox/_Failed/meeting.pdf</div><span class="badge failed">failed · parser_error</span></div>
+        <div class="item"><div class="item-title">LLMServe Alias</div><div class="item-meta">Inbox/_Review/llmserve.md</div><span class="badge review">review · merge ambiguity</span></div>
+      </aside>
+      <main class="panel">
+        <div class="panel-head">선택 항목 상세</div>
+        <div class="content">
+          <section class="meta">
+            <div class="section"><h3>상태</h3><div class="box">status: review<br/>reason: 기존 Wiki와 유사하지만 merge 확신 낮음<br/>source: Inbox/_Review/rag-temperature.md</div></div>
+            <div class="section"><h3>유사 Wiki 후보</h3>
+              <div class="candidate"><strong>RAG</strong> <code>concepts/rag</code><br/>similarity 0.86 · 같은 retrieval/generation 주제</div>
+              <div class="candidate"><strong>Political Discourse</strong> <code>concepts/political-discourse</code><br/>similarity 0.72 · 담론 분석 주제 일부 중첩</div>
+              <div class="actions"><button class="primary">선택 후보에 편입</button><button>새 concept 생성</button></div>
+            </div>
+            <div class="section"><h3>편입 대상 없음 / 별도 태깅</h3>
+              <label>분류<select><option>concept</option><option>entity</option><option>review</option></select></label>
+              <label>태그<input value="rag, evaluation, discourse" /></label>
+              <label>메모<textarea rows="3">기존 RAG 페이지와 직접 merge하지 않고 별도 concept 후보로 유지.</textarea></label>
+              <div class="actions"><button>수정 후 재처리</button><button>보류</button><button class="danger">거절</button></div>
+            </div>
+          </section>
+          <section class="preview">
+            <div class="section"><h3>원본/후보 미리보기</h3><div class="box mono"># RAG Temperature Discourse
+
+이 항목은 Retrieval-Augmented Generation의 temperature 설정이 이념적 담론 생성에 미치는 영향과 관련된다.
+
+추천 처리: 기존 concepts/rag에 바로 merge하지 말고, 별도 concept 후보 또는 RAG page의 하위 섹션으로 검토.</div></div>
+            <div class="section"><h3>Failed 모드 예시</h3><div class="box mono">phase: parsing
+error: PDF text extraction returned empty content
+trace_id: job-42-event-7
+actions: 재시도 · 원본 열기 · 로그 삭제 · 삭제</div></div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

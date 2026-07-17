@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from . import config as cfg
 from . import page_writer
@@ -99,6 +99,18 @@ class LintReport:
             return 100
         score = max(0, 100 - int(100 * penalty / max_penalty))
         return score
+
+
+@dataclass
+class LintFixProgress:
+    """Progress update emitted while applying auto-fixes."""
+
+    phase: str
+    message: str
+    progress: float
+    fixed_count: int = 0
+    remaining_fixable: int = 0
+    current_page: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -738,7 +750,15 @@ def _apply_fixes_to_page(parsed: page_writer.ParsedPage, fixes: list[LintIssue])
     return changed
 
 
-def apply_fixes(paths: cfg.WikiPaths, issues: list[LintIssue]) -> int:
+def _count_fixable_pages(issues: list[LintIssue]) -> int:
+    return len({issue.page for issue in issues if issue.fixable})
+
+
+def apply_fixes(
+    paths: cfg.WikiPaths,
+    issues: list[LintIssue],
+    progress_callback: Callable[[LintFixProgress], None] | None = None,
+) -> int:
     """Apply all fixable issues. Returns the count of pages modified.
 
     Runs in a loop: apply → re-lint → apply → re-lint. This is because some
@@ -749,6 +769,47 @@ def apply_fixes(paths: cfg.WikiPaths, issues: list[LintIssue]) -> int:
     total_modified = 0
     current_issues = issues
     max_iterations = 5
+    initial_fixable_pages = _count_fixable_pages(issues)
+
+    def emit(
+        phase: str,
+        message: str,
+        *,
+        fixed_count: int | None = None,
+        remaining_fixable: int | None = None,
+        current_page: str | None = None,
+        progress: float | None = None,
+    ) -> None:
+        if progress_callback is None:
+            return
+        if fixed_count is None:
+            fixed_count = total_modified
+        remaining = (
+            _count_fixable_pages(current_issues)
+            if remaining_fixable is None
+            else remaining_fixable
+        )
+        if progress is None:
+            total_work = max(initial_fixable_pages, initial_fixable_pages + 1, 1)
+            progress = min(1.0, max(0.0, (fixed_count + 0.25) / total_work))
+        progress_callback(
+            LintFixProgress(
+                phase=phase,
+                message=message,
+                progress=min(1.0, max(0.0, progress)),
+                fixed_count=fixed_count,
+                remaining_fixable=remaining,
+                current_page=current_page,
+            )
+        )
+
+    emit(
+        "scan",
+        "Preparing auto-fix run.",
+        fixed_count=0,
+        remaining_fixable=initial_fixable_pages,
+        progress=0.0,
+    )
 
     for _iteration in range(max_iterations):
         fixable = [i for i in current_issues if i.fixable]
@@ -761,7 +822,18 @@ def apply_fixes(paths: cfg.WikiPaths, issues: list[LintIssue]) -> int:
 
         pages_modified_this_round = 0
         configured_page_dirs = paths._page_dirs_config()
-        for relpath, page_issues in by_page.items():
+        pages_in_round = list(by_page.items())
+        total_pages_this_round = len(pages_in_round)
+        for page_index, (relpath, page_issues) in enumerate(pages_in_round, start=1):
+            round_base = total_modified / max(initial_fixable_pages + 1, 1)
+            round_progress = (page_index - 1) / max(total_pages_this_round, 1)
+            emit(
+                "apply",
+                f"Applying fixes to {relpath}.",
+                current_page=relpath,
+                remaining_fixable=total_pages_this_round - page_index + 1,
+                progress=min(0.9, round_base + (0.6 * round_progress)),
+            )
             rel = Path(relpath)
             if rel.parts and rel.parts[0] in configured_page_dirs:
                 full_path = paths.page_dir(rel.parts[0]) / Path(*rel.parts[1:])
@@ -777,23 +849,62 @@ def apply_fixes(paths: cfg.WikiPaths, issues: list[LintIssue]) -> int:
             if _apply_fixes_to_page(parsed, page_issues):
                 full_path.write_text(parsed.to_markdown(), encoding="utf-8")
                 pages_modified_this_round += 1
+                total_modified += 1
+                emit(
+                    "apply",
+                    f"Applied fixes to {relpath}.",
+                    fixed_count=total_modified,
+                    current_page=relpath,
+                    remaining_fixable=max(total_pages_this_round - page_index, 0),
+                    progress=min(
+                        0.92,
+                        total_modified / max(initial_fixable_pages + 1, 1),
+                    ),
+                )
 
         if pages_modified_this_round == 0:
             break
-        total_modified += pages_modified_this_round
+        emit(
+            "recheck",
+            "Re-running lint after auto-fix round.",
+            fixed_count=total_modified,
+            remaining_fixable=0,
+            progress=min(0.95, total_modified / max(initial_fixable_pages + 1, 1)),
+        )
 
         # Re-lint to find any new fixable issues revealed by this round's changes
         new_report = run_lint(paths, deep=False, client=None)
         current_issues = new_report.issues
+        emit(
+            "recheck",
+            "Lint re-check complete.",
+            fixed_count=total_modified,
+            remaining_fixable=_count_fixable_pages(current_issues),
+            progress=min(0.97, total_modified / max(initial_fixable_pages + 1, 1)),
+        )
 
     # Refresh the QMD search index so modified pages are reflected in queries.
     # Only runs if we actually modified anything. Non-fatal on failure.
     if total_modified > 0:
+        emit(
+            "index",
+            "Refreshing search index.",
+            fixed_count=total_modified,
+            progress=0.98,
+        )
         try:
             from . import search
             search.update_index(paths, embed=True)
         except Exception:
             pass
+
+    emit(
+        "complete",
+        "Auto-fix complete.",
+        fixed_count=total_modified,
+        remaining_fixable=_count_fixable_pages(current_issues),
+        progress=1.0,
+    )
 
     return total_modified
 
