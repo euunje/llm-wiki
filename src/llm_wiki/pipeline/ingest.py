@@ -6,8 +6,10 @@ from typing import Any
 
 from llm_wiki.common import ensure_parent, new_id, relative_to, utc_now
 from llm_wiki.db.schema import connect
-from llm_wiki.jobs import create_job, record_artifact, update_job
-from llm_wiki.pipeline.hashing import hash_file, hash_text, validate_markdown_input
+from llm_wiki.jobs import record_artifact
+from llm_wiki.pipeline.convert import convert_input
+from llm_wiki.pipeline.errors import UnsupportedInputError
+from llm_wiki.pipeline.hashing import hash_file, hash_text
 from llm_wiki.workspace import WorkspacePaths
 
 
@@ -103,35 +105,120 @@ def _insert_source(
 
 
 def ingest_markdown_file(workspace: WorkspacePaths, input_path: str | Path) -> dict[str, Any]:
-    validate_markdown_input(str(input_path))
+    """Ingest a Markdown or HTML file.
+
+    Phase 2 behavior:
+    - Markdown files: ingest as-is (existing behavior)
+    - HTML files: convert to Markdown first, then ingest
+    - Other types (PDF, Office, URL): raise UnsupportedInputError with Phase 2 guidance
+    """
+    input_str = str(input_path)
+    if input_str.startswith(("http://", "https://")):
+        record_artifact(
+            workspace,
+            artifact_type="ingest_conversion_error",
+            task_type="ingest",
+            payload={
+                "status": "error",
+                "type": "url_unsupported",
+                "reason": "URL ingest is unsupported in Phase 2. Phase 3 will add URL-to-Markdown conversion.",
+                "input_kind": "url",
+            },
+            target_type="source_path",
+            target_id="url_input",
+        )
+        raise UnsupportedInputError(
+            "URL ingest is unsupported in Phase 2. Phase 3 will add URL-to-Markdown conversion."
+        )
     path = Path(input_path).expanduser().resolve()
     if not path.exists() or not path.is_file():
         raise FileNotFoundError(f"Input file not found: {path}")
-    content_hash = hash_file(path)
-    duplicate = _fetch_source_by_hash(workspace, content_hash)
-    if duplicate:
-        return {
-            "status": "duplicate",
-            "source_id": duplicate["id"],
-            "existing_source_id": duplicate["id"],
-            "job_id": None,
-            "source_stub_path": relative_to(workspace.root, workspace.wiki_sources / f"{duplicate['id']}.md"),
-            "content_hash": content_hash,
-            "message": f"Duplicate content already ingested as {duplicate['id']}",
-        }
-    raw_name = f"{new_id('raw')}-{_slug(path.stem)}{path.suffix.lower()}"
-    raw_path = workspace.raw / raw_name
-    ensure_parent(raw_path)
-    raw_path.write_bytes(path.read_bytes())
-    source = _insert_source(
-        workspace,
-        source_type="markdown_file",
-        title=path.stem,
-        origin=str(path),
-        raw_rel_path=relative_to(workspace.root, raw_path),
-        content_hash=content_hash,
-        metadata={"original_name": path.name},
-    )
+
+    suffix = path.suffix.lower()
+    if suffix in {".md", ".markdown"}:
+        # Phase 1 behavior: direct Markdown ingest
+        content_hash = hash_file(path)
+        duplicate = _fetch_source_by_hash(workspace, content_hash)
+        if duplicate:
+            return {
+                "status": "duplicate",
+                "source_id": duplicate["id"],
+                "existing_source_id": duplicate["id"],
+                "job_id": None,
+                "source_stub_path": relative_to(workspace.root, workspace.wiki_sources / f"{duplicate['id']}.md"),
+                "content_hash": content_hash,
+                "message": f"Duplicate content already ingested as {duplicate['id']}",
+            }
+        raw_name = f"{new_id('raw')}-{_slug(path.stem)}{path.suffix.lower()}"
+        raw_path = workspace.raw / raw_name
+        ensure_parent(raw_path)
+        raw_path.write_bytes(path.read_bytes())
+        source = _insert_source(
+            workspace,
+            source_type="markdown_file",
+            title=path.stem,
+            origin=str(path),
+            raw_rel_path=relative_to(workspace.root, raw_path),
+            content_hash=content_hash,
+            metadata={"original_name": path.name},
+        )
+    elif suffix in {".html", ".htm"}:
+        # Phase 2 behavior: convert HTML to Markdown
+        result = convert_input(path)
+        if not result.success:
+            record_artifact(
+                workspace,
+                artifact_type="ingest_conversion_error",
+                task_type="ingest",
+                payload=result.artifact_payload or {
+                    "status": "error",
+                    "type": "html_conversion_error",
+                    "reason": result.error_message or "unknown HTML conversion failure",
+                    "path": str(path),
+                },
+                target_type="source_path",
+                target_id=path.name,
+            )
+            raise UnsupportedInputError(
+                f"HTML conversion failed: {result.error_message}"
+            )
+        converted_text = result.converted_text
+        if converted_text is None:
+            raise UnsupportedInputError("HTML conversion returned empty result")
+        content_hash = hash_text(converted_text)
+        duplicate = _fetch_source_by_hash(workspace, content_hash)
+        if duplicate:
+            return {
+                "status": "duplicate",
+                "source_id": duplicate["id"],
+                "existing_source_id": duplicate["id"],
+                "job_id": None,
+                "source_stub_path": relative_to(workspace.root, workspace.wiki_sources / f"{duplicate['id']}.md"),
+                "content_hash": content_hash,
+                "message": f"Duplicate content already ingested as {duplicate['id']}",
+            }
+        raw_name = f"{new_id('raw')}-{_slug(path.stem)}.md"
+        raw_path = workspace.raw / raw_name
+        ensure_parent(raw_path)
+        raw_path.write_text(converted_text, encoding="utf-8")
+        source = _insert_source(
+            workspace,
+            source_type="converted_markdown",
+            title=path.stem,
+            origin=str(path),
+            raw_rel_path=relative_to(workspace.root, raw_path),
+            content_hash=content_hash,
+            metadata={"original_name": path.name, "conversion_source": "html"},
+        )
+    else:
+        # Unsupported file type
+        from llm_wiki.pipeline.hashing import UNSUPPORTED_SUFFIX_GUIDANCE
+
+        if suffix in UNSUPPORTED_SUFFIX_GUIDANCE:
+            guidance = UNSUPPORTED_SUFFIX_GUIDANCE[suffix]
+        else:
+            guidance = f"Unsupported input type '{suffix}'. Phase 2 supports Markdown and HTML only."
+        raise UnsupportedInputError(guidance)
     # Do NOT create a queued normalize job here — wiki normalize command creates
     # the canonical job. This avoids duplicate normalize jobs for the same source.
     artifact = record_artifact(

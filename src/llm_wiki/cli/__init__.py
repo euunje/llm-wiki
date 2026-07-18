@@ -130,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     extract_claims = subparsers.add_parser("extract-claims", help="Phase 1 extract-claims candidate contract")
     extract_claims.add_argument("source_id", help="Source ID")
+    extract_claims.add_argument("--llm", action="store_true", dest="use_llm", help="Use configured chat model for Phase 2 JSON extraction")
     extract_claims.add_argument("--path", default=".", help="Workspace root path")
     extract_claims.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
     extract_claims.set_defaults(handler=run_extract_claims)

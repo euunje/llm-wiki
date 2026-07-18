@@ -5,6 +5,7 @@ from typing import Any
 
 from llm_wiki.config import DEFAULT_SETTINGS, load_settings, save_settings
 from llm_wiki.db import SchemaResult, ensure_database
+from llm_wiki.schema.prompts import DEFAULT_PROMPTS, ensure_default_prompts
 from llm_wiki.workspace import WorkspacePaths, required_directories
 
 
@@ -22,6 +23,11 @@ def ensure_workspace(paths: WorkspacePaths) -> dict[str, Any]:
     created_files: list[str] = []
     created_files.extend(_ensure_placeholder_files(paths))
     schema = ensure_database(paths.db)
+    created_prompt_ids = ensure_default_prompts(paths.db)
+    for task_type, prompt_text in DEFAULT_PROMPTS.items():
+        prompt_file = paths.prompts / f"{task_type}.md"
+        if _ensure_file(prompt_file, prompt_text + "\n"):
+            created_files.append(str(prompt_file.relative_to(paths.root)))
     if not paths.settings_file.exists():
         save_settings(paths.settings_file, DEFAULT_SETTINGS)
         created_files.append(str(paths.settings_file.relative_to(paths.root)))
@@ -31,6 +37,7 @@ def ensure_workspace(paths: WorkspacePaths) -> dict[str, Any]:
         "created_directories": created_dirs,
         "created_files": created_files,
         "schema": schema_to_dict(schema, paths.root),
+        "prompt_versions_seeded": len(created_prompt_ids),
     }
 
 

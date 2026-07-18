@@ -7,8 +7,9 @@ from pathlib import Path
 from llm_wiki.common import ensure_parent, new_id, relative_to, utc_now
 from llm_wiki.config import load_settings
 from llm_wiki.db.schema import connect, inspect_database
-from llm_wiki.jobs import record_artifact
-from llm_wiki.schema import validate_candidate_envelope
+from llm_wiki.jobs import create_agent_run, record_artifact, update_agent_run
+from llm_wiki.search import search_chunk_vectors
+from llm_wiki.schema import record_human_decision, record_retry_instruction, supersede_candidate, validate_candidate_envelope
 from llm_wiki.workspace import resolve_workspace
 
 
@@ -43,12 +44,23 @@ def run_search(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     conn = connect(workspace.db)
     try:
         results = []
+        metadata: dict[str, object] = {
+            "fts": {"enabled": bool(db_info.get("fts5")), "result_count": 0},
+            "vector": {"attempted": False, "result_count": 0},
+        }
         if db_info.get("fts5"):
             rows = conn.execute(
                 "SELECT chunk_id, source_id, snippet(source_chunks_fts, 2, '[', ']', '…', 12) AS snippet FROM source_chunks_fts WHERE source_chunks_fts MATCH ? LIMIT 10",
                 (query,),
             ).fetchall()
-            results.extend({"target_type": "chunk", "target_id": row[0], "source_id": row[1], "snippet": row[2], "match_type": "fts"} for row in rows)
+            fts_results = [{"target_type": "chunk", "target_id": row[0], "source_id": row[1], "snippet": row[2], "match_type": "fts"} for row in rows]
+            results.extend(fts_results)
+            metadata["fts"] = {"enabled": True, "result_count": len(fts_results)}
+        vector_search = search_chunk_vectors(conn, query, limit=5)
+        vector_results = vector_search["results"]
+        metadata["vector"] = vector_search["metadata"]
+        seen_chunk_ids = {item["target_id"] for item in results if item.get("target_type") == "chunk"}
+        results.extend(item for item in vector_results if item["target_id"] not in seen_chunk_ids)
         if not results:
             rows = conn.execute(
                 "SELECT id, title FROM sources WHERE title LIKE ? OR metadata_json LIKE ? LIMIT 10",
@@ -57,7 +69,14 @@ def run_search(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
             results.extend({"target_type": "source", "target_id": row[0], "title": row[1], "match_type": "metadata"} for row in rows)
     finally:
         conn.close()
-    return 0, {"status": "ok", "query": query, "results": results, "workspace": str(workspace.root), "message": f"Found {len(results)} result(s)"}
+    return 0, {
+        "status": "ok",
+        "query": query,
+        "results": results,
+        "metadata": metadata,
+        "workspace": str(workspace.root),
+        "message": f"Found {len(results)} result(s)",
+    }
 
 
 def run_validate(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
@@ -141,24 +160,95 @@ def run_retry(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     try:
         job = conn.execute("SELECT * FROM jobs WHERE id = ?", (args.target_id,)).fetchone()
         run = None if job else conn.execute("SELECT * FROM agent_runs WHERE id = ?", (args.target_id,)).fetchone()
-        if not job and not run:
-            raise ValueError(f"Unknown job_id/run_id: {args.target_id}")
-        record = dict(job or run)
-        target_kind = "job" if job else "run"
+        candidate = None if (job or run) else conn.execute("SELECT * FROM review_candidates WHERE id = ?", (args.target_id,)).fetchone()
+        if not job and not run and not candidate:
+            raise ValueError(f"Unknown job_id/run_id/candidate_id: {args.target_id}")
+        record = dict(job or run or candidate)
+        target_kind = "job" if job else "run" if run else "candidate"
     finally:
         conn.close()
     retry_id = new_id("retry")
+    retry_instruction_id = None
+    decision_id = None
+    superseded_by = None
+    follow_up_run_id = None
+    if target_kind == "candidate":
+        retry_instruction_id = record_retry_instruction(
+            workspace.db,
+            args.target_id,
+            reason="사용자 retry 요청",
+            instruction=args.instruction or "후보를 더 구체적인 근거와 함께 다시 판단",
+        )
+        decision_id = record_human_decision(
+            workspace.db,
+            args.target_id,
+            "retry_with_instruction",
+            note=args.instruction or "후보 재검토 요청",
+            retry_instruction_id=retry_instruction_id,
+        )
+        # Phase 2 CLI keeps retry deterministic and schema-bound: create a new
+        # candidate row by copying the old payload and adding retry metadata in
+        # related_candidate_keys/review_reason, while human/retry metadata stays
+        # in dedicated DB tables.
+        old_payload = json.loads(record.get("payload_json") or "{}")
+        old_payload["candidate_key"] = old_payload.get("candidate_key", "candidate_01")
+        old_payload["review_route"] = old_payload.get("review_route") or "normal_review"
+        old_payload["review_reason"] = "retry instruction을 반영한 새 후보입니다."
+        related = list(old_payload.get("related_candidate_keys") or [])
+        if record.get("candidate_key") and record["candidate_key"] not in related:
+            related.append(record["candidate_key"])
+        old_payload["related_candidate_keys"] = related
+        now = utc_now()
+        superseded_by = new_id("candidate")
+        follow_up_run_id = create_agent_run(
+            workspace.db,
+            job_id=None,
+            agent_type="phase2_retry_candidate",
+            task_type="retry",
+            input_refs=[{"kind": "candidate", "candidate_id": args.target_id}],
+        )
+        conn = connect(workspace.db)
+        try:
+            conn.execute(
+                """
+                INSERT INTO review_candidates (id, candidate_type, candidate_key, source_id, run_id, payload_json, review_route, review_reason, related_candidate_keys_json, status, superseded_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?)
+                """,
+                (
+                    superseded_by,
+                    record["candidate_type"],
+                    f"{record['candidate_key']}_retry",
+                    record.get("source_id"),
+                    follow_up_run_id,
+                    json.dumps(old_payload, ensure_ascii=False, sort_keys=True),
+                    old_payload["review_route"],
+                    old_payload["review_reason"],
+                    json.dumps(related, ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        supersede_candidate(workspace.db, args.target_id, superseded_by, consumed_run_id=follow_up_run_id)
     payload = {
         "status": "ok",
         "retry_id": retry_id,
+        "retry_instruction_id": retry_instruction_id,
+        "human_decision_id": decision_id,
+        "consumed_run_id": follow_up_run_id,
         "target_kind": target_kind,
         "target_id": args.target_id,
         "previous_status": record.get("status"),
         "instruction": args.instruction or "",
-        "phase_note": "Phase 1 records retry request metadata/artifact only; superseded candidate flow is Phase 2.",
+        "superseded_by": superseded_by,
+        "phase_note": "Phase 2 records retry metadata in dedicated tables and supersedes candidate rows when target is a candidate.",
         "created_at": utc_now(),
     }
     artifact = record_artifact(workspace, "retry_request", "retry", payload, target_kind, args.target_id)
+    if follow_up_run_id:
+        update_agent_run(workspace.db, follow_up_run_id, status="succeeded", output_refs=[artifact], artifact_id=artifact["artifact_id"])
     payload.update(artifact)
     payload["workspace"] = str(workspace.root)
     payload["message"] = f"Recorded retry request for {target_kind} {args.target_id}"

@@ -7,16 +7,17 @@ from llm_wiki.pipeline.errors import UnsupportedInputError, UserInputError
 
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
+HTML_SUFFIXES = {".html", ".htm"}
 UNSUPPORTED_SUFFIX_GUIDANCE = {
-    ".pdf": "PDF import is planned for Phase 2 conversion support.",
-    ".doc": "Office import is planned for Phase 2 conversion support.",
-    ".docx": "Office import is planned for Phase 2 conversion support.",
-    ".ppt": "Office import is planned for Phase 2 conversion support.",
-    ".pptx": "Office import is planned for Phase 2 conversion support.",
-    ".xls": "Office import is planned for Phase 2 conversion support.",
-    ".xlsx": "Office import is planned for Phase 2 conversion support.",
-    ".html": "HTML import is planned for Phase 2 conversion support.",
-    ".htm": "HTML import is planned for Phase 2 conversion support.",
+    ".pdf": "PDF import requires Phase 2+ conversion support with optional dependency.",
+    ".doc": "Office .doc import requires Phase 2+ conversion support.",
+    ".docx": "Office .docx import requires Phase 2+ conversion support.",
+    ".ppt": "Office .ppt import requires Phase 2+ conversion support.",
+    ".pptx": "Office .pptx import requires Phase 2+ conversion support.",
+    ".xls": "Office .xls import requires Phase 2+ conversion support.",
+    ".xlsx": "Office .xlsx import requires Phase 2+ conversion support.",
+    ".html": "HTML import is supported in Phase 2 via built-in converter.",
+    ".htm": "HTML import is supported in Phase 2 via built-in converter.",
 }
 
 
