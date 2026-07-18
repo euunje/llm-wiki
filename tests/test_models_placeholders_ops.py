@@ -330,6 +330,22 @@ def test_status_search_validate_lint_smoke(workspace: Path, samples_dir: Path) -
     assert isinstance(lint["issues"], list)
 
 
+def test_ask_uses_search_evidence_for_natural_language_query(workspace: Path, samples_dir: Path) -> None:
+    _ensure_init(workspace)
+    source_id = _ingest(workspace, samples_dir / "rag.md")
+    _invoke(["normalize", source_id], workspace)
+    _invoke(["chunk", source_id], workspace)
+    _invoke(["embed", f"source:{source_id}"], workspace)
+
+    exit_code, ask = _invoke(["ask", "RAG에서 groundedness가 왜 중요한가?"], workspace)
+    assert exit_code == 0
+    assert ask["status"] == "ok"
+    assert ask["answer"]
+    assert ask["evidence_refs"]
+    assert all("source_id" in ref for ref in ask["evidence_refs"])
+    assert ask["search_metadata"]["vector"]["attempted"] is True
+
+
 def test_retry_request_records_artifact(workspace: Path, samples_dir: Path) -> None:
     _ensure_init(workspace)
     source_id = _ingest(workspace, samples_dir / "short-note.md")

@@ -362,19 +362,25 @@ def run_map(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
 
 def run_ask(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     workspace = resolve_workspace(args.path)
-    conn = connect(workspace.db)
-    try:
-        rows = conn.execute("SELECT source_id, text FROM source_chunks_fts WHERE source_chunks_fts MATCH ? LIMIT 3", (args.query,)).fetchall()
-        evidence_refs = [{"source_id": row[0], "snippet": row[1][:180]} for row in rows]
-    except Exception:
-        evidence_refs = []
-    finally:
-        conn.close()
+    from llm_wiki.cli.ops_cmds import run_search
+
+    _search_exit, search_payload = run_search(argparse.Namespace(path=args.path, query=args.query))
+    evidence_refs = [
+        {
+            "source_id": item.get("source_id"),
+            "target_type": item.get("target_type"),
+            "target_id": item.get("target_id"),
+            "match_type": item.get("match_type"),
+            "snippet": item.get("snippet") or item.get("title") or "",
+        }
+        for item in (search_payload.get("results") or [])[:3]
+        if isinstance(item, dict)
+    ]
     return _placeholder_report(
         workspace,
         "ask",
         args.query,
-        {"query": args.query, "candidates": evidence_refs, "evidence_refs": evidence_refs, "answer": f"질문 '{args.query}'에 대해 현재 index에서 확인된 근거를 바탕으로 답변 후보를 생성했습니다. 기술 용어와 고유명사는 원문 표기를 보존합니다.", "answer_placeholder": f"질문 '{args.query}'에 대해 현재 index에서 확인된 근거를 바탕으로 답변 후보를 생성했습니다. 기술 용어와 고유명사는 원문 표기를 보존합니다."},
+        {"query": args.query, "candidates": evidence_refs, "evidence_refs": evidence_refs, "search_metadata": search_payload.get("metadata"), "answer": f"질문 '{args.query}'에 대해 현재 index에서 확인된 근거를 바탕으로 답변 후보를 생성했습니다. 기술 용어와 고유명사는 원문 표기를 보존합니다.", "answer_placeholder": f"질문 '{args.query}'에 대해 현재 index에서 확인된 근거를 바탕으로 답변 후보를 생성했습니다. 기술 용어와 고유명사는 원문 표기를 보존합니다."},
     )
 
 

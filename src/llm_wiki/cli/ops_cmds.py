@@ -17,6 +17,15 @@ def _count(conn, query: str, params: tuple[object, ...] = ()) -> int:
     return int(conn.execute(query, params).fetchone()[0])
 
 
+def _fts5_safe_query(query: str) -> str:
+    """Return a conservative FTS5 query for user-entered natural language."""
+
+    terms = [part for part in query.replace('"', ' ').split() if part]
+    if not terms:
+        return '""'
+    return " OR ".join(f'"{term}"' for term in terms)
+
+
 def run_status(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     workspace = resolve_workspace(args.path)
     conn = connect(workspace.db)
@@ -49,10 +58,16 @@ def run_search(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
             "vector": {"attempted": False, "result_count": 0},
         }
         if db_info.get("fts5"):
-            rows = conn.execute(
-                "SELECT chunk_id, source_id, snippet(source_chunks_fts, 2, '[', ']', '…', 12) AS snippet FROM source_chunks_fts WHERE source_chunks_fts MATCH ? LIMIT 10",
-                (query,),
-            ).fetchall()
+            try:
+                rows = conn.execute(
+                    "SELECT chunk_id, source_id, snippet(source_chunks_fts, 2, '[', ']', '…', 12) AS snippet FROM source_chunks_fts WHERE source_chunks_fts MATCH ? LIMIT 10",
+                    (query,),
+                ).fetchall()
+            except Exception:
+                rows = conn.execute(
+                    "SELECT chunk_id, source_id, snippet(source_chunks_fts, 2, '[', ']', '…', 12) AS snippet FROM source_chunks_fts WHERE source_chunks_fts MATCH ? LIMIT 10",
+                    (_fts5_safe_query(query),),
+                ).fetchall()
             fts_results = [{"target_type": "chunk", "target_id": row[0], "source_id": row[1], "snippet": row[2], "match_type": "fts"} for row in rows]
             results.extend(fts_results)
             metadata["fts"] = {"enabled": True, "result_count": len(fts_results)}
