@@ -1,0 +1,57 @@
+{# LLM Wiki Local — dashboard template
+   Approved UX: .code-planner/02-planning/mockups/phase-3-page-dashboard-ux-spec.md
+   Layout: 5 top metric cards (Inbox/Mapping/Wiki/Vault/Issues), Needs attention, System status, Recent activity
+   WU-006: State visibility — setup_missing/no_data/processing/success/failure/blocked states #}
+{% extends "base.html" %}
+{% block title %}Dashboard — LLM Wiki Local{% endblock %}
+
+{% block content %}
+  <section class="screen">
+    <div class="screen-title">
+      <h2>📊 Dashboard</h2>
+      <span class="hint">오늘 처리할 항목과 시스템 상태를 확인합니다.</span>
+      <a class="btn" href="/search" aria-label="Search">🔍 Search / Ask (FTS + Embedding)</a>
+    </div>
+    <div class="dashboard">
+      {# Top 5 metric cards #}
+      <div id="dashboard-metrics" class="dashboard-metrics-full">
+        <div class="loading"><span class="spinner"></span>Loading metrics…</div>
+      </div>
+
+      {# Two-column: Needs attention + System status #}
+      <div class="dashboard-panels">
+        <div class="panel" id="dashboard-attention-panel">
+          <h3>⚠️ Needs attention</h3>
+          <div id="dashboard-attention" data-state-container="attention">
+            <div class="loading"><span class="spinner"></span>Loading…</div>
+          </div>
+        </div>
+        <div class="panel" id="dashboard-system-panel">
+          <h3>🖥️ System status</h3>
+          <div id="dashboard-system" data-state-container="system">
+            <div class="loading"><span class="spinner"></span>Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      {# Recent activity #}
+      <div class="panel" id="dashboard-activity-panel">
+        <h3>🕐 Recent activity</h3>
+        <div id="dashboard-activity" data-state-container="activity">
+          <div class="loading"><span class="spinner"></span>Loading…</div>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module">
+    import { loadDashboard, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}";
+    document.addEventListener("DOMContentLoaded", () => {
+      bindSideDrawer();
+      loadDashboard();
+      setInterval(loadDashboard, 30000);
+    });
+  </script>
+{% endblock %}

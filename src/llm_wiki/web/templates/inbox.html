@@ -1,0 +1,101 @@
+{# LLM Wiki Local — inbox template (NEW)
+   Approved UX: .code-planner/02-planning/mockups/phase-3-page-inbox-ux-spec.md
+   Layout: Header + actions, Left list (compact rows with status), Right detail panel, Bottom queue
+   WU-006: State visibility — setup_missing/no_data/processing/success/failure/blocked states #}
+{% extends "base.html" %}
+{% block title %}Inbox — LLM Wiki Local{% endblock %}
+
+{% block content %}
+  <section class="screen">
+    <div class="screen-title">
+      <h2>📥 Inbox</h2>
+      <span class="hint">처리할 자료를 추가하고 자동 처리를 시작합니다.</span>
+    </div>
+
+    {# Primary actions #}
+    <div class="inbox-actions">
+      <button class="btn primary" id="btn-inbox-upload" aria-label="Upload file">📤 Upload file</button>
+      <button class="btn primary" id="btn-inbox-add-text" aria-label="Add text">✏️ Add text</button>
+      <button class="btn" id="btn-inbox-scan" aria-label="Scan folder">🔍 Scan folder</button>
+      <button class="btn ok" id="btn-inbox-process" aria-label="Process selected" disabled>▶ Process selected</button>
+    </div>
+
+    {# Status chips #}
+    <div class="inbox-status-chips" id="inbox-status-chips">
+      <span class="pill active" data-filter="all">All <span id="inbox-count-all">0</span></span>
+      <span class="pill" data-filter="new">New <span id="inbox-count-new">0</span></span>
+      <span class="pill" data-filter="processing">Processing <span id="inbox-count-processing">0</span></span>
+      <span class="pill" data-filter="needs_mapping">Needs mapping <span id="inbox-count-needs_mapping">0</span></span>
+      <span class="pill" data-filter="failed">Failed <span id="inbox-count-failed">0</span></span>
+      <span class="pill" data-filter="completed">Completed <span id="inbox-count-completed">0</span></span>
+    </div>
+
+    {# Main layout: list + detail #}
+    <div class="inbox-layout">
+      {# Left: compact list #}
+      <aside class="inbox-list-col">
+        <div id="inbox-item-list" data-state-container="inbox-list">
+          <div class="loading"><span class="spinner"></span>Loading inbox items…</div>
+        </div>
+      </aside>
+
+      {# Right: detail panel #}
+      <section class="inbox-detail-col" id="inbox-detail" data-state-container="inbox-detail">
+        <div class="empty">
+          <p>왼쪽에서 항목을 선택하면 상세 정보가 표시됩니다.</p>
+        </div>
+      </section>
+    </div>
+
+    {# Bottom: processing queue #}
+    <div class="inbox-queue" id="inbox-queue" data-state-container="inbox-queue">
+      <div class="loading"><span class="spinner"></span>Loading queue…</div>
+    </div>
+  </section>
+
+  {# Upload modal #}
+  <div class="modal-overlay" id="upload-modal-overlay" role="dialog" aria-modal="true" aria-label="Upload files">
+    <div class="modal">
+      <h3>Upload files to Inbox</h3>
+      <div class="upload-dropzone" id="upload-dropzone">
+        <p>파일을 여기에 끌어다 놓거나 선택하세요.</p>
+        <p class="hint">Markdown 파일(.md, .markdown) 지원. 텍스트 추가는 "✏️ Add text"를 사용하세요.</p>
+        <input type="file" id="upload-file-input" multiple accept=".md,.markdown" style="display:none" />
+        <button class="btn" id="btn-upload-pick" type="button">Choose files</button>
+      </div>
+      <div id="upload-file-list" class="upload-file-list"></div>
+      <div class="actions">
+        <button class="btn primary" id="btn-upload-submit" disabled>Add to Inbox</button>
+        <button class="btn" id="btn-upload-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  {# Add text modal #}
+  <div class="modal-overlay" id="addtext-modal-overlay" role="dialog" aria-modal="true" aria-label="Add text">
+    <div class="modal">
+      <h3>Add text to Inbox</h3>
+      <label>Title
+        <input class="input" id="addtext-title" placeholder="제목 입력" />
+      </label>
+      <label>Text
+        <textarea id="addtext-body" rows="6" placeholder="메모/텍스트 입력"></textarea>
+      </label>
+      <div class="actions">
+        <button class="btn primary" id="btn-addtext-submit">Add to Inbox</button>
+        <button class="btn" id="btn-addtext-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module">
+    import { loadInbox, bindInboxActions, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}";
+    document.addEventListener("DOMContentLoaded", () => {
+      bindSideDrawer();
+      loadInbox();
+      bindInboxActions();
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,305 @@
+{# LLM Wiki Local — onboarding template
+   Approved UX: .code-planner/02-planning/mockups/phase-3-page-onboarding-ux-spec.md
+   Wizard step rail: 🔌 Provider → 🧪 Test → 🧠 Models → 📁 Vault → 📥 Pipeline → ✅ Finish #}
+{% extends "base.html" %}
+{% block title %}Onboarding — LLM Wiki Local{% endblock %}
+
+{% block content %}
+  <section class="screen">
+    <div class="screen-title">
+      <h2>🔌 Onboarding / Setup</h2>
+      <span class="hint" id="onboarding-status-chip">첫 실행 설정 마법사</span>
+    </div>
+    <div class="onboarding-wizard">
+      {# Step rail (PC: vertical left, Mobile: horizontal top) #}
+      <nav class="wizard-rail" aria-label="Onboarding steps">
+        <button class="wizard-step active" data-step="provider" type="button">
+          <span class="step-icon">🔌</span>
+          <span class="step-label">Provider</span>
+        </button>
+        <button class="wizard-step" data-step="test" type="button">
+          <span class="step-icon">🧪</span>
+          <span class="step-label">Test</span>
+        </button>
+        <button class="wizard-step" data-step="models" type="button">
+          <span class="step-icon">🧠</span>
+          <span class="step-label">Models</span>
+        </button>
+        <button class="wizard-step" data-step="vault" type="button">
+          <span class="step-icon">📁</span>
+          <span class="step-label">Vault</span>
+        </button>
+        <button class="wizard-step" data-step="pipeline" type="button">
+          <span class="step-icon">📥</span>
+          <span class="step-label">Pipeline</span>
+        </button>
+        <button class="wizard-step" data-step="finish" type="button">
+          <span class="step-icon">✅</span>
+          <span class="step-label">Finish</span>
+        </button>
+      </nav>
+
+      {# Step bodies #}
+      <div class="wizard-body">
+        {# Step 1: Provider #}
+        <div class="wizard-pane active" id="wizard-pane-provider">
+          <h3>LLM Provider 설정</h3>
+          <p class="hint">사용하는 LLM 런타임을 선택하고 연결 정보를 입력합니다.</p>
+          <form id="setup-provider-form" class="config-form">
+            <label>Provider
+              <select class="input" name="provider" id="setup-provider-select">
+                <option value="ollama">Ollama</option>
+                <option value="lmstudio">LM Studio</option>
+                <option value="custom">Custom OpenAI-compatible</option>
+              </select>
+            </label>
+            <label>Endpoint URL
+              <input class="input" name="endpoint" id="setup-endpoint" placeholder="http://127.0.0.1:11434" autocomplete="off" />
+            </label>
+            <label>API key (optional for Ollama)
+              <input class="input" type="password" name="api_key" id="setup-api-key" placeholder="API key — 저장 후 화면에 표시되지 않음" autocomplete="off" />
+            </label>
+            <p class="hint">API key는 .env에 자동 저장되며, 저장 후 화면에서 다시 표시되지 않습니다.</p>
+            <div class="actions">
+              <button class="btn primary" type="submit">Save connection</button>
+              <button class="btn" type="button" id="btn-goto-test">Next: Test →</button>
+            </div>
+          </form>
+        </div>
+
+        {# Step 2: Test #}
+        <div class="wizard-pane" id="wizard-pane-test">
+          <h3>연결 테스트</h3>
+          <p class="hint">입력한 endpoint와 API key가 실제로 동작하는지 확인합니다.</p>
+          <div id="setup-test-result" class="test-result-card">
+            <div class="empty">아직 테스트를 실행하지 않았습니다.</div>
+          </div>
+          <div class="actions">
+            <button class="btn primary" id="btn-run-test" type="button">Run test</button>
+            <button class="btn" type="button" id="btn-back-provider">← Back</button>
+            <button class="btn" type="button" id="btn-goto-models">Next: Models →</button>
+          </div>
+        </div>
+
+        {# Step 3: Models #}
+        <div class="wizard-pane" id="wizard-pane-models">
+          <h3>Model 선택</h3>
+          <p class="hint">Chat 모델과 fastembed Embedding 모델을 선택합니다.</p>
+
+          <div class="model-section">
+            <h4>Chat models</h4>
+            <button class="btn" id="btn-refresh-chat-models" type="button">Refresh provider model list</button>
+            <div id="setup-chat-models" class="model-list">
+              <div class="empty">Provider 연결 후 모델을 불러옵니다.</div>
+            </div>
+          </div>
+
+          <div class="model-section">
+            <h4>Embedding models (fastembed)</h4>
+            <button class="btn" id="btn-load-fastembed" type="button">Load fastembed model list</button>
+            <div id="setup-embed-models" class="model-list">
+              <div class="empty">fastembed 모델 목록을 불러옵니다.</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn" type="button" id="btn-back-test">← Back</button>
+            <button class="btn" type="button" id="btn-goto-vault">Next: Vault →</button>
+          </div>
+        </div>
+
+        {# Step 4: Vault #}
+        <div class="wizard-pane" id="wizard-pane-vault">
+          <h3>Vault 경로 선택</h3>
+          <p class="hint">신규 vault를 만들거나 기존 vault를 연결합니다. 홈 디렉터리부터 탐색합니다.</p>
+
+          <div class="vault-mode-toggle">
+            <button class="btn active" data-vault-mode="new" type="button">New vault</button>
+            <button class="btn" data-vault-mode="existing" type="button">Existing vault</button>
+          </div>
+
+          {# New vault mode #}
+          <div id="vault-new-mode" class="vault-mode-section">
+            <p class="hint">부모 폴더를 선택한 뒤 vault 이름을 입력하면 해당 위치에 새 폴더를 만들고 설정(config/yaml)을 함께 저장합니다.</p>
+            <div id="vault-browser-new" class="vault-file-browser">
+              <div class="vault-path-bar">
+                <span class="vault-current-path" id="vault-current-path-new">~</span>
+                <button class="btn" id="btn-vault-parent-new" type="button">↑ Parent</button>
+              </div>
+              <div id="vault-folder-list-new" class="vault-folder-list">
+                <div class="loading"><span class="spinner"></span>Loading folders…</div>
+              </div>
+            </div>
+            <div class="folder-select-panel">
+              <p class="hint">폴더를 클릭하면 안으로 들어갑니다. 현재 열린 폴더를 부모 폴더로 사용하려면 아래 Select 버튼을 누르세요.</p>
+              <button class="btn" id="btn-select-parent-new" type="button">Select current folder</button>
+            </div>
+            <p class="hint vault-selection-summary">선택된 부모 폴더: <span id="vault-selected-parent-new">선택되지 않음</span></p>
+            <label class="vault-manual-input">
+              Vault name:
+              <input class="input" id="vault-name-input" placeholder="llm-wiki" value="llm-wiki" />
+            </label>
+            <div id="vault-create-result" class="vault-create-result"></div>
+            <div class="actions">
+              <button class="btn primary" id="btn-create-vault" type="button">Create vault folder + save config</button>
+            </div>
+          </div>
+
+          {# Existing vault mode #}
+          <div id="vault-existing-mode" class="vault-mode-section" style="display:none">
+            <p class="hint">기존 vault root를 먼저 선택합니다. 그 다음 같은 브라우저로 기존 하위 폴더를 열어가며 inbox/wiki/review/raws 역할에 매핑하고 config yaml/settings로 저장합니다.</p>
+            <div id="vault-browser-existing" class="vault-file-browser">
+              <div class="vault-path-bar">
+                <span class="vault-current-path" id="vault-current-path-existing">~</span>
+                <button class="btn" id="btn-vault-parent-existing" type="button">↑ Parent</button>
+              </div>
+              <div id="vault-folder-list-existing" class="vault-folder-list">
+                <div class="loading"><span class="spinner"></span>Loading folders…</div>
+              </div>
+              <label class="vault-manual-input">
+                Direct path:
+                <input class="input" id="vault-manual-path-existing" placeholder="existing-vault-path" />
+              </label>
+            </div>
+            <div class="folder-select-panel">
+              <p class="hint">폴더를 클릭하면 안으로 들어갑니다. 기존 vault로 사용할 폴더를 열어둔 뒤 아래 Select 버튼을 누르세요.</p>
+              <button class="btn" id="btn-select-existing-folder" type="button">Select current folder as existing vault</button>
+            </div>
+            <p class="hint vault-selection-summary">현재 선택된 폴더: <span id="vault-selected-folder-existing">선택되지 않음</span></p>
+            <div class="vault-mapping-flow-note">
+              <b>Mapping flow</b>
+              <ol>
+                <li>기존 vault root를 선택합니다.</li>
+                <li>폴더를 클릭해 기존 inbox/wiki/review/raws 폴더로 이동합니다.</li>
+                <li>아래 role 행의 <b>Assign current folder</b>를 눌러 연결합니다.</li>
+                <li>구조를 확인한 뒤 config yaml/settings에 저장합니다.</li>
+              </ol>
+            </div>
+            <div class="actions">
+              <button class="btn" id="btn-detect-structure" type="button">Auto-detect existing structure</button>
+            </div>
+            <div id="vault-mapping-table" class="vault-mapping-table">
+              <h4>Role mapping</h4>
+              <p class="hint">각 역할 행에서 <b>Assign current folder</b>를 누르면 현재 열려 있는 폴더가 해당 역할에 연결됩니다. 저장하면 설정 파일에 반영됩니다.</p>
+              <table class="model-table">
+                <thead><tr><th>System role</th><th>Mapped folder</th><th>Assign</th><th>Status</th></tr></thead>
+                <tbody id="vault-mapping-tbody">
+                  <tr><td colspan="4"><div class="empty">기존 vault root를 선택하면 자동 감지 결과와 수동 매핑 행이 표시됩니다.</div></td></tr>
+                </tbody>
+              </table>
+              <div id="vault-mapping-result" class="vault-create-result"></div>
+              <div class="actions">
+                <button class="btn primary" id="btn-save-vault-mapping" type="button">Save mapping to config yaml</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn" type="button" id="btn-back-models">← Back</button>
+            <button class="btn" type="button" id="btn-goto-pipeline">Next: Pipeline →</button>
+          </div>
+        </div>
+
+        {# Step 5: Pipeline overview #}
+        <div class="wizard-pane" id="wizard-pane-pipeline">
+          <h3>Inbox → 자동 처리 → Mapping/Wiki</h3>
+          <p class="hint">Pipeline은 Inbox 입력이 검색 가능한 정규화 청크, embedding 인덱스, LLM 추출/요약 후보를 거쳐 Mapping 검토와 최종 Wiki 출력으로 자동 이동하는 처리 흐름입니다.</p>
+          <div class="pipeline-diagram">
+            <div class="pipeline-stage">
+              <div class="pipeline-label">Inbox input</div>
+              <div class="pipeline-detail">00_Inbox/memo<br>00_Inbox/files<br>00_Inbox/text</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-stage">
+              <div class="pipeline-label">Automatic pipeline</div>
+              <div class="pipeline-detail">ingest → normalize → chunk → embed → extract</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-stage">
+              <div class="pipeline-label">Mapping / Wiki</div>
+              <div class="pipeline-detail">mapping candidates → review → confirm</div>
+            </div>
+          </div>
+
+          {# Pipeline step explanations #}
+          <div class="pipeline-explanations">
+            <h4>Pipeline 단계 설명</h4>
+            <p class="hint">즉, 원본은 먼저 안전하게 수집되고, 검색 가능한 형태로 정리되며, LLM이 후보를 만들고, 사용자가 Mapping에서 확정하면 최종 Wiki로 저장됩니다.</p>
+            <div class="pipeline-step-list">
+              <div class="pipeline-step-item">
+                <span class="pipeline-step-name">ingest</span>
+                <span class="pipeline-step-desc">원본 파일을 수집하여 raw 영역에 저장합니다. 메타데이터(파일명, 경로, 타입)를 기록합니다.</span>
+              </div>
+              <div class="pipeline-step-item">
+                <span class="pipeline-step-name">normalize</span>
+                <span class="pipeline-step-desc">다양한 포맷의 내용을 정제하고 표준 형식(마크다운/텍스트)으로 변환합니다.</span>
+              </div>
+              <div class="pipeline-step-item">
+                <span class="pipeline-step-name">chunk</span>
+                <span class="pipeline-step-desc">내용을 의미 있는 단위(문단/섹션)로 분할하여 검색 및 임베딩에 적합하게 만듭니다.</span>
+              </div>
+              <div class="pipeline-step-item">
+                <span class="pipeline-step-name">embed</span>
+                <span class="pipeline-step-desc">각 청크를 벡터로 변환하여 유사도 검색(embedding/vector search)에 사용합니다.</span>
+              </div>
+              <div class="pipeline-step-item">
+                <span class="pipeline-step-name">extract_claims</span>
+                <span class="pipeline-step-desc">LLM으로 원문에서 사실/주장/근거를 추출하여 후보를 생성합니다.</span>
+              </div>
+              <div class="pipeline-step-item">
+                <span class="pipeline-step-name">summarize</span>
+                <span class="pipeline-step-desc">추출된 정보를 요약하여 wiki 페이지 초안을 작성합니다.</span>
+              </div>
+              <div class="pipeline-step-item">
+                <span class="pipeline-step-name">map</span>
+                <span class="pipeline-step-desc">기존 wiki 개념과 새 후보를 매칭하여 병합/생성/보류 결정을 준비합니다.</span>
+              </div>
+              <div class="pipeline-step-item">
+                <span class="pipeline-step-name">link</span>
+                <span class="pipeline-step-desc">개념 간 관계(관련/상위/하위/근거)를 연결하여 그래프를 구성합니다.</span>
+              </div>
+              <div class="pipeline-step-item">
+                <span class="pipeline-step-name">compile / wiki</span>
+                <span class="pipeline-step-desc">승인된 후보를 wiki 페이지로 확정하고 마크다운 파일로 저장합니다.</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="setup-inbox-status" class="inbox-status-summary">
+            <div class="loading"><span class="spinner"></span>Loading inbox status…</div>
+          </div>
+          <div class="actions">
+            <button class="btn" type="button" id="btn-back-vault">← Back</button>
+            <button class="btn" type="button" id="btn-goto-finish">Next: Finish →</button>
+          </div>
+        </div>
+
+        {# Step 6: Finish #}
+        <div class="wizard-pane" id="wizard-pane-finish">
+          <h3>설정 완료 확인</h3>
+          <p class="hint">아래 체크리스트를 확인하고 다음 단계로 이동합니다.</p>
+          <div id="setup-checklist" class="checklist">
+            <div class="loading"><span class="spinner"></span>Loading status…</div>
+          </div>
+          <div class="actions">
+            <button class="btn" type="button" id="btn-back-pipeline">← Back</button>
+            <a class="btn primary" href="/inbox">Open Inbox</a>
+            <a class="btn primary" href="/mapping">Open Mapping</a>
+            <a class="btn" href="/vault">Open Vault Browser</a>
+            <a class="btn" href="/dashboard">Go to Dashboard</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module">
+    import { bindOnboardingWizard, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}";
+    document.addEventListener("DOMContentLoaded", () => {
+      bindSideDrawer();
+      bindOnboardingWizard();
+    });
+  </script>
+{% endblock %}

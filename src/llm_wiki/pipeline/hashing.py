@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from llm_wiki.common import sha256_bytes, sha256_text
+from llm_wiki.pipeline.errors import UnsupportedInputError, UserInputError
+
+
+MARKDOWN_SUFFIXES = {".md", ".markdown"}
+HTML_SUFFIXES = {".html", ".htm"}
+UNSUPPORTED_SUFFIX_GUIDANCE = {
+    ".pdf": "PDF import requires Phase 2+ conversion support with optional dependency.",
+    ".doc": "Office .doc import requires Phase 2+ conversion support.",
+    ".docx": "Office .docx import requires Phase 2+ conversion support.",
+    ".ppt": "Office .ppt import requires Phase 2+ conversion support.",
+    ".pptx": "Office .pptx import requires Phase 2+ conversion support.",
+    ".xls": "Office .xls import requires Phase 2+ conversion support.",
+    ".xlsx": "Office .xlsx import requires Phase 2+ conversion support.",
+    ".html": "HTML import is supported in Phase 2 via built-in converter.",
+    ".htm": "HTML import is supported in Phase 2 via built-in converter.",
+}
+
+
+def hash_file(path: Path) -> str:
+    return sha256_bytes(path.read_bytes())
+
+
+def hash_text(text: str) -> str:
+    return sha256_text(text)
+
+
+def validate_markdown_input(raw: str) -> None:
+    if raw.startswith(("http://", "https://")):
+        raise UnsupportedInputError(
+            "URL ingest is unsupported in Phase 1. Phase 2 will add URL-to-Markdown conversion."
+        )
+    suffix = Path(raw).suffix.lower()
+    if suffix in MARKDOWN_SUFFIXES:
+        return
+    if suffix in UNSUPPORTED_SUFFIX_GUIDANCE:
+        raise UnsupportedInputError(
+            f"Unsupported input type '{suffix}'. {UNSUPPORTED_SUFFIX_GUIDANCE[suffix]}"
+        )
+    raise UserInputError("Phase 1 ingest accepts Markdown files only (.md, .markdown).")

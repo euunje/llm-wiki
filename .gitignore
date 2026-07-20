@@ -1,7 +1,5 @@
-# Internal state (regenerable)
-.wiki/state.sqlite
-.wiki/state.sqlite-*
-.wiki/cache/
+# Secrets / local env
+.env
 
 # Python
 __pycache__/
@@ -12,6 +10,26 @@ __pycache__/
 venv/
 build/
 dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime databases / local state
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.wiki/
+.wiki/state.sqlite
+.wiki/state.sqlite-*
+.wiki/cache/
+data/
+vault/
+artifacts/
+logs/
+raw/
+wiki/
 
 # OS
 .DS_Store
@@ -25,8 +43,3 @@ Thumbs.db
 # Obsidian workspace state (keep config, ignore per-user workspace)
 wiki/.obsidian/workspace.json
 wiki/.obsidian/workspace-mobile.json
-
-# Runtime content — not shipped with the code
-raw/
-wiki/
-.wiki/

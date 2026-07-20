@@ -1,0 +1,143 @@
+{# LLM Wiki Local — mapping template
+   Approved UX: .code-planner/02-planning/handoff/phase-3-ux-change-plan.md
+   3-step wizard: ① Page 검증 → ② Page Mapping → ③ Relationship 검증 → ④ 오류/에러
+   Existing wiki matches area with Use/Switch actions.
+   Action bar: Add to "<wiki>", Merge into "<wiki>", Create new "<candidate>", Edit, Reject + Retry, Confirm mapping.
+   Add/Merge disabled when no wiki selected (with "select wiki" reason).
+   WU-006: State visibility — setup_missing/no_data/processing/success/failure/blocked states #}
+{% extends "base.html" %}
+{% block title %}Mapping — LLM Wiki Local{% endblock %}
+
+{% block content %}
+  <section class="screen">
+    <div class="screen-title">
+      <h2>🧭 Mapping <span class="pill" id="mapping-new-count">new: 0</span></h2>
+      <span class="hint">후보를 3단계로 검토하여 최종 반영 여부를 결정합니다.</span>
+    </div>
+
+    {# Step bar (desktop) #}
+    <nav class="mapping-stepbar" aria-label="Mapping steps">
+      <button class="mapping-step active" data-mapping-step="1" type="button">① Page 검증</button>
+      <button class="mapping-step" data-mapping-step="2" type="button">② Page Mapping</button>
+      <button class="mapping-step" data-mapping-step="3" type="button">③ Relationship 검증</button>
+      <button class="mapping-step" data-mapping-step="errors" type="button">④ 오류/에러</button>
+    </nav>
+
+    {# Main layout: candidate queue + existing wiki matches + step workspace #}
+    <div class="mapping-layout">
+      {# Left: candidate queue + existing wiki matches #}
+      <aside class="mapping-queue-col">
+        <div class="toolbar">
+          <input id="mapping-queue-search" class="input" placeholder="Search candidates…" aria-label="Search candidates" />
+        </div>
+        <div id="mapping-candidate-queue" data-state-container="mapping-queue">
+          <div class="loading"><span class="spinner"></span>Loading candidates…</div>
+        </div>
+
+        {# Existing wiki matches (persistent area) #}
+        <div class="mapping-wiki-matches" id="mapping-wiki-matches">
+          <h4>Existing wiki matches</h4>
+          <div id="mapping-wiki-matches-list" data-state-container="wiki-matches">
+            <div class="empty">후보를 선택하면 유사한 기존 wiki가 표시됩니다.</div>
+          </div>
+        </div>
+      </aside>
+
+      {# Center: step workspace #}
+      <section class="mapping-workspace-col">
+        {# Step 1: Page 검증 #}
+        <div class="mapping-pane active" id="mapping-pane-1">
+          <h3>① Page 검증</h3>
+          <p class="hint">LLM이 제안한 wiki page 후보 자체가 타당한지 확인합니다.</p>
+          <div id="mapping-step1-content" data-state-container="step1">
+            <div class="empty">후보를 선택하면 검토 내용이 표시됩니다.</div>
+          </div>
+        </div>
+
+        {# Step 2: Page Mapping #}
+        <div class="mapping-pane" id="mapping-pane-2">
+          <h3>② Page Mapping</h3>
+          <p class="hint">후보 page가 기존 wiki와 같은지, 합칠지, 신규로 둘지 판단합니다.</p>
+          <div id="mapping-step2-content" data-state-container="step2">
+            <div class="empty">후보를 선택하면 비교 화면이 표시됩니다.</div>
+          </div>
+        </div>
+
+        {# Step 3: Relationship 검증 #}
+        <div class="mapping-pane" id="mapping-pane-3">
+          <h3>③ Relationship 검증</h3>
+          <p class="hint">최종 wiki 연결 구조가 맞는지 확인합니다.</p>
+          <div id="mapping-step3-content" data-state-container="step3">
+            <div class="empty">후보를 선택하면 관계 구조가 표시됩니다.</div>
+          </div>
+        </div>
+
+        {# Step 4: 오류/에러 #}
+        <div class="mapping-pane" id="mapping-pane-errors">
+          <h3>④ 오류/에러</h3>
+          <p class="hint">오류가 발생한 후보를 확인하고 Retry with instruction을 실행합니다.</p>
+          <div id="mapping-errors-content" data-state-container="errors">
+            <div class="empty">현재 오류가 없습니다.</div>
+          </div>
+        </div>
+
+        {# Selected wiki indicator (mobile + desktop) #}
+        <div class="mapping-selected-wiki" id="mapping-selected-wiki">
+          <span class="hint">Selected wiki:</span>
+          <span class="pill" id="mapping-selected-wiki-pill">none</span>
+          <button class="btn btn-sm" id="btn-mapping-switch-wiki" type="button" disabled title="candidate를 선택하면 existing wiki 목록으로 이동합니다">Switch wiki</button>
+        </div>
+
+        {# Mapping action bar #}
+        <div class="mapping-action-bar" id="mapping-action-bar">
+          <button class="btn" id="btn-mapping-add" type="button" disabled title="select wiki">Add to wiki</button>
+          <button class="btn" id="btn-mapping-merge" type="button" disabled title="select wiki">Merge into wiki</button>
+          <button class="btn warn" id="btn-mapping-create" type="button" disabled title="select candidate">Create new</button>
+          <button class="btn" id="btn-mapping-edit" type="button" disabled title="select candidate">Edit</button>
+          <button class="btn bad" id="btn-mapping-reject" type="button" disabled title="select candidate">Reject + Retry</button>
+          <button class="btn ok" id="btn-mapping-confirm" type="button" style="display:none">Confirm mapping</button>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  {# Reject modal with required retry instruction #}
+  <div class="modal-overlay" id="mapping-reject-modal" role="dialog" aria-modal="true" aria-label="Reject candidate">
+    <div class="modal">
+      <h3>Reject + Retry instruction</h3>
+      <label>Retry instruction (필수)
+        <textarea id="mapping-reject-instruction" rows="4" placeholder="예: 이 후보는 RAG와 Agentic RAG를 구분하지 못했습니다. Agentic RAG를 별도 개념으로 다시 평가해주세요."></textarea>
+      </label>
+      <div class="actions">
+        <button class="btn bad" id="btn-mapping-reject-submit">Submit reject</button>
+        <button class="btn" id="btn-mapping-reject-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  {# Edit modal: records an edit-needed decision without changing schema/API #}
+  <div class="modal-overlay" id="mapping-edit-modal" role="dialog" aria-modal="true" aria-label="Edit candidate">
+    <div class="modal">
+      <h3>Edit candidate note</h3>
+      <p class="hint">후보를 즉시 수정하지 않고, 수정 요청/메모를 decision으로 기록합니다. schema/API 변경 없이 기존 edit action을 사용합니다.</p>
+      <label>Edit note
+        <textarea id="mapping-edit-note" rows="4" placeholder="예: title은 Agentic RAG로 유지하되 RAG와의 관계 설명을 보강"></textarea>
+      </label>
+      <div class="actions">
+        <button class="btn primary" id="btn-mapping-edit-submit">Save edit note</button>
+        <button class="btn" id="btn-mapping-edit-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module">
+    import { loadMapping, bindMappingActions, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}";
+    document.addEventListener("DOMContentLoaded", () => {
+      bindSideDrawer();
+      loadMapping();
+      bindMappingActions();
+    });
+  </script>
+{% endblock %}

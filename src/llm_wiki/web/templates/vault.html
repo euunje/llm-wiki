@@ -1,0 +1,47 @@
+{# LLM Wiki Local — vault browser template (NEW)
+   Approved UX: .code-planner/02-planning/mockups/phase-3-page-vault-browser-ux-spec.md
+   Read-only: folder tree / file list / viewer. Markdown viewer. No edit/new/delete/move.
+   WU-006: State visibility — setup_missing/no_data/processing/success/failure/blocked states #}
+{% extends "base.html" %}
+{% block title %}Vault Browser — LLM Wiki Local{% endblock %}
+
+{% block content %}
+  <section class="screen">
+    <div class="screen-title">
+      <h2>📁 Vault Browser</h2>
+      <span class="hint">Vault 폴더와 파일 내용을 읽기 전용으로 확인합니다.</span>
+    </div>
+    <div class="vault-layout vault-layout-2col">
+      {# Left: GitHub-style file tree #}
+      <aside class="vault-tree-col">
+        <div class="toolbar">
+          <input id="vault-tree-search" class="input" placeholder="Search files or folders…" aria-label="Search files or folders" />
+        </div>
+        <div class="hint vault-tree-help">GitHub file tree처럼 폴더와 파일을 한 목록에서 선택합니다.</div>
+        <div id="vault-folder-tree" data-state-container="vault-tree">
+          <div class="loading"><span class="spinner"></span>Loading file tree…</div>
+        </div>
+        <div id="vault-file-list" class="vault-file-list" data-state-container="vault-file-list" hidden></div>
+      </aside>
+
+      {# Right: File viewer #}
+      <section class="vault-viewer-col" id="vault-viewer" data-state-container="vault-viewer">
+        <div class="empty">
+          <p>왼쪽 file tree에서 파일을 선택하면 내용이 표시됩니다.</p>
+          <p class="hint">읽기 전용 — 수정/생성/삭제/이동 불가</p>
+        </div>
+      </section>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module">
+    import { loadVaultTree, bindVaultBrowser, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}";
+    document.addEventListener("DOMContentLoaded", () => {
+      bindSideDrawer();
+      loadVaultTree();
+      bindVaultBrowser();
+    });
+  </script>
+{% endblock %}

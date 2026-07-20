@@ -1,0 +1,145 @@
+{
+  "type": "ideation_result",
+  "sourcePath": ".code-planner/01-ideation-approved.json",
+  "vaultLivingNotePath": "/home/eunjae/vault/60. Projects/code-planner/01_Idation/llm-wiki-local-ideation.md",
+  "stageCards": [
+    {
+      "stage": 1,
+      "name": "왜 시작했나",
+      "score": 2,
+      "status": "sufficient",
+      "summary": {
+        "requestType": "new-development / system design",
+        "userIntent": "문서, 웹 포스트, 사용자 입력 텍스트를 로컬에서 정리하고 누적하는 개인 지식 시스템 구축",
+        "background": "Obsidian Vault + SQLite + CLI + Web UI + LLM adapter"
+      }
+    },
+    {
+      "stage": 2,
+      "name": "어떤 답을 찾나",
+      "score": 2,
+      "status": "sufficient",
+      "summary": {
+        "targetAnswer": "1차 CLI 기능 구현, 2차 LLM wiki 품질 및 페이지 처리, 3차 Web UI 구현을 planning 가능한 범위로 정리",
+        "platformOrContext": "Python, SQLite, Obsidian Vault, fastembed, 열린 LLM 설정"
+      }
+    },
+    {
+      "stage": 3,
+      "name": "답을 찾는 과정",
+      "score": 2,
+      "status": "sufficient",
+      "summary": {
+        "decisions": [
+          "1차 목표는 CLI 기능 구현",
+          "1차 입력은 Markdown만 완성 지원",
+          "PDF/Office/HTML/URL 변환은 2차",
+          "일반 실행은 review_status 기반, 테스트 과정에서만 자동 승인",
+          "LLM 런타임은 열린 설정 + sample env",
+          "embedding 기본값은 fastembed + sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "구현 언어는 Python",
+          "Obsidian-DB 동기화는 수동 wiki sync"
+        ]
+      }
+    },
+    {
+      "stage": 4,
+      "name": "구현·구체화 범위",
+      "score": 2,
+      "status": "sufficient",
+      "summary": {
+        "phaseDirection": [
+          "1차: CLI 기능 구현",
+          "2차: LLM wiki 프롬프트 품질, WikiPage/page 처리, 비-Markdown 변환",
+          "3차: Web UI"
+        ],
+        "cliScope": "전체 CLI 기능을 누락 없이 정의하고 1차에 구현한다.",
+        "webReviewRequirements": {
+          "entryFlow": "로그인 → 대시보드",
+          "dashboardFocus": [
+            "자료 처리 현황",
+            "승인 필요",
+            "pending 항목",
+            "오류",
+            "wiki 개수",
+            "시스템 상태"
+          ],
+          "reviewLayout": "왼쪽 기존 wiki 유사도 목록, 가운데 선택한 기존 개념 내용, 오른쪽 신규 개념 batch 카드",
+          "reviewActions": [
+            "병합",
+            "신규",
+            "batch 처리",
+            "수정",
+            "reject reason + retry with instruction"
+          ],
+          "graphPopup": "선택 개념 중심 1-hop 그래프와 wiki 내용을 함께 표시",
+          "wikiCompilePreview": "필요할 때 펼쳐 확인",
+          "mockupRequiredInPlanning": true
+        },
+        "llmSchemaDecisions": {
+          "candidateReviewSignal": "review_route로 통합",
+          "humanDecisionField": "human_decision",
+          "retryInstruction": "runner/human 메타로 별도 저장하고 같은 task 재실행 시 prompt에 주입",
+          "supersededPolicy": "retry 후 이전 후보는 superseded로 표시하고 새 후보와 연결",
+          "newNodeRelations": "propose_relations에서 같은 응답의 new_node candidate_key 참조 허용"
+        }
+      }
+    },
+    {
+      "stage": 5,
+      "name": "최종 모호성 점검",
+      "score": 1,
+      "status": "partially_sufficient",
+      "summary": {
+        "finalSummary": "상위 ideation, CLI 범위, Web Review 목업 요구사항, LLM schema planning blocker 점검 완료",
+        "remainingAmbiguities": [
+          "review_status/자동 승인 가드 세부 명칭",
+          "Web Review 실제 HTML 목업",
+          "LLM schema 세부 JSON 필드"
+        ],
+        "userApprovalStatus": "approved"
+      }
+    }
+  ],
+  "totalScore": 9,
+  "planningReadiness": "ready",
+  "planningBrief": {
+    "intent": "LLM과 사용자가 함께 활용할 수 있는 로컬 개인 wiki 시스템을 만든다.",
+    "targetOutcome": "Markdown 자료를 CLI로 처리해 Source/Chunk/Embedding/LLM 후보/artifact/DB/sync 기반을 만들고, 이후 LLM 품질 및 Web Review UI로 확장한다.",
+    "includedScope": [
+      "Python 기반 CLI 기능 구현",
+      "Obsidian Vault 폴더 구조와 SQLite DB/schema",
+      "Markdown ingest/normalize/chunk/embed",
+      "LLM 연결과 JSON/artifact 계약 검증",
+      "수동 wiki sync",
+      "Web Dashboard와 Review UX 설계",
+      "LLM schema의 review_route/human_decision/retry_instruction/superseded 흐름"
+    ],
+    "excludedScope": [
+      "1차에서 PDF/Office/HTML/URL 완성 지원",
+      "1차에서 Web UI 구현",
+      "1차에서 실제 wiki 프롬프트 품질 완성",
+      "Ideation 단계에서 HTML 목업 제작"
+    ],
+    "userContext": "단일 사용자가 로컬 환경에서 Obsidian과 CLI/Web UI를 함께 사용한다.",
+    "successCriteria": [
+      "샘플 Markdown 1건이 ingest → chunk → embed → LLM 연결 테스트 → artifact/DB 저장 → sync까지 통과한다.",
+      "CLI 전 기능의 입력/출력/실패/재실행 계약이 문서화된다.",
+      "Web Review UX 목업이 Planning에서 생성되고 승인된다.",
+      "LLM schema가 작은 모델에서도 검토 흐름을 잃지 않도록 review_route 기반으로 정리된다."
+    ],
+    "platformOrContext": "local Linux, Python, SQLite, Obsidian Vault, fastembed, configurable local/compatible LLM endpoint, Web UI",
+    "remainingAmbiguities": [
+      "review_status/자동 승인 가드 세부 명칭",
+      "Web Review HTML 목업의 구체 디자인",
+      "LLM schema 세부 JSON 필드와 validator 규칙"
+    ]
+  },
+  "remainingAmbiguities": [
+    "review_status/자동 승인 가드 세부 명칭",
+    "Web Review HTML 목업의 구체 디자인",
+    "LLM schema 세부 JSON 필드와 validator 규칙"
+  ],
+  "userApprovalStatus": "approved",
+  "approvedAt": "2026-07-18T00:00:00Z"
+}

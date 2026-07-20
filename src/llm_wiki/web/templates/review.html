@@ -1,0 +1,148 @@
+{# LLM Wiki Local — review/mapping template
+   Three-column layout:
+   - Left: similarity-ranked concepts (via /api/review/mapping) or alphabetical
+   - Center: selected concept detail with aliases/claims/relations + compile preview
+   - Right: candidate cards grouped by candidate_type with batch selection
+   Actions: merge, create_new, edit, reject+retry. Batch "Apply to selected" CTA. #}
+{% extends "base.html" %}
+{% block title %}Review / Mapping — LLM Wiki Local{% endblock %}
+
+{% block content %}
+  <section class="screen">
+    <div class="screen-title">
+      <h2>Review / Mapping</h2>
+      <span class="hint">후보를 기존 wiki 개념에 합치거나, 새 wiki 개념으로 만들지 결정합니다.</span>
+    </div>
+    <div class="empty" style="margin-bottom:12px">
+      <b>사용 순서</b>
+      <p class="hint">1) 오른쪽 후보를 확인합니다. 2) 왼쪽에서 합칠 기존 wiki 개념을 선택합니다. 3) 후보 카드의 “Merge into selected wiki” 또는 “Create as new wiki”를 누릅니다.</p>
+    </div>
+    <div class="review">
+      {# Left column: existing wiki similarity list #}
+      <aside class="col review-left">
+        <div class="toolbar">
+          <input id="wiki-search" class="input" placeholder="Search concepts…" aria-label="Search concepts" />
+        </div>
+        <div id="wiki-similar-list">
+          <div class="loading"><span class="spinner"></span>Loading concepts…</div>
+        </div>
+        <div class="list-mode-banner" role="status" data-state="fallback" aria-live="polite">
+          오른쪽 후보 기준 유사 wiki 후보를 보여줍니다. 후보가 없으면 전체 wiki 목록을 보여줍니다.
+        </div>
+        <button class="btn" id="btn-open-graph" style="margin-top:12px;width:100%" aria-label="Open concept graph popup">Graph Popup</button>
+      </aside>
+
+      {# Center column: concept details #}
+      <section class="col concept review-center" id="wiki-detail">
+        <div class="empty">
+          <p>왼쪽에서 기존 wiki 개념을 선택하면 상세와 merge 대상이 표시됩니다.</p>
+          <p class="hint">Merge는 선택한 기존 wiki 개념에 후보 정보를 합치는 의사결정입니다.</p>
+        </div>
+      </section>
+
+      {# Right column: candidate batch cards #}
+      <aside class="col review-right">
+        <div class="toolbar" id="review-candidate-summary">
+          <span class="pill" id="candidate-count-pill">Review candidates: —</span>
+        </div>
+        <div class="batch-actions" id="batch-actions" style="display:none">
+          <label class="batch-select-all">
+            <input type="checkbox" id="batch-select-all" aria-label="Select all candidates" /> Select all
+          </label>
+          <button class="btn primary" id="btn-batch-apply" aria-label="Apply action to selected candidates">Apply to selected</button>
+        </div>
+        <div id="review-candidates">
+          <div class="loading"><span class="spinner"></span>Loading candidates…</div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  {# Reject modal #}
+  <div class="modal-overlay" id="reject-modal-overlay" role="dialog" aria-modal="true" aria-label="Reject and retry instruction">
+    <div class="modal">
+      <h3>Reject + Retry Instruction</h3>
+      <label for="reject-reason">Reject reason</label>
+      <textarea id="reject-reason" rows="3" placeholder="Why are you rejecting this candidate?"></textarea>
+      <label for="reject-instruction">Retry instruction (optional)</label>
+      <textarea id="reject-instruction" rows="3" placeholder="Instructions for the next attempt…"></textarea>
+      <div class="actions">
+        <button class="btn bad" id="reject-submit" aria-label="Submit reject and retry">Submit</button>
+        <button class="btn" id="reject-cancel" aria-label="Cancel reject">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  {# Batch action modal #}
+  <div class="modal-overlay" id="batch-modal-overlay" role="dialog" aria-modal="true" aria-label="Batch action confirmation">
+    <div class="modal">
+      <h3>Apply to selected candidates</h3>
+      <p id="batch-summary"></p>
+      <label for="batch-action">Action</label>
+      <select id="batch-action" class="input">
+        <option value="merge">Merge</option>
+        <option value="create_new">Create New</option>
+        <option value="edit">Edit</option>
+        <option value="retry_with_instruction">Reject + Retry</option>
+      </select>
+      <div id="batch-reject-fields" style="display:none">
+        <label for="batch-reason">Reject reason</label>
+        <textarea id="batch-reason" rows="2" placeholder="Why?"></textarea>
+        <label for="batch-instruction">Retry instruction</label>
+        <textarea id="batch-instruction" rows="2" placeholder="Instructions…"></textarea>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="batch-confirm" aria-label="Confirm batch action">Confirm</button>
+        <button class="btn" id="batch-cancel" aria-label="Cancel batch action">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  {# Graph popup #}
+  <div class="popup-overlay" id="graph-popup-overlay" role="dialog" aria-modal="true" aria-label="Concept graph">
+    <div class="popup">
+      <div class="graph" id="graph-canvas">
+        <div class="loading"><span class="spinner"></span>Loading graph…</div>
+      </div>
+      <div class="col concept" id="graph-detail">
+        <div class="empty">Click a node to view details.</div>
+      </div>
+    </div>
+    <button class="btn" id="graph-popup-close" style="position:absolute;top:20px;right:20px" aria-label="Close graph popup">Close</button>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module">
+    import {
+      loadReviewCandidates,
+      loadConceptList,
+      openGraphPopup,
+      bindGraphPopupClose,
+      bindBatchActions,
+      bindSideDrawer,
+    } from "{{ url_for('static', path='/js/app.js') }}";
+
+    document.addEventListener("DOMContentLoaded", () => {
+      bindSideDrawer();
+      loadReviewCandidates();
+      loadConceptList();
+      bindGraphPopupClose();
+      bindBatchActions();
+
+      const searchInput = document.getElementById("wiki-search");
+      let searchTimer = null;
+      searchInput?.addEventListener("input", (e) => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => loadConceptList(e.target.value), 300);
+      });
+
+      document.getElementById("btn-open-graph")?.addEventListener("click", () => {
+        const active = document.querySelector("#wiki-similar-list .wiki-item.active");
+        const conceptId = active?.dataset.conceptId || "";
+        const title = active?.querySelector("h3")?.textContent?.trim() || "";
+        openGraphPopup(conceptId, title);
+      });
+    });
+  </script>
+{% endblock %}
