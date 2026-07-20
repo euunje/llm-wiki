@@ -90,6 +90,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "env": {
         "file": ".env",
     },
+    "web": {
+        "host": "",
+        "port": None,
+        "session_cookie_name": "llm_wiki_web_session",
+        "session_ttl_seconds": 43200,
+        "admin_password_env": "LLM_WIKI_WEB_ADMIN_PASSWORD",
+    },
     "sync": {
         "default_apply": False,
     },

@@ -1,0 +1,165 @@
+{# LLM Wiki Local — settings template
+   Approved UX: .code-planner/02-planning/mockups/phase-3-page-settings-llm-routes-ux-spec.md
+   and .code-planner/02-planning/mockups/phase-3-page-settings-prompt-ux-spec.md
+   Tabs: LLM | Prompt | Vault | Auth
+   LLM: Basic setup (same as onboarding) + Advanced routes/concurrency
+   Prompt: Active status, Phase2 default, editor/test, version history+rollback #}
+{% extends "base.html" %}
+{% block title %}Settings — LLM Wiki Local{% endblock %}
+
+{% block content %}
+  <section class="screen">
+    <div class="screen-title">
+      <div>
+        <h2>⚙️ Settings</h2>
+        <span class="hint">기본 LLM 설정, prompt version, Vault/Auth를 한 곳에서 관리합니다.</span>
+      </div>
+      <span class="pill ok">local admin</span>
+    </div>
+    <div class="settings-layout">
+      <nav class="settings-tabs" role="tablist" aria-label="Settings tabs">
+        <button class="settings-tab {% if active_tab == 'llm' or not active_tab %}active{% endif %}" data-tab="llm" role="tab" aria-selected="{% if active_tab == 'llm' or not active_tab %}true{% else %}false{% endif %}"><span class="settings-tab-icon">🤖</span><span><b>LLM</b><small>provider · model · route</small></span></button>
+        <button class="settings-tab {% if active_tab == 'prompt' %}active{% endif %}" data-tab="prompt" role="tab" aria-selected="{% if active_tab == 'prompt' %}true{% else %}false{% endif %}"><span class="settings-tab-icon">🧾</span><span><b>Prompt</b><small>test · confirm · history</small></span></button>
+        <button class="settings-tab {% if active_tab == 'vault' %}active{% endif %}" data-tab="vault" role="tab" aria-selected="{% if active_tab == 'vault' %}true{% else %}false{% endif %}"><span class="settings-tab-icon">📁</span><span><b>Vault</b><small>path · data folder</small></span></button>
+        <button class="settings-tab {% if active_tab == 'auth' %}active{% endif %}" data-tab="auth" role="tab" aria-selected="{% if active_tab == 'auth' %}true{% else %}false{% endif %}"><span class="settings-tab-icon">🔐</span><span><b>Auth</b><small>password · logout</small></span></button>
+      </nav>
+      <div class="settings-panel">
+        {# LLM tab #}
+        <div class="settings-pane" id="settings-pane-llm" role="tabpanel" {% if active_tab != 'llm' %}style="display:none"{% endif %}>
+          <h3>LLM / Models / Routes</h3>
+
+          {# Section 1: Basic LLM setup (same as onboarding) #}
+          <div class="settings-section">
+            <h4>1. Basic LLM setup</h4>
+            <p class="hint">Onboarding과 동일한 방식으로 LLM 연결을 확인/수정합니다.</p>
+            <div id="settings-llm-basic">
+              <div class="loading"><span class="spinner"></span>Loading…</div>
+            </div>
+          </div>
+
+          {# Section 2: Model registry #}
+          <div class="settings-section">
+            <h4>2. Model registry</h4>
+            <div id="settings-model-registry">
+              <div class="loading"><span class="spinner"></span>Loading…</div>
+            </div>
+          </div>
+
+          {# Section 3: Advanced options (collapsed by default) #}
+          <div class="settings-section">
+            <details id="settings-advanced-options">
+              <summary>3. Advanced options — 작업별 모델 분리와 동시 처리 수 조정</summary>
+              <p class="hint">대부분의 사용자는 변경하지 않아도 됩니다.</p>
+
+              <div class="advanced-inner">
+                {# Concurrent LLM tasks #}
+                <div class="concurrency-control">
+                  <h5>Concurrent LLM tasks</h5>
+                  <div class="radio-group" id="settings-concurrency">
+                    <label><input type="radio" name="concurrency" value="1" checked /> 1 — 기본, 안정적</label>
+                    <label><input type="radio" name="concurrency" value="2" /> 2 — 빠르지만 로컬 모델 부하 증가</label>
+                    <label><input type="radio" name="concurrency" value="3" /> 3 — 고급, 충분한 GPU/메모리 필요</label>
+                  </div>
+                  <div class="concurrency-warning" id="concurrency-warning" style="display:none">
+                    ⚠️ 동시 작업 수를 늘리면 로컬 LLM 서버, GPU/메모리 사용량이 증가할 수 있습니다. 오류나 timeout이 늘면 1로 낮추세요.
+                  </div>
+                  <button class="btn" id="btn-save-concurrency">Save concurrency</button>
+                </div>
+
+                {# Task routes #}
+                <div class="task-routes">
+                  <h5>Task routes</h5>
+                  <p class="hint">각 작업에서 사용할 모델을 따로 정합니다. 기본은 모든 chat 작업이 같은 기본 chat model을 사용합니다.</p>
+                  <div class="route-model-help">
+                    <p class="hint">💡 여기의 task route 모델 목록은 Onboarding 또는 Settings &gt; LLM에서 구성한 모델을 <code>/api/settings/models</code>로 다시 불러와 보여줍니다. 비어 있으면 chat model / embedding model을 먼저 설정하고 연결 테스트를 완료하세요.</p>
+                  </div>
+                  <div id="settings-route-table">
+                    <div class="loading"><span class="spinner"></span>Loading routes…</div>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          {# Section 4: Change history #}
+          <div class="settings-section">
+            <h4>4. Change history</h4>
+            <div id="settings-route-history">
+              <div class="empty">변경 이력이 없습니다.</div>
+            </div>
+          </div>
+        </div>
+
+        {# Prompt tab #}
+        <div class="settings-pane" id="settings-pane-prompt" role="tabpanel" {% if active_tab != 'prompt' %}style="display:none"{% endif %}>
+          <h3>Prompt</h3>
+          <div class="settings-prompt-inner">
+            <div class="prompt-sequence" id="settings-prompt-top-tabs" role="tablist" aria-label="Prompt task sequence">
+              <button class="prompt-sequence-item active" data-prompt-task="ask" role="tab" aria-selected="true">ask</button>
+              <span class="prompt-sequence-arrow">›</span>
+              <button class="prompt-sequence-item" data-prompt-task="compile" role="tab" aria-selected="false">compile</button>
+              <span class="prompt-sequence-arrow">›</span>
+              <button class="prompt-sequence-item" data-prompt-task="extract_claims" role="tab" aria-selected="false">extract_claims</button>
+              <span class="prompt-sequence-arrow">›</span>
+              <button class="prompt-sequence-item" data-prompt-task="link" role="tab" aria-selected="false">link</button>
+              <span class="prompt-sequence-arrow">›</span>
+              <button class="prompt-sequence-item" data-prompt-task="map" role="tab" aria-selected="false">map</button>
+              <span class="prompt-sequence-arrow">›</span>
+              <button class="prompt-sequence-item" data-prompt-task="summarize" role="tab" aria-selected="false">summarize</button>
+            </div>
+
+            {# Prompt workspace #}
+            <div class="prompt-workspace" id="settings-prompt-workspace">
+              <div class="empty">위에서 task를 선택하세요.</div>
+            </div>
+          </div>
+        </div>
+
+        {# Vault tab #}
+        <div class="settings-pane" id="settings-pane-vault" role="tabpanel" {% if active_tab != 'vault' %}style="display:none"{% endif %}>
+          <h3>Vault / Data Folder</h3>
+          <div id="settings-vault-content">
+            <div class="loading"><span class="spinner"></span>Loading vault info…</div>
+          </div>
+        </div>
+
+        {# Auth tab #}
+        <div class="settings-pane" id="settings-pane-auth" role="tabpanel" {% if active_tab != 'auth' %}style="display:none"{% endif %}>
+          <h3>Web Auth</h3>
+          <div id="settings-auth-content">
+            <div class="loading"><span class="spinner"></span>Loading auth status…</div>
+          </div>
+          {# Temporary Logout access (until user/profile menu exists) #}
+          <div class="settings-auth-logout">
+            <h4>Logout</h4>
+            <p class="hint">사용자 메뉴가 준비되기 전까지 Logout은 이 영역의 임시 액션입니다.</p>
+            <form method="post" action="{{ url_for('logout') }}">
+              <button class="btn bad" type="submit" aria-label="Logout">🚪 Logout</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module">
+    import {
+      loadSettingsTabs,
+      loadSettingsLLM,
+      loadSettingsPrompts,
+      loadSettingsVault,
+      loadSettingsAuth,
+      bindSideDrawer,
+    } from "{{ url_for('static', path='/js/app.js') }}";
+    document.addEventListener("DOMContentLoaded", () => {
+      bindSideDrawer();
+      loadSettingsTabs();
+      loadSettingsLLM();
+      loadSettingsPrompts();
+      loadSettingsVault();
+      loadSettingsAuth();
+    });
+  </script>
+{% endblock %}

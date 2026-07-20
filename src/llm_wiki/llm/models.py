@@ -12,6 +12,166 @@ from llm_wiki.workspace import WorkspacePaths
 
 ALLOWED_ROUTE_TASKS = {"extract_claims", "summarize", "link", "map", "compile", "ask"}
 
+# User-facing labels mapped to internal task types.
+# These labels are shown in the UX (Phase 3 settings pages) without exposing internal IDs.
+ROUTE_USER_LABELS: dict[str, str] = {
+    "Page 검증": "extract_claims",
+    "Page Mapping": "map",
+    "Relationship 검증": "link",
+    "Retry instruction": "retry_instructions",
+    "Prompt test": "prompt_test",
+    "Embedding/Search": "embedding",
+}
+
+
+def get_task_type_from_label(user_label: str) -> str | None:
+    """Map a user-facing label to its internal task type.
+
+    Args:
+        user_label: One of the known user labels (Page 검증, Page Mapping, etc.).
+
+    Returns:
+        The internal task type string, or None if label is not recognized.
+    """
+    return ROUTE_USER_LABELS.get(user_label)
+
+
+def get_user_label_for_task(task_type: str) -> str | None:
+    """Map an internal task type to its user-facing label.
+
+    Args:
+        task_type: Internal task type (extract_claims, map, link, etc.).
+
+    Returns:
+        The user-facing label string, or None if task_type is not mapped.
+    """
+    for label, ttype in ROUTE_USER_LABELS.items():
+        if ttype == task_type:
+            return label
+    return None
+
+
+def list_route_labels() -> list[dict[str, str]]:
+    """Return all user-label to task_type mappings.
+
+    Returns:
+        List of dicts with 'label' and 'task_type' keys.
+    """
+    return [{"label": label, "task_type": task_type} for label, task_type in ROUTE_USER_LABELS.items()]
+
+
+# Concurrency settings constants and helpers.
+CONCURRENCY_DEFAULT = 1
+CONCURRENCY_MAX = 3
+CONCURRENCY_KEY = "concurrency"
+CONCURRENCY_LEGACY_KEY = "max_concurrent_requests"
+
+
+def get_concurrency_config(workspace: WorkspacePaths) -> dict[str, int]:
+    """Get current concurrency configuration.
+
+    Returns:
+        Dict with 'default' (per-provider default), 'max' (absolute max),
+        and 'provider_concurrency' dict of provider-specific overrides.
+    """
+    settings = load_settings(workspace.settings_file, resolve_env=False)
+    llm_settings = settings.get("llm", {})
+    provider_concurrency = llm_settings.get("provider_max_concurrent", {})
+
+    return {
+        "default": _validate_concurrency_value(
+            llm_settings.get(CONCURRENCY_KEY, llm_settings.get(CONCURRENCY_LEGACY_KEY, CONCURRENCY_DEFAULT)),
+            "default",
+        ),
+        "max": CONCURRENCY_MAX,
+        "provider_concurrency": provider_concurrency,
+    }
+
+
+def set_concurrency_config(
+    workspace: WorkspacePaths,
+    *,
+    default: int | None = None,
+    provider: str | None = None,
+    provider_limit: int | None = None,
+) -> dict[str, Any]:
+    """Set concurrency configuration in settings.
+
+    Args:
+        workspace: WorkspacePaths instance.
+        default: Global default concurrency (1).
+        provider: Provider name for provider-specific limit.
+        provider_limit: Provider-specific max concurrency.
+
+    Returns:
+        Updated concurrency config dict.
+
+    Raises:
+        ValueError: If values fail validation.
+    """
+    settings = load_settings(workspace.settings_file, resolve_env=False)
+    llm_settings = settings.setdefault("llm", {})
+
+    if default is not None:
+        validated = _validate_concurrency_value(default, "default")
+        llm_settings[CONCURRENCY_KEY] = validated
+
+    if provider is not None and provider_limit is not None:
+        validated = _validate_concurrency_value(provider_limit, f"provider '{provider}'")
+        llm_settings.setdefault("provider_max_concurrent", {})[provider] = validated
+
+    save_settings(workspace.settings_file, settings)
+    return get_concurrency_config(workspace)
+
+
+def _validate_concurrency_value(value: int, context: str) -> int:
+    """Validate and clamp a concurrency value.
+
+    Args:
+        value: Raw integer value.
+        context: String describing what is being validated (for error messages).
+
+    Returns:
+        Validated integer between 1 and CONCURRENCY_MAX.
+
+    Raises:
+        ValueError: If value is not a valid integer.
+    """
+    if not isinstance(value, int):
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"Concurrency {context} must be an integer, got: {value!r}")
+    if value < 1:
+        value = 1
+    if value > CONCURRENCY_MAX:
+        value = CONCURRENCY_MAX
+    return value
+
+
+def effective_concurrency_for_provider(
+    workspace: WorkspacePaths,
+    provider: str,
+) -> int:
+    """Get effective concurrency limit for a provider.
+
+    If the provider has a specific limit configured, use it.
+    Otherwise return the global default.
+    If the provider is unsupported/not configured, return 1.
+
+    Args:
+        workspace: WorkspacePaths instance.
+        provider: Provider name (e.g., 'openai', 'anthropic').
+
+    Returns:
+        Effective concurrency limit (1 to CONCURRENCY_MAX).
+    """
+    config = get_concurrency_config(workspace)
+    provider_concurrency = config.get("provider_concurrency", {})
+    if provider and provider in provider_concurrency:
+        return provider_concurrency[provider]
+    return config["default"]
+
 
 def _llm_settings(workspace: WorkspacePaths) -> dict[str, Any]:
     return load_settings(workspace.settings_file).get("llm", {})
@@ -163,7 +323,16 @@ def test_model_connection(workspace: WorkspacePaths, model_id: str) -> tuple[int
             "run_id": run_id,
             "job_id": job_id,
         }
-        artifact = record_artifact(workspace, "model_test_report", "models_test", payload, "model", model_id, run_id)
+        artifact = record_artifact(
+            workspace,
+            "model_test_report",
+            "models_test",
+            payload,
+            "model",
+            model_id,
+            run_id,
+            metadata=payload,
+        )
         update_agent_run(workspace.db, run_id, status="blocked", output_refs=[artifact], artifact_id=artifact["artifact_id"])
         update_job(workspace.db, job_id, status="failed", output_refs=[artifact], error={"reason": payload["reason"]})
         return 3, {**payload, **artifact, "message": f"Model {model_id} test blocked"}
@@ -192,7 +361,16 @@ def test_model_connection(workspace: WorkspacePaths, model_id: str) -> tuple[int
                 "run_id": run_id,
                 "job_id": job_id,
             }
-            artifact = record_artifact(workspace, "model_test_report", "models_test", payload, "model", model_id, run_id)
+            artifact = record_artifact(
+                workspace,
+                "model_test_report",
+                "models_test",
+                payload,
+                "model",
+                model_id,
+                run_id,
+                metadata=payload,
+            )
             update_agent_run(workspace.db, run_id, status="succeeded", output_refs=[artifact], artifact_id=artifact["artifact_id"])
             update_job(workspace.db, job_id, status="succeeded", output_refs=[artifact])
             return 0, {**payload, **artifact, "message": f"Model {model_id} test succeeded"}
@@ -219,7 +397,16 @@ def test_model_connection(workspace: WorkspacePaths, model_id: str) -> tuple[int
             "run_id": run_id,
             "job_id": job_id,
         }
-        artifact = record_artifact(workspace, "model_test_report", "models_test", payload, "model", model_id, run_id)
+        artifact = record_artifact(
+            workspace,
+            "model_test_report",
+            "models_test",
+            payload,
+            "model",
+            model_id,
+            run_id,
+            metadata=payload,
+        )
         update_agent_run(workspace.db, run_id, status="failed", output_refs=[artifact], artifact_id=artifact["artifact_id"], error={"reason": str(exc)})
         update_job(workspace.db, job_id, status="failed", output_refs=[artifact], error={"reason": str(exc)})
         return 1, {**payload, **artifact, "message": f"Model {model_id} test failed"}

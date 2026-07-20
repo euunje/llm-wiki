@@ -257,14 +257,16 @@ def run_extract_claims(args: argparse.Namespace) -> tuple[int, dict[str, object]
     else:
         envelope = _build_candidate_envelope(workspace, args.source_id) if _has_persisted_chunks(workspace, args.source_id) else build_empty_candidate_envelope("extract_claims", args.source_id)
     validation = validate_candidate_envelope(envelope)
+    llm_failed = bool(llm_attempt and llm_attempt.get("attempted") and llm_attempt.get("status") in {"failed", "parse_failed"})
     persisted = insert_candidates_from_envelope(workspace.db, envelope, run_id) if validation["ok"] else []
     quality = evaluate_candidate_quality(envelope, source_text)
     payload = {
-        "status": "ok" if validation["ok"] else "failed",
+        "status": "failed" if llm_failed else ("ok" if validation["ok"] else "failed"),
         "source_id": args.source_id,
         "job_id": job_id,
         "run_id": run_id,
         "prompt_version_id": prompt["id"],
+        "prompt_text_used": prompt.get("prompt_text"),
         "candidate_count": sum(len(envelope[field]) for field in ("claim_candidates", "node_candidates", "relation_candidates", "mapping_candidates", "claim_conflict_candidates")),
         "validation": validation,
         "quality_evaluation": quality,
@@ -274,9 +276,10 @@ def run_extract_claims(args: argparse.Namespace) -> tuple[int, dict[str, object]
         "phase_note": PHASE2_NOTE,
     }
     artifact = record_artifact(workspace, "candidate_contract", "extract_claims", payload, "source", args.source_id, run_id)
-    update_agent_run(workspace.db, run_id, status="succeeded" if validation["ok"] else "failed", output_refs=[artifact], artifact_id=artifact["artifact_id"])
-    update_job(workspace.db, job_id, status="succeeded" if validation["ok"] else "failed", output_refs=[artifact])
-    return (0 if validation["ok"] else 1), {**payload, **artifact, "workspace": str(workspace.root), "message": f"Created extract-claims placeholder for {args.source_id}"}
+    succeeded = validation["ok"] and not llm_failed
+    update_agent_run(workspace.db, run_id, status="succeeded" if succeeded else "failed", output_refs=[artifact], artifact_id=artifact["artifact_id"])
+    update_job(workspace.db, job_id, status="succeeded" if succeeded else "failed", output_refs=[artifact])
+    return (0 if succeeded else 1), {**payload, **artifact, "workspace": str(workspace.root), "message": f"Created extract-claims placeholder for {args.source_id}"}
 
 
 def _placeholder_report(workspace, task_type: str, target: str, payload: dict[str, object]) -> tuple[int, dict[str, object]]:
@@ -292,9 +295,10 @@ def _placeholder_report(workspace, task_type: str, target: str, payload: dict[st
     )
     body = {"status": "ok", "job_id": job_id, "run_id": run_id, "phase_note": PHASE2_NOTE, **payload}
     artifact = record_artifact(workspace, f"{task_type}_placeholder", task_type, body, "target", _artifact_target(target), run_id)
-    update_agent_run(workspace.db, run_id, status="succeeded", output_refs=[artifact], artifact_id=artifact["artifact_id"])
-    update_job(workspace.db, job_id, status="succeeded", output_refs=[artifact])
-    return 0, {**body, **artifact, "workspace": str(workspace.root), "message": f"Created {task_type} Phase 1 placeholder"}
+    ok = body.get("status") not in {"failed", "blocked"} and not (isinstance(body.get("validation"), dict) and not body["validation"].get("ok", True))
+    update_agent_run(workspace.db, run_id, status="succeeded" if ok else "failed", output_refs=[artifact], artifact_id=artifact["artifact_id"])
+    update_job(workspace.db, job_id, status="succeeded" if ok else "failed", output_refs=[artifact])
+    return (0 if ok else 1), {**body, **artifact, "workspace": str(workspace.root), "message": f"Created {task_type} Phase 1 placeholder"}
 
 
 def run_summarize(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
@@ -311,13 +315,14 @@ def run_summarize(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
         workspace,
         "summarize",
         target,
-        {"target": target, "prompt_version_id": prompt["id"], "summary": summary, "summary_placeholder": summary, "source_refs": [{"source_id": source_id}], "evidence_refs": [{"source_id": source_id, "chunk_id": chunk.get("id")} for chunk in chunks[:3]], "language_policy": "한국어 중심 설명 + 영어 기술용어/고유명사 보존"},
+        {"target": target, "prompt_version_id": prompt["id"], "prompt_text_used": prompt.get("prompt_text"), "summary": summary, "summary_placeholder": summary, "source_refs": [{"source_id": source_id}], "evidence_refs": [{"source_id": source_id, "chunk_id": chunk.get("id")} for chunk in chunks[:3]], "language_policy": "한국어 중심 설명 + 영어 기술용어/고유명사 보존"},
     )
 
 
 def run_link(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     workspace = resolve_workspace(args.path)
     source_id = args.target.split(":", 1)[1] if args.target.startswith("source:") else args.target
+    prompt = get_active_prompt(workspace.db, "link")
     if source_id.startswith("source_") and _has_persisted_chunks(workspace, source_id):
         envelope = _build_candidate_envelope(workspace, source_id, include_relation=True)
         validation = validate_candidate_envelope(envelope)
@@ -327,25 +332,26 @@ def run_link(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
             workspace,
             "link",
             args.target,
-            {"target": args.target, "relation_candidates": envelope["relation_candidates"], "review_routes": ["normal_review"], "validation": validation, "candidate_envelope": envelope},
+            {"target": args.target, "prompt_version_id": prompt["id"], "prompt_text_used": prompt.get("prompt_text"), "relation_candidates": envelope["relation_candidates"], "review_routes": ["normal_review"], "validation": validation, "candidate_envelope": envelope},
         )
     return _placeholder_report(
         workspace,
         "link",
         args.target,
-        {"target": args.target, "relation_candidates": [], "review_routes": []},
+        {"target": args.target, "prompt_version_id": prompt["id"], "prompt_text_used": prompt.get("prompt_text"), "relation_candidates": [], "review_routes": []},
     )
 
 
 def run_map(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     workspace = resolve_workspace(args.path)
     _ensure_source_exists(workspace.db, args.source_id)
+    prompt = get_active_prompt(workspace.db, "map")
     if not _has_persisted_chunks(workspace, args.source_id):
         return _placeholder_report(
             workspace,
             "map",
             args.source_id,
-            {"source_id": args.source_id, "mapping_candidates": [], "high_similarity_candidates": [], "phase_note": "Chunk source before Phase 2 mapping quality generation."},
+            {"source_id": args.source_id, "prompt_version_id": prompt["id"], "prompt_text_used": prompt.get("prompt_text"), "mapping_candidates": [], "high_similarity_candidates": [], "phase_note": "Chunk source before Phase 2 mapping quality generation."},
         )
     source_text, _ = _source_text_and_chunks(workspace, args.source_id)
     envelope = _build_candidate_envelope(workspace, args.source_id, include_mapping=True)
@@ -356,41 +362,32 @@ def run_map(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
         workspace,
         "map",
         args.source_id,
-        {"source_id": args.source_id, "mapping_candidates": envelope["mapping_candidates"], "high_similarity_candidates": [], "candidate_envelope": envelope, "validation": validation, "quality_evaluation": quality, "persisted_candidates": persisted},
+        {"source_id": args.source_id, "prompt_version_id": prompt["id"], "prompt_text_used": prompt.get("prompt_text"), "mapping_candidates": envelope["mapping_candidates"], "high_similarity_candidates": [], "candidate_envelope": envelope, "validation": validation, "quality_evaluation": quality, "persisted_candidates": persisted},
     )
 
 
 def run_ask(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     workspace = resolve_workspace(args.path)
-    from llm_wiki.cli.ops_cmds import run_search
+    from llm_wiki.search import ask_workspace
 
-    _search_exit, search_payload = run_search(argparse.Namespace(path=args.path, query=args.query))
-    evidence_refs = [
-        {
-            "source_id": item.get("source_id"),
-            "target_type": item.get("target_type"),
-            "target_id": item.get("target_id"),
-            "match_type": item.get("match_type"),
-            "snippet": item.get("snippet") or item.get("title") or "",
-        }
-        for item in (search_payload.get("results") or [])[:3]
-        if isinstance(item, dict)
-    ]
+    prompt = get_active_prompt(workspace.db, "ask")
+    ask_payload = ask_workspace(workspace, args.query)
     return _placeholder_report(
         workspace,
         "ask",
         args.query,
-        {"query": args.query, "candidates": evidence_refs, "evidence_refs": evidence_refs, "search_metadata": search_payload.get("metadata"), "answer": f"질문 '{args.query}'에 대해 현재 index에서 확인된 근거를 바탕으로 답변 후보를 생성했습니다. 기술 용어와 고유명사는 원문 표기를 보존합니다.", "answer_placeholder": f"질문 '{args.query}'에 대해 현재 index에서 확인된 근거를 바탕으로 답변 후보를 생성했습니다. 기술 용어와 고유명사는 원문 표기를 보존합니다."},
+        {"query": args.query, "prompt_version_id": prompt["id"], "prompt_text_used": prompt.get("prompt_text"), "candidates": ask_payload["evidence_refs"], "evidence_refs": ask_payload["evidence_refs"], "search_metadata": ask_payload["search_metadata"], "answer": ask_payload["answer"], "answer_placeholder": ask_payload["answer_placeholder"]},
     )
 
 
 def run_compile(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     workspace = resolve_workspace(args.path)
+    prompt = get_active_prompt(workspace.db, "compile")
     exit_code, payload = _placeholder_report(
         workspace,
         "compile",
         args.target,
-        {"target": args.target, "preview_status": "draft_preview", "phase_note": PHASE2_NOTE},
+        {"target": args.target, "prompt_version_id": prompt["id"], "prompt_text_used": prompt.get("prompt_text"), "preview_status": "draft_preview", "phase_note": PHASE2_NOTE},
     )
     preview_dir = workspace.artifacts / "compile" / _artifact_target(args.target)
     preview_path = preview_dir / f"{payload['run_id']}.md"

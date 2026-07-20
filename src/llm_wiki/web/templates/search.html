@@ -1,0 +1,61 @@
+{# LLM Wiki Local — search template
+   GAP-1: Search Web UI for FTS + embedding/vector + LLM ask/RAG
+   Accessible from Dashboard and Wiki links (top nav is locked per approved UX)
+   WU-006: State visibility — setup_missing/no_data/processing/success/failure/blocked states #}
+{% extends "base.html" %}
+{% block title %}Search — LLM Wiki Local{% endblock %}
+
+{% block content %}
+  <section class="screen">
+    <div class="screen-title">
+      <h2>🔍 Search / Ask</h2>
+      <span class="hint">FTS, embedding/vector, metadata 검색 및 LLM RAG 질문</span>
+    </div>
+    <div class="search-subnav" role="tablist" aria-label="Search Ask modes">
+      <button class="search-subtab active" data-search-panel="search" role="tab" aria-selected="true">Search</button>
+      <button class="search-subtab" data-search-panel="ask" role="tab" aria-selected="false">Ask</button>
+    </div>
+    <div class="search-layout">
+      {# Search panel #}
+      <div class="search-panel search-mode-panel active" id="search-panel-search" data-search-panel-content="search">
+        <h3>Workspace Search</h3>
+        <div class="search-bar">
+          <input id="search-query" class="input" placeholder="Search query…" aria-label="Search query" autocomplete="off" />
+          <select id="search-mode" class="input" aria-label="Search mode" style="max-width:180px">
+            <option value="combined">Combined</option>
+            <option value="fts">FTS (full-text)</option>
+            <option value="vector">Embedding / Vector</option>
+            <option value="metadata">Metadata</option>
+          </select>
+          <button class="btn primary" id="btn-search">Search</button>
+        </div>
+        <div id="search-results" class="search-results" data-state-container="search-results">
+          <div class="empty">검색어를 입력하고 모드를 선택한 후 Search를 누르세요.</div>
+        </div>
+      </div>
+
+      {# Ask / RAG panel #}
+      <div class="ask-panel search-mode-panel" id="search-panel-ask" data-search-panel-content="ask" hidden>
+        <h3>Ask (RAG)</h3>
+        <p class="hint">질문을 입력하면 LLM이 검색 결과를 기반으로 답변합니다.</p>
+        <div class="ask-input-area">
+          <textarea id="ask-query" class="input" rows="3" placeholder="Ask a question about your workspace…" aria-label="Ask question"></textarea>
+          <button class="btn primary" id="btn-ask">Ask</button>
+        </div>
+        <div id="ask-result" class="ask-result" data-state-container="ask-result">
+          <div class="empty">질문을 입력하면 여기에 답변이 표시됩니다.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module">
+    import { loadSearchPage, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}";
+    document.addEventListener("DOMContentLoaded", () => {
+      bindSideDrawer();
+      loadSearchPage();
+    });
+  </script>
+{% endblock %}

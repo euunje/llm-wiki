@@ -112,6 +112,7 @@ def record_artifact(
     target_type: str | None = None,
     target_id: str | None = None,
     run_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     artifact_id = new_id("artifact")
     # Sanitize target_id and run_id to prevent path traversal.
@@ -131,10 +132,14 @@ def record_artifact(
     if workspace.db.exists():
         conn = connect(workspace.db)
         try:
+            # FR-3-NO-05: callers may pass structured metadata_json so other code
+            # paths (e.g. confirm_prompt_version) can read summary fields like
+            # status directly from the database row without re-opening the file.
+            metadata_json = json_dumps(metadata) if metadata is not None else "{}"
             conn.execute(
                 """
                 INSERT INTO artifacts (id, artifact_type, task_type, target_type, target_id, run_id, path, content_hash, metadata_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     artifact_id,
@@ -145,6 +150,7 @@ def record_artifact(
                     run_id,
                     relative_to(workspace.root, artifact_path),
                     sha256_text(content),
+                    metadata_json,
                     utc_now(),
                 ),
             )

@@ -102,8 +102,9 @@ def record_human_decision(
     note: str | None = None,
     retry_instruction_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    candidate_status: str | None = None,
 ) -> str:
-    if decision_type not in {"approve", "reject", "merge", "create_new", "edit", "retry_with_instruction"}:
+    if decision_type not in {"approve", "reject", "merge", "add", "create_new", "edit", "retry_with_instruction"}:
         raise ValueError(f"Invalid decision_type: {decision_type}")
     decision_id = new_id("decision")
     now = utc_now()
@@ -116,7 +117,11 @@ def record_human_decision(
             """,
             (decision_id, candidate_id, decision_type, decided_by, now, note, retry_instruction_id, json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True)),
         )
-        status = "retry_requested" if decision_type == "retry_with_instruction" else ("approved" if decision_type in {"approve", "merge", "create_new", "edit"} else "rejected")
+        status = candidate_status or (
+            "retry_requested"
+            if decision_type == "retry_with_instruction"
+            else ("approved" if decision_type in {"approve", "merge", "add", "create_new", "edit"} else "rejected")
+        )
         conn.execute("UPDATE review_candidates SET status = ?, updated_at = ? WHERE id = ?", (status, now, candidate_id))
         conn.commit()
         return decision_id

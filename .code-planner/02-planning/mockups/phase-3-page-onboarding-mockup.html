@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Phase 3 Onboarding UX Mockup</title>
+  <style>
+    :root {
+      --bg:#0f172a; --panel:#111827; --panel2:#172033; --line:#29364f;
+      --text:#e5e7eb; --muted:#94a3b8; --brand:#60a5fa; --ok:#34d399; --warn:#fbbf24; --bad:#fb7185;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+    .app { min-height:100vh; display:flex; flex-direction:column; }
+    header { height:58px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; border-bottom:1px solid var(--line); background:#0b1220; }
+    nav { display:flex; gap:14px; color:var(--muted); font-size:14px; }
+    nav b { color:var(--text); }
+    main { padding:24px; }
+    .title { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px; }
+    .title h1 { margin:0 0 6px; font-size:26px; }
+    .hint { color:var(--muted); font-size:13px; line-height:1.5; }
+    .status-chip { border:1px solid var(--line); padding:8px 10px; border-radius:999px; color:var(--warn); background:#1f2937; font-size:13px; }
+    .wizard { display:grid; grid-template-columns:260px minmax(0, 1fr); gap:18px; }
+    .rail, .body, .summary { background:var(--panel); border:1px solid var(--line); border-radius:16px; }
+    .rail { padding:12px; align-self:start; }
+    .step { display:flex; gap:10px; padding:12px; border-radius:12px; border:1px solid transparent; margin-bottom:8px; color:var(--muted); }
+    .step.active { background:var(--panel2); border-color:var(--brand); color:var(--text); }
+    .step.done .num { background:rgba(52,211,153,.15); color:var(--ok); }
+    .num { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; background:#1f2937; font-size:12px; flex:0 0 auto; }
+    .step b { display:block; font-size:14px; }
+    .step span { font-size:12px; }
+    .body { padding:20px; }
+    .body h2 { margin:0 0 6px; font-size:21px; }
+    .grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; margin:16px 0; }
+    .card { border:1px solid var(--line); border-radius:14px; padding:14px; background:#0f172a; }
+    .card.selected { border-color:var(--brand); box-shadow:0 0 0 1px rgba(96,165,250,.35); }
+    .card h3 { margin:0 0 6px; font-size:15px; }
+    label { display:block; color:var(--muted); font-size:12px; margin:13px 0 6px; }
+    input, select { width:100%; background:#0b1220; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 12px; font-size:14px; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+    button, .btn { border:1px solid var(--line); background:#1f2937; color:var(--text); padding:10px 13px; border-radius:10px; font-weight:600; font-size:13px; }
+    .primary { background:var(--brand); color:#061120; border-color:var(--brand); }
+    .ok { color:var(--ok); }
+    .warn { color:var(--warn); }
+    .bad { color:var(--bad); }
+    .divider { height:1px; background:var(--line); margin:20px 0; }
+    .browser { display:grid; grid-template-columns:280px 1fr; gap:12px; }
+    .tree { border:1px solid var(--line); border-radius:12px; padding:10px; min-height:210px; background:#0b1220; }
+    .tree div { padding:6px 8px; border-radius:8px; color:var(--muted); font-size:13px; }
+    .tree .sel { background:var(--panel2); color:var(--text); }
+    .mapping { width:100%; border-collapse:collapse; margin-top:12px; }
+    .mapping th, .mapping td { border-bottom:1px solid var(--line); text-align:left; padding:10px; font-size:13px; }
+    .mapping th { color:var(--muted); }
+    .pipeline { display:grid; grid-template-columns:1fr 60px 1fr 60px 1fr; align-items:center; gap:10px; margin-top:14px; }
+    .box { border:1px solid var(--line); background:#0b1220; border-radius:14px; padding:14px; min-height:110px; }
+    .arrow { text-align:center; color:var(--brand); font-size:24px; }
+    .footer { display:flex; justify-content:space-between; margin-top:16px; padding-top:16px; border-top:1px solid var(--line); }
+    .note { border-left:3px solid var(--brand); padding:10px 12px; background:#0b1220; color:var(--muted); border-radius:8px; font-size:13px; margin-top:12px; }
+    .pill { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:4px 8px; font-size:12px; color:var(--muted); margin:2px; }
+    @media (max-width: 900px) { .wizard, .browser, .pipeline { grid-template-columns:1fr; } .arrow { transform:rotate(90deg); } .grid, .row { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <strong>LLM Wiki Local</strong>
+      <nav><b>Onboarding</b><span>Dashboard</span><span>Inbox</span><span>Mapping</span><span>Vault</span><span>Wiki</span><span>Settings</span></nav>
+    </header>
+    <main>
+      <div class="title">
+        <div>
+          <h1>Onboarding / Setup</h1>
+          <div class="hint">🔌 LLM · 📁 Vault · 📥 Inbox/🧭 Mapping을 준비합니다.</div>
+        </div>
+        <div class="status-chip">Setup incomplete · 3 steps left</div>
+      </div>
+
+      <section class="wizard">
+        <aside class="rail" aria-label="Setup steps">
+          <div class="step active"><div class="num">🔌</div><div><b>LLM</b><span>Provider 선택</span></div></div>
+          <div class="step"><div class="num">🧪</div><div><b>Test</b><span>연결 확인</span></div></div>
+          <div class="step"><div class="num">🧠</div><div><b>Models</b><span>모델 선택</span></div></div>
+          <div class="step"><div class="num">📁</div><div><b>Vault</b><span>경로 선택</span></div></div>
+          <div class="step"><div class="num">📥</div><div><b>Inbox</b><span>입력/처리</span></div></div>
+          <div class="step"><div class="num">✅</div><div><b>Finish</b><span>완료 확인</span></div></div>
+        </aside>
+
+        <section class="body">
+          <h2>1. LLM Provider 선택</h2>
+          <div class="hint">사용 중인 로컬 LLM 런타임을 선택하면 endpoint 기본값을 제안합니다.</div>
+          <div class="grid">
+            <div class="card selected"><h3>Ollama</h3><div class="hint">로컬 Ollama 서버. API key 보통 불필요.</div><span class="pill">recommended local</span></div>
+            <div class="card"><h3>LM Studio</h3><div class="hint">LM Studio local server를 OpenAI-compatible API로 사용.</div><span class="pill">desktop</span></div>
+            <div class="card"><h3>Custom</h3><div class="hint">OpenAI-compatible endpoint를 직접 입력.</div><span class="pill">advanced</span></div>
+          </div>
+          <div class="row">
+            <div>
+              <label>Endpoint URL</label>
+              <input value="http://127.0.0.1:11434" />
+            </div>
+            <div>
+              <label>API key</label>
+              <input type="password" placeholder="입력 후 저장되며 다시 표시되지 않음" />
+            </div>
+          </div>
+          <div class="note">API key는 `.env`에 저장 후 화면/API 응답/로그에 다시 노출하지 않습니다.</div>
+          <div class="actions">
+            <button>Save connection</button>
+            <button class="primary">Test connection</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <h2>2. 연결 테스트 결과</h2>
+          <div class="card">
+            <span class="pill">Provider: Ollama</span>
+            <span class="pill">Endpoint: http://127.0.0.1:11434</span>
+            <span class="pill ok">API key: not required</span>
+            <span class="pill ok">Connection: success</span>
+            <div class="hint" style="margin-top:8px">모델 목록을 가져올 수 있습니다.</div>
+          </div>
+          <div class="actions"><button class="primary">Refresh model list</button><button>Run test again</button></div>
+
+          <div class="divider"></div>
+
+          <h2>3. 모델 선택</h2>
+          <div class="hint">Chat은 provider 모델에서, Embedding은 fastembed 모델 목록에서 선택합니다.</div>
+          <table class="mapping">
+            <thead><tr><th>Model</th><th>Capability</th><th>Use for</th></tr></thead>
+            <tbody>
+              <tr><td>llama3.1:8b</td><td>provider chat</td><td><button class="primary">Default chat</button></td></tr>
+              <tr><td>sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2</td><td>fastembed embedding</td><td><button>Download & use</button></td></tr>
+            </tbody>
+          </table>
+          <div class="note">Embedding 모델은 fastembed 지원 목록/경로에서 불러오고, 필요한 경우 다운로드 경로를 제공합니다.</div>
+
+          <div class="divider"></div>
+
+          <h2>4. Vault 선택</h2>
+          <div class="actions"><button class="primary">New vault</button><button>Existing vault</button></div>
+          <label>Selected full path · starts from home, parent navigation allowed</label>
+          <input value="/home/eunjae/vault/llm-wiki" />
+          <div class="browser" style="margin-top:12px">
+            <div class="tree">
+              <div>home/</div><div>eunjae/</div><div class="sel">vault/</div><div>projects/</div><div>tmp/</div>
+            </div>
+            <div class="card">
+              <h3>Folder structure preview</h3>
+              <div class="hint">New vault 선택 시 아래 구조를 생성합니다.</div>
+              <span class="pill">00_Inbox</span><span class="pill">10_Wiki</span><span class="pill">20_Review</span><span class="pill">80_Raws</span><span class="pill">90_Settings</span>
+              <div class="actions"><button>Browse parent</button><button class="primary">Use selected folder</button></div>
+              <div class="hint" style="margin-top:8px">숨김 폴더와 권한 없는 폴더는 목록에서 숨깁니다.</div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <h2>5. 기존 Vault Mapping</h2>
+          <div class="hint">기존 vault를 사용할 때 시스템 역할과 실제 폴더를 연결합니다.</div>
+          <table class="mapping">
+            <thead><tr><th>System role</th><th>Mapped folder</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Inbox memo/files/text</td><td>/vault/00_Inbox</td><td class="ok">detected</td></tr>
+              <tr><td>Wiki concepts/pages/sources</td><td>/vault/10_Wiki</td><td class="ok">detected</td></tr>
+              <tr><td>Review candidates/mapping</td><td>/vault/20_Review</td><td class="warn">missing mapping</td></tr>
+              <tr><td>Raw index</td><td>/vault/80_Raws</td><td class="ok">detected</td></tr>
+            </tbody>
+          </table>
+          <div class="actions"><button>Auto-detect</button><button>Create missing folders</button><button class="primary">Save mapping</button></div>
+
+          <div class="divider"></div>
+
+          <h2>6. Inbox → 자동 처리 → Mapping</h2>
+          <div class="pipeline">
+            <div class="box"><h3>Inbox</h3><div class="hint">upload file<br/>add text<br/>00_Inbox</div></div>
+            <div class="arrow">→</div>
+            <div class="box"><h3>Auto pipeline</h3><div class="hint">raw save · extract · map candidates</div></div>
+            <div class="arrow">→</div>
+            <div class="box"><h3>Mapping</h3><div class="hint">merge existing<br/>create new<br/>retry</div></div>
+          </div>
+          <div class="actions"><button>Open Inbox</button><button>Process selected</button><button class="primary">Open Mapping</button></div>
+
+          <div class="footer">
+            <button>Back</button>
+            <div class="actions" style="margin:0"><button>Save draft</button><button class="primary">Finish setup</button></div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

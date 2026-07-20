@@ -1,0 +1,92 @@
+{# LLM Wiki Local — base template
+   Approved UX: .code-planner/02-planning/handoff/phase-3-ux-change-plan.md
+   Navigation: Onboarding | Dashboard | Inbox | Mapping | Vault | Wiki | Settings
+   Logout: NOT in top nav — available via Settings > Auth (temporary) #}
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}LLM Wiki Local{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  {% block body %}
+    <header class="topbar" role="banner">
+      <button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Open navigation drawer" aria-expanded="false" aria-controls="side-drawer">☰</button>
+      <div class="brand">LLM Wiki Local</div>
+      <nav class="pc-nav" role="navigation" aria-label="Main navigation" id="main-nav">
+        {% if not setup_status.setup_complete %}
+        <a class="navbtn {% if active_nav == 'onboarding' %}active{% endif %}" href="{{ url_for('onboarding_page') }}" aria-label="Onboarding">🔌 Onboarding</a>
+        {% endif %}
+        <a class="navbtn {% if active_nav == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard_page') }}" aria-label="Dashboard">📊 Dashboard</a>
+        <a class="navbtn {% if active_nav == 'inbox' %}active{% endif %}" href="/inbox" aria-label="Inbox">📥 Inbox</a>
+        <a class="navbtn {% if active_nav == 'mapping' %}active{% endif %}" href="/mapping" aria-label="Mapping">🧭 Mapping</a>
+        <a class="navbtn {% if active_nav == 'vault' %}active{% endif %}" href="/vault" aria-label="Vault">📁 Vault</a>
+        <a class="navbtn {% if active_nav == 'wiki' %}active{% endif %}" href="{{ url_for('wiki_page') }}" aria-label="Wiki">📚 Wiki</a>
+        <a class="navbtn {% if active_nav == 'settings' %}active{% endif %}" href="{{ url_for('settings_page') }}" aria-label="Settings">⚙️ Settings</a>
+      </nav>
+      <div class="topbar-utility">
+        <a class="navbtn utility-link {% if active_nav == 'search' %}active{% endif %}" href="/search" aria-label="Search / Ask">🔍 Search / Ask</a>
+      </div>
+    </header>
+
+    {# Side drawer (mobile) #}
+    <aside class="side-drawer" id="side-drawer" aria-hidden="true" role="dialog" aria-label="Navigation drawer">
+      <div class="side-drawer-head">
+        <b>LLM Wiki Local</b>
+        <button class="btn side-drawer-close" id="side-drawer-close" aria-label="Close navigation drawer">✕</button>
+      </div>
+      <div class="side-drawer-body">
+        <div class="drawer-section">
+          <div class="drawer-title">Main</div>
+          {% if not setup_status.setup_complete %}
+          <a class="drawer-item {% if active_nav == 'onboarding' %}active{% endif %}" href="{{ url_for('onboarding_page') }}">🔌 Onboarding</a>
+          {% endif %}
+          <a class="drawer-item {% if active_nav == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard_page') }}">📊 Dashboard</a>
+          <a class="drawer-item {% if active_nav == 'inbox' %}active{% endif %}" href="/inbox">📥 Inbox</a>
+          <div class="drawer-group">
+            <button class="drawer-item drawer-group-toggle {% if active_nav == 'mapping' %}active{% endif %}" data-drawer-group="mapping" aria-expanded="false">
+              <span>🧭 Mapping</span>
+              <span class="drawer-caret">▸</span>
+            </button>
+            <div class="drawer-sub" id="drawer-sub-mapping" hidden>
+              <a class="drawer-subitem {% if active_nav == 'mapping' and active_sub == 'page_validate' %}active{% endif %}" href="/mapping?step=1" data-mapping-step="1">① Page 검증</a>
+              <a class="drawer-subitem {% if active_nav == 'mapping' and active_sub == 'page_mapping' %}active{% endif %}" href="/mapping?step=2" data-mapping-step="2">② Page Mapping</a>
+              <a class="drawer-subitem {% if active_nav == 'mapping' and active_sub == 'relationship_validate' %}active{% endif %}" href="/mapping?step=3" data-mapping-step="3">③ Relationship 검증</a>
+              <a class="drawer-subitem {% if active_nav == 'mapping' and active_sub == 'errors' %}active{% endif %}" href="/mapping?step=errors" data-mapping-step="errors">④ 오류/에러</a>
+            </div>
+          </div>
+          <a class="drawer-item {% if active_nav == 'vault' %}active{% endif %}" href="/vault">📁 Vault</a>
+          <a class="drawer-item {% if active_nav == 'wiki' %}active{% endif %}" href="{{ url_for('wiki_page') }}">📚 Wiki</a>
+          <div class="drawer-group">
+            <button class="drawer-item drawer-group-toggle {% if active_nav == 'settings' %}active{% endif %}" data-drawer-group="settings" aria-expanded="false">
+              <span>⚙️ Settings</span>
+              <span class="drawer-caret">▸</span>
+            </button>
+            <div class="drawer-sub" id="drawer-sub-settings" hidden>
+              <a class="drawer-subitem {% if active_nav == 'settings' and active_tab == 'llm' %}active{% endif %}" href="{{ url_for('settings_page') }}?tab=llm">LLM</a>
+              <a class="drawer-subitem {% if active_nav == 'settings' and active_tab == 'prompt' %}active{% endif %}" href="{{ url_for('settings_page') }}?tab=prompt">Prompt</a>
+              <a class="drawer-subitem {% if active_nav == 'settings' and active_tab == 'vault' %}active{% endif %}" href="{{ url_for('settings_page') }}?tab=vault">Vault</a>
+              <a class="drawer-subitem drawer-subitem-auth" href="{{ url_for('settings_page') }}?tab=auth">Auth / Logout</a>
+            </div>
+          </div>
+        </div>
+        <div class="drawer-section drawer-account">
+          <div class="drawer-title">Account</div>
+          <div class="drawer-item drawer-account-note">
+            <span class="hint">사용자 메뉴 준비 전 — Logout는 Settings &gt; Auth에서 실행</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <div class="side-drawer-backdrop" id="side-drawer-backdrop" hidden></div>
+
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  {% endblock %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

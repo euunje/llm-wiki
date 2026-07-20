@@ -26,6 +26,7 @@ from llm_wiki.cli.ops_cmds import (
 from llm_wiki.cli.phase1_placeholders import run_ask, run_compile, run_extract_claims, run_link, run_map, run_summarize
 from llm_wiki.cli.route_cmd import run_route_get, run_route_set
 from llm_wiki.cli.settings_cmd import run_settings_get, run_settings_set
+from llm_wiki.cli.web_cmd import run_web_server
 from llm_wiki.config import SettingsError
 from llm_wiki.pipeline import UnsupportedInputError, UserInputError
 
@@ -212,6 +213,13 @@ def build_parser() -> argparse.ArgumentParser:
     healthcheck_parser.add_argument("--path", default=".", help="Workspace root path")
     healthcheck_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
     healthcheck_parser.set_defaults(handler=run_healthcheck)
+
+    web_parser = subparsers.add_parser("web", help="Run the local FastAPI web review UI")
+    web_parser.add_argument("--path", default=".", help="Workspace root path")
+    web_parser.add_argument("--host", help="Bind host; defaults to settings.web.host")
+    web_parser.add_argument("--port", type=int, help="Bind port; defaults to settings.web.port")
+    web_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output after shutdown")
+    web_parser.set_defaults(handler=run_web_server)
 
     return parser
 

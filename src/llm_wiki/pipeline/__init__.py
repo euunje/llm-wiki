@@ -13,6 +13,7 @@ from .embed import embed_target
 from .errors import UnsupportedInputError, UserInputError
 from .ingest import ingest_markdown_file, ingest_text, scan_inbox
 from .normalize import normalize_source
+from .web_runtime import process_inbox_source
 
 __all__ = [
     "ConversionResult",
@@ -30,5 +31,6 @@ __all__ = [
     "ingest_markdown_file",
     "ingest_text",
     "normalize_source",
+    "process_inbox_source",
     "scan_inbox",
 ]

@@ -8,22 +8,13 @@ from llm_wiki.common import ensure_parent, new_id, relative_to, utc_now
 from llm_wiki.config import load_settings
 from llm_wiki.db.schema import connect, inspect_database
 from llm_wiki.jobs import create_agent_run, record_artifact, update_agent_run
-from llm_wiki.search import search_chunk_vectors
+from llm_wiki.search import search_workspace
 from llm_wiki.schema import record_human_decision, record_retry_instruction, supersede_candidate, validate_candidate_envelope
 from llm_wiki.workspace import resolve_workspace
 
 
 def _count(conn, query: str, params: tuple[object, ...] = ()) -> int:
     return int(conn.execute(query, params).fetchone()[0])
-
-
-def _fts5_safe_query(query: str) -> str:
-    """Return a conservative FTS5 query for user-entered natural language."""
-
-    terms = [part for part in query.replace('"', ' ').split() if part]
-    if not terms:
-        return '""'
-    return " OR ".join(f'"{term}"' for term in terms)
 
 
 def run_status(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
@@ -46,52 +37,7 @@ def run_status(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
 
 def run_search(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     workspace = resolve_workspace(args.path)
-    query = (args.query or "").strip()
-    if not query:
-        return 0, {"status": "ok", "query": "", "results": [], "workspace": str(workspace.root), "message": "No query provided"}
-    db_info = inspect_database(workspace.db)
-    conn = connect(workspace.db)
-    try:
-        results = []
-        metadata: dict[str, object] = {
-            "fts": {"enabled": bool(db_info.get("fts5")), "result_count": 0},
-            "vector": {"attempted": False, "result_count": 0},
-        }
-        if db_info.get("fts5"):
-            try:
-                rows = conn.execute(
-                    "SELECT chunk_id, source_id, snippet(source_chunks_fts, 2, '[', ']', '…', 12) AS snippet FROM source_chunks_fts WHERE source_chunks_fts MATCH ? LIMIT 10",
-                    (query,),
-                ).fetchall()
-            except Exception:
-                rows = conn.execute(
-                    "SELECT chunk_id, source_id, snippet(source_chunks_fts, 2, '[', ']', '…', 12) AS snippet FROM source_chunks_fts WHERE source_chunks_fts MATCH ? LIMIT 10",
-                    (_fts5_safe_query(query),),
-                ).fetchall()
-            fts_results = [{"target_type": "chunk", "target_id": row[0], "source_id": row[1], "snippet": row[2], "match_type": "fts"} for row in rows]
-            results.extend(fts_results)
-            metadata["fts"] = {"enabled": True, "result_count": len(fts_results)}
-        vector_search = search_chunk_vectors(conn, query, limit=5)
-        vector_results = vector_search["results"]
-        metadata["vector"] = vector_search["metadata"]
-        seen_chunk_ids = {item["target_id"] for item in results if item.get("target_type") == "chunk"}
-        results.extend(item for item in vector_results if item["target_id"] not in seen_chunk_ids)
-        if not results:
-            rows = conn.execute(
-                "SELECT id, title FROM sources WHERE title LIKE ? OR metadata_json LIKE ? LIMIT 10",
-                (f"%{query}%", f"%{query}%"),
-            ).fetchall()
-            results.extend({"target_type": "source", "target_id": row[0], "title": row[1], "match_type": "metadata"} for row in rows)
-    finally:
-        conn.close()
-    return 0, {
-        "status": "ok",
-        "query": query,
-        "results": results,
-        "metadata": metadata,
-        "workspace": str(workspace.root),
-        "message": f"Found {len(results)} result(s)",
-    }
+    return 0, search_workspace(workspace, args.query, limit=10, mode="combined")
 
 
 def run_validate(args: argparse.Namespace) -> tuple[int, dict[str, object]]:

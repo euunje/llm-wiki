@@ -1,0 +1,60 @@
+{# LLM Wiki Local — wiki template
+   Approved UX: .code-planner/02-planning/mockups/phase-3-page-wiki-ux-spec.md
+   Layout: TOC/list (not cards) + Markdown viewer, file path top, frontmatter hidden, graph bottom, mobile TOC/search button #}
+{% extends "base.html" %}
+{% block title %}Wiki — LLM Wiki Local{% endblock %}
+
+{% block content %}
+  <section class="screen">
+    <div class="screen-title">
+      <h2>📚 Wiki</h2>
+      <span class="hint">확정된 wiki 문서를 읽고 관계를 탐색합니다.</span>
+      <a class="btn" href="/search" aria-label="Search">🔍 Search / Ask (FTS + Embedding)</a>
+      <button class="btn mobile-toc-btn" id="btn-wiki-toc" aria-label="목차 열기" style="display:none">☰ 목차</button>
+      <button class="btn mobile-toc-btn" id="btn-wiki-search-mobile" aria-label="검색" style="display:none">🔍</button>
+    </div>
+    <div class="wiki-layout">
+      {# Left: TOC/list #}
+      <aside class="wiki-list-col" id="wiki-toc-col">
+        <div class="toolbar">
+          <input id="wiki-search" class="input" placeholder="Search by title, alias, path…" aria-label="Search wiki" />
+        </div>
+        <div id="wiki-page-list" class="wiki-toc-list">
+          <div class="loading"><span class="spinner"></span>Loading wiki pages…</div>
+        </div>
+      </aside>
+
+      {# Right: Document reader #}
+      <section class="wiki-detail-col" id="wiki-detail">
+        <div class="empty">
+          <p>왼쪽 목차에서 문서를 선택하세요.</p>
+          <a class="btn primary" href="/inbox">Open Inbox</a>
+          <a class="btn" href="/mapping">Open Mapping</a>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  {# Mobile TOC drawer #}
+  <div class="wiki-toc-drawer" id="wiki-toc-drawer" role="dialog" aria-modal="true" aria-label="Wiki 목차">
+    <div class="wiki-toc-drawer-header">
+      <h3>목차</h3>
+      <button class="btn" id="btn-wiki-toc-close" aria-label="목차 닫기">✕</button>
+    </div>
+    <div class="wiki-toc-drawer-body" id="wiki-toc-drawer-body">
+      {# Cloned from wiki-toc-col on mobile #}
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module">
+    import { loadWikiPages, bindWikiSearch, bindWikiMobileToc, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}";
+    document.addEventListener("DOMContentLoaded", () => {
+      bindSideDrawer();
+      loadWikiPages();
+      bindWikiSearch();
+      bindWikiMobileToc();
+    });
+  </script>
+{% endblock %}

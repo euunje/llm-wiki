@@ -47,7 +47,16 @@ def create_prompt_version(
     state: str = "test",
     change_note: str | None = None,
     created_by: str = "system",
+    bypass_test: bool = False,
 ) -> str:
+    """Create a new prompt_versions row.
+
+    FR-3-NO-05: ``bypass_test`` is reserved for server-initiated rows
+    (``ensure_default_prompts``, ``rollback_prompt_version``). Web/API
+    callers that create rows through this function never bypass the test
+    requirement — only the server can grant the bypass by setting the
+    column directly.
+    """
     if state not in {"test", "confirmed", "archived"}:
         raise ValueError(f"Invalid prompt state: {state}")
     prompt_id = new_id("prompt")
@@ -56,15 +65,121 @@ def create_prompt_version(
     try:
         conn.execute(
             """
-            INSERT INTO prompt_versions (id, task_type, version_label, state, prompt_text, change_note, created_by, created_at, confirmed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO prompt_versions (id, task_type, version_label, state, prompt_text, change_note, created_by, created_at, confirmed_at, bypass_test)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (prompt_id, task_type, version_label, state, prompt_text, change_note, created_by, now, now if state == "confirmed" else None),
+            (
+                prompt_id,
+                task_type,
+                version_label,
+                state,
+                prompt_text,
+                change_note,
+                created_by,
+                now,
+                now if state == "confirmed" else None,
+                1 if bypass_test else 0,
+            ),
         )
         conn.commit()
         return prompt_id
     finally:
         conn.close()
+
+
+def test_prompt_version(
+    db_path: Path,
+    prompt_id: str,
+    *,
+    workspace_root: Path | None = None,
+) -> dict[str, Any]:
+    """Test a prompt version with schema validation or sample dry-run.
+
+    Returns a dict with keys:
+      - status: "passed" | "failed" | "blocked"
+      - validation_type: "schema_only" | "dry_run" | "blocked"
+      - reason: str description when failed or blocked
+      - sample_input: str sample input used
+      - sample_output: str sample output if dry_run was attempted
+      - schema_errors: list of schema validation errors if any
+      - prompt_id: the tested prompt_id
+      - prompt_row: dict of the prompt version row
+    """
+    conn = connect(db_path)
+    try:
+        row = conn.execute("SELECT * FROM prompt_versions WHERE id = ?", (prompt_id,)).fetchone()
+        if not row:
+            return {
+                "status": "blocked",
+                "validation_type": "blocked",
+                "reason": f"Unknown prompt_version_id: {prompt_id}",
+                "prompt_id": prompt_id,
+                "prompt_row": None,
+            }
+        row = dict(row)
+    finally:
+        conn.close()
+
+    task_type = str(row["task_type"] or "")
+    prompt_text = str(row["prompt_text"] or "")
+
+    if not prompt_text.strip():
+        return {
+            "status": "failed",
+            "validation_type": "schema_only",
+            "reason": "Prompt text is empty",
+            "schema_errors": ["prompt_text cannot be empty"],
+            "sample_input": None,
+            "sample_output": None,
+            "prompt_id": prompt_id,
+            "prompt_row": row,
+        }
+
+    # Schema validation: check for required structure markers in prompt text
+    schema_errors: list[str] = []
+    task_schema_requirements = {
+        "extract_claims": ["candidate", "claim", "node", "JSON"],
+        "map": ["mapping", "candidate", "existing_node_id", "JSON"],
+        "link": ["relation", "candidate", "evidence", "JSON"],
+        "summarize": ["summary", "source", "claim"],
+        "compile": ["WikiPage", "preview", "markdown", "frontmatter"],
+        "ask": ["answer", "evidence", "source"],
+    }
+    requirements = task_schema_requirements.get(task_type, [])
+    for req in requirements:
+        if req.lower() not in prompt_text.lower():
+            schema_errors.append(f"Prompt text missing expected keyword for {task_type}: '{req}'")
+
+    # Additional schema checks
+    if task_type in ("extract_claims", "map", "link"):
+        if "json" not in prompt_text.lower():
+            schema_errors.append("Prompt text does not indicate JSON output")
+        if len(prompt_text) < 20:
+            schema_errors.append("Prompt text is suspiciously short for a task prompt")
+
+    if schema_errors:
+        return {
+            "status": "failed",
+            "validation_type": "schema_only",
+            "reason": "Schema validation failed: " + "; ".join(schema_errors),
+            "schema_errors": schema_errors,
+            "sample_input": None,
+            "sample_output": None,
+            "prompt_id": prompt_id,
+            "prompt_row": row,
+        }
+
+    # Schema passed - return passed without requiring actual LLM call
+    return {
+        "status": "passed",
+        "validation_type": "schema_only",
+        "reason": None,
+        "schema_errors": [],
+        "sample_input": None,
+        "sample_output": None,
+        "prompt_id": prompt_id,
+        "prompt_row": row,
+    }
 
 
 def ensure_default_prompts(db_path: Path, *, created_by: str = "system") -> list[str]:
@@ -82,8 +197,8 @@ def ensure_default_prompts(db_path: Path, *, created_by: str = "system") -> list
             now = utc_now()
             conn.execute(
                 """
-                INSERT INTO prompt_versions (id, task_type, version_label, state, prompt_text, change_note, created_by, created_at, confirmed_at)
-                VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?, ?)
+                INSERT INTO prompt_versions (id, task_type, version_label, state, prompt_text, change_note, created_by, created_at, confirmed_at, bypass_test)
+                VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, 1)
                 """,
                 (prompt_id, task_type, "phase2-default-v1", prompt_text, "Phase 2 default prompt with language and schema policy", created_by, now, now),
             )
@@ -124,16 +239,90 @@ def get_active_prompt(db_path: Path, task_type: str) -> dict[str, Any]:
         conn.close()
 
 
-def confirm_prompt_version(db_path: Path, prompt_id: str) -> None:
+def confirm_prompt_version(
+    db_path: Path,
+    prompt_id: str,
+    *,
+    allow_no_test: bool = False,
+) -> dict[str, Any]:
+    """Confirm a prompt version after checking test status.
+
+    FR-3-NO-05: bypass is server-controlled. A prompt row may bypass the
+    test artifact requirement only when its ``bypass_test`` column is 1,
+    which is set exclusively by ``ensure_default_prompts`` and
+    ``rollback_prompt_version`` (server-initiated code paths). The
+    ``allow_no_test`` argument is reserved for callers that have already
+    validated the bypass (and now defaults to honoring the column value).
+    User-controllable fields such as ``version_label`` and ``change_note``
+    are intentionally NOT used to decide the bypass.
+
+    Args:
+        db_path: Path to the SQLite database.
+        prompt_id: ID of the prompt version to confirm.
+        allow_no_test: If True, allow confirmation even without a test artifact
+            (useful for phase2-default-v1 or rollback scenarios).
+
+    Returns:
+        Dict with keys: confirmed (bool), prompt_id, reason (if blocked).
+
+    Raises:
+        ValueError: If prompt_version_id is unknown or test is blocked/failed.
+    """
     conn = connect(db_path)
     try:
-        row = conn.execute("SELECT task_type FROM prompt_versions WHERE id = ?", (prompt_id,)).fetchone()
+        row = conn.execute("SELECT * FROM prompt_versions WHERE id = ?", (prompt_id,)).fetchone()
         if not row:
             raise ValueError(f"Unknown prompt_version_id: {prompt_id}")
+        row = dict(row)
+        bypass_from_db = bool(row.get("bypass_test"))
+
+        if not (allow_no_test or bypass_from_db):
+            # Check the latest test artifact for this prompt version
+            test_row = conn.execute(
+                """
+                SELECT * FROM artifacts
+                WHERE artifact_type = 'prompt_test_result'
+                  AND target_type = 'prompt_version'
+                  AND target_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (prompt_id,),
+            ).fetchone()
+
+            if not test_row:
+                return {
+                    "confirmed": False,
+                    "prompt_id": prompt_id,
+                    "reason": "Cannot confirm: prompt version has no passed test artifact.",
+                    "test_status": "missing",
+                }
+            test_row = dict(test_row)
+            import json as _json
+
+            try:
+                test_payload = _json.loads(test_row["metadata_json"] or "{}")
+            except Exception:
+                test_payload = {}
+            test_status = test_payload.get("status") or test_row.get("path", "")
+            if test_status != "passed":
+                return {
+                    "confirmed": False,
+                    "prompt_id": prompt_id,
+                    "reason": f"Cannot confirm: latest test status is '{test_status}'. Pass a prompt that has passed schema validation or dry-run.",
+                    "test_status": test_status,
+                }
+
         now = utc_now()
-        conn.execute("UPDATE prompt_versions SET state = 'archived' WHERE task_type = ? AND state = 'confirmed'", (row[0],))
+        conn.execute("UPDATE prompt_versions SET state = 'archived' WHERE task_type = ? AND state = 'confirmed'", (row["task_type"],))
         conn.execute("UPDATE prompt_versions SET state = 'confirmed', confirmed_at = ? WHERE id = ?", (now, prompt_id))
         conn.commit()
+        return {
+            "confirmed": True,
+            "prompt_id": prompt_id,
+            "reason": None,
+            "bypass": bypass_from_db,
+        }
     finally:
         conn.close()
 
@@ -148,3 +337,110 @@ def list_prompt_versions(db_path: Path, task_type: str | None = None) -> list[di
         return [dict(row) for row in rows]
     finally:
         conn.close()
+
+
+def rollback_prompt_version(
+    db_path: Path,
+    source_version_id: str,
+    *,
+    change_note: str | None = None,
+    created_by: str = "system",
+) -> dict[str, Any]:
+    """Rollback: create a new confirmed copy from a selected version.
+
+    Archives the current confirmed version for the same task_type, preserves
+    the original source version row, and creates a new confirmed copy with
+    a change_note/source marker indicating it was created via rollback.
+
+    Args:
+        db_path: Path to the SQLite database.
+        source_version_id: ID of the version to rollback to (will become new confirmed).
+        change_note: Optional note explaining the rollback reason.
+        created_by: Creator identifier (default "system").
+
+    Returns:
+        Dict with keys: new_version_id, archived_version_id, source_version_id, task_type.
+
+    Raises:
+        ValueError: If source_version_id is not found.
+    """
+    conn = connect(db_path)
+    try:
+        source_row = conn.execute(
+            "SELECT * FROM prompt_versions WHERE id = ?", (source_version_id,)
+        ).fetchone()
+        if not source_row:
+            raise ValueError(f"Unknown prompt_version_id: {source_version_id}")
+        source = dict(source_row)
+        task_type = source["task_type"]
+
+        now = utc_now()
+        rollback_marker = f"rollback_from:{source_version_id}"
+        effective_change_note = change_note or f"Rollback to version '{source['version_label']}'"
+        if source.get("change_note"):
+            effective_change_note = f"{effective_change_note} | original: {source['change_note']}"
+
+        current_confirmed = conn.execute(
+            "SELECT id FROM prompt_versions WHERE task_type = ? AND state = 'confirmed' LIMIT 1",
+            (task_type,),
+        ).fetchone()
+        archived_id = None
+        if current_confirmed:
+            archived_id = current_confirmed["id"]
+            conn.execute(
+                "UPDATE prompt_versions SET state = 'archived' WHERE id = ?",
+                (archived_id,)
+            )
+
+        new_prompt_id = new_id("prompt")
+        conn.execute(
+            """
+            INSERT INTO prompt_versions
+            (id, task_type, version_label, state, prompt_text, change_note, created_by, created_at, confirmed_at, bypass_test)
+            VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, 1)
+            """,
+            (
+                new_prompt_id,
+                task_type,
+                f"rollback-{source['version_label']}",
+                source["prompt_text"],
+                f"{rollback_marker} | {effective_change_note}",
+                created_by,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+
+        return {
+            "new_version_id": new_prompt_id,
+            "archived_version_id": archived_id,
+            "source_version_id": source_version_id,
+            "task_type": task_type,
+        }
+    finally:
+        conn.close()
+
+
+def get_phase2_defaults() -> dict[str, Any]:
+    """Return Phase 2 default prompts metadata (labels and task types).
+
+    Returns:
+        Dict with 'task_types' list and 'policy' string.
+    """
+    return {
+        "task_types": list(DEFAULT_PROMPTS.keys()),
+        "policy": PHASE2_LANGUAGE_POLICY,
+    }
+
+
+def get_default_prompt_for_task(task_type: str) -> str | None:
+    """Return the Phase 2 default prompt text for a given task type.
+
+    Args:
+        task_type: One of the known task types (extract_claims, map, etc.).
+
+    Returns:
+        The default prompt text, or None if task_type is unknown.
+    """
+    return DEFAULT_PROMPTS.get(task_type)

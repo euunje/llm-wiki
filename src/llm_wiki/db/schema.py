@@ -170,9 +170,12 @@ SCHEMA_STATEMENTS = [
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL,
       confirmed_at TEXT,
+      bypass_test INTEGER NOT NULL DEFAULT 0,
       UNIQUE(task_type, version_label)
     )
     """,
+    # FR-3-NO-05: migration adds bypass_test column to existing prompt_versions tables.
+    "ALTER TABLE prompt_versions ADD COLUMN bypass_test INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -203,7 +206,7 @@ FTS_STATEMENTS = [
 
 def connect(db_path: Path) -> sqlite3.Connection:
     ensure_parent(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -215,7 +218,13 @@ def ensure_database(db_path: Path) -> SchemaResult:
     migrations_applied: list[str] = []
     try:
         for statement in SCHEMA_STATEMENTS:
-            conn.execute(statement)
+            try:
+                conn.execute(statement)
+            except sqlite3.DatabaseError as exc:
+                # ALTER TABLE on an already-migrated column will raise. Tolerate it
+                # because the migration is recorded in schema_migrations below.
+                if "duplicate column" not in str(exc).lower():
+                    raise
         migration_id = "phase1_initial_schema"
         exists = conn.execute(
             "SELECT 1 FROM schema_migrations WHERE id = ?", (migration_id,)
@@ -226,6 +235,20 @@ def ensure_database(db_path: Path) -> SchemaResult:
                 (migration_id, utc_now()),
             )
             migrations_applied.append(migration_id)
+        # FR-3-NO-05: record the bypass_test migration so it does not retry on existing DBs.
+        bypass_migration = "phase3_prompt_bypass_test"
+        bypass_exists = conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE id = ?", (bypass_migration,)
+        ).fetchone()
+        if not bypass_exists:
+            cols = [row[1] for row in conn.execute("PRAGMA table_info(prompt_versions)").fetchall()]
+            if "bypass_test" not in cols:
+                conn.execute("ALTER TABLE prompt_versions ADD COLUMN bypass_test INTEGER NOT NULL DEFAULT 0")
+            conn.execute(
+                "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+                (bypass_migration, utc_now()),
+            )
+            migrations_applied.append(bypass_migration)
         fts5_enabled = True
         fts5_message = "FTS5 available"
         try:
