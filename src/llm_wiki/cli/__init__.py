@@ -17,13 +17,11 @@ from llm_wiki.cli.ops_cmds import (
     run_fix,
     run_healthcheck,
     run_lint,
-    run_retry,
     run_search,
     run_status,
-    run_sync,
     run_validate,
 )
-from llm_wiki.cli.phase1_placeholders import run_ask, run_compile, run_extract_claims, run_link, run_map, run_summarize
+from llm_wiki.cli.phase1_placeholders import run_ask, run_extract_claims
 from llm_wiki.cli.route_cmd import run_route_get, run_route_set
 from llm_wiki.cli.settings_cmd import run_settings_get, run_settings_set
 from llm_wiki.cli.web_cmd import run_web_server
@@ -74,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest_parser = subparsers.add_parser("ingest", help="Ingest a Markdown file")
     ingest_parser.add_argument("input_path", help="Markdown file path")
+    ingest_parser.add_argument("--llm", action="store_true", dest="use_llm", help="Attempt LLM-assisted extraction with deterministic fallback")
     ingest_parser.add_argument("--path", default=".", help="Workspace root path")
     ingest_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
     ingest_parser.set_defaults(handler=run_ingest)
@@ -136,31 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     extract_claims.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
     extract_claims.set_defaults(handler=run_extract_claims)
 
-    summarize = subparsers.add_parser("summarize", help="Phase 1 summarize placeholder")
-    summarize.add_argument("target", help="Target selector")
-    summarize.add_argument("--path", default=".", help="Workspace root path")
-    summarize.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
-    summarize.set_defaults(handler=run_summarize)
-
-    link = subparsers.add_parser("link", help="Phase 1 link placeholder")
-    link.add_argument("target", help="Target selector")
-    link.add_argument("--path", default=".", help="Workspace root path")
-    link.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
-    link.set_defaults(handler=run_link)
-
-    map_parser = subparsers.add_parser("map", help="Phase 1 map placeholder")
-    map_parser.add_argument("source_id", help="Source ID")
-    map_parser.add_argument("--path", default=".", help="Workspace root path")
-    map_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
-    map_parser.set_defaults(handler=run_map)
-
-    compile_parser = subparsers.add_parser("compile", help="Phase 1 compile placeholder")
-    compile_parser.add_argument("target", help="Target selector")
-    compile_parser.add_argument("--path", default=".", help="Workspace root path")
-    compile_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
-    compile_parser.set_defaults(handler=run_compile)
-
-    ask_parser = subparsers.add_parser("ask", help="Phase 1 ask placeholder")
+    ask_parser = subparsers.add_parser("ask", help="Ask a question against the workspace search/RAG index")
     ask_parser.add_argument("query", help="Question text")
     ask_parser.add_argument("--path", default=".", help="Workspace root path")
     ask_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
@@ -178,25 +153,15 @@ def build_parser() -> argparse.ArgumentParser:
     lint_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
     lint_parser.set_defaults(handler=run_lint)
 
-    fix_parser = subparsers.add_parser("fix", help="Minimal Phase 1 fix report")
-    fix_parser.add_argument("target", nargs="?", help="Optional target")
-    fix_parser.add_argument("--apply", action="store_true", help="Apply safe formal fixes")
-    fix_parser.add_argument("--path", default=".", help="Workspace root path")
-    fix_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
-    fix_parser.set_defaults(handler=run_fix)
-
-    retry_parser = subparsers.add_parser("retry", help="Record a Phase 1 retry request")
-    retry_parser.add_argument("target_id", help="Failed job_id or run_id")
-    retry_parser.add_argument("--instruction", help="Retry instruction metadata")
-    retry_parser.add_argument("--path", default=".", help="Workspace root path")
-    retry_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
-    retry_parser.set_defaults(handler=run_retry)
-
-    sync_parser = subparsers.add_parser("sync", help="Dry-run/apply sync report")
-    sync_parser.add_argument("--apply", action="store_true", help="Apply planned safe vault views")
-    sync_parser.add_argument("--path", default=".", help="Workspace root path")
-    sync_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
-    sync_parser.set_defaults(handler=run_sync)
+    repair_parser = subparsers.add_parser(
+        "debug-repair-source-stubs",
+        help="Debug: repair missing source stub markdown files",
+    )
+    repair_parser.add_argument("target", nargs="?", help="Optional target")
+    repair_parser.add_argument("--apply", action="store_true", help="Apply safe source-stub repairs")
+    repair_parser.add_argument("--path", default=".", help="Workspace root path")
+    repair_parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON output")
+    repair_parser.set_defaults(handler=run_fix)
 
     status_parser = subparsers.add_parser("status", help="Workspace status summary")
     status_parser.add_argument("--path", default=".", help="Workspace root path")

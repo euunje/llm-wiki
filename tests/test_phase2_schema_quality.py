@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from llm_wiki.cli import build_parser
 from llm_wiki.db.schema import connect
@@ -128,31 +129,18 @@ def test_extract_claims_persists_candidates_and_quality_report(workspace: Path, 
     finally:
         conn.close()
     assert count >= 2
-    assert prompts >= 6
+    assert prompts >= 2
 
 
-def test_map_and_retry_candidate_superseded_flow(workspace: Path, samples_dir: Path) -> None:
+def test_map_candidate_generation_flow(workspace: Path, samples_dir: Path) -> None:
     source_id = _init_ingest_pipeline(workspace, samples_dir / "rag.md")
-    exit_code, payload = _invoke(["map", source_id], workspace)
+    from llm_wiki.cli.phase1_placeholders import run_map
+
+    exit_code, payload = run_map(SimpleNamespace(path=str(workspace), source_id=source_id))
     assert exit_code == 0, payload
     assert payload["validation"]["ok"] is True
     assert payload["mapping_candidates"]
-
-    candidate_id = payload["persisted_candidates"][0]["id"]
-    exit_code, retry_payload = _invoke(["retry", candidate_id, "--instruction", "RAG와 Agentic RAG를 구분"], workspace)
-    assert exit_code == 0, retry_payload
-    assert retry_payload["target_kind"] == "candidate"
-    assert retry_payload["retry_instruction_id"]
-    assert retry_payload["human_decision_id"]
-    assert retry_payload["superseded_by"]
-
-    conn = connect(workspace / "data" / "wiki.sqlite")
-    try:
-        row = conn.execute("SELECT status, superseded_by FROM review_candidates WHERE id = ?", (candidate_id,)).fetchone()
-    finally:
-        conn.close()
-    assert row[0] == "superseded"
-    assert row[1] == retry_payload["superseded_by"]
+    assert payload["persisted_candidates"]
 
 
 def test_quality_evaluator_reports_gold_availability() -> None:

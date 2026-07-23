@@ -8,6 +8,7 @@ from llm_wiki.db.schema import connect
 from llm_wiki.jobs import create_job, record_artifact, update_job
 from llm_wiki.pipeline.errors import UserInputError
 from llm_wiki.pipeline.locator import build_locator
+from llm_wiki.pipeline.section_chunking import chunk_markdown_by_section
 from llm_wiki.workspace import WorkspacePaths
 
 
@@ -27,6 +28,19 @@ def _choose_boundary(text: str, start: int, max_chars: int) -> int:
 
 
 def _chunk_text(source_id: str, text: str, max_chars: int, overlap_chars: int) -> list[dict[str, object]]:
+    section_chunks = chunk_markdown_by_section(text, max_chars=max_chars)
+    if section_chunks:
+        return [
+            {
+                "id": new_id("chunk"),
+                "source_id": source_id,
+                "chunk_index": chunk.chunk_index,
+                "text": chunk.text,
+                "token_count": _token_count(chunk.text),
+                "locator": chunk.locator(source_id),
+            }
+            for chunk in section_chunks
+        ]
     chunks: list[dict[str, object]] = []
     start = 0
     chunk_index = 0
@@ -70,26 +84,54 @@ def chunk_source(workspace: WorkspacePaths, source_id: str) -> dict[str, object]
         text = normalized_path.read_text(encoding="utf-8")
         chunks = _chunk_text(source_id, text, max_chars=max_chars, overlap_chars=overlap_chars)
         now = utc_now()
-        conn.execute("DELETE FROM source_chunks WHERE source_id = ?", (source_id,))
+        existing_rows = conn.execute(
+            "SELECT id, chunk_index, text, token_count, locator_json FROM source_chunks WHERE source_id = ?",
+            (source_id,),
+        ).fetchall()
+        existing_by_index = {int(row["chunk_index"]): row for row in existing_rows}
+        new_indexes = {int(chunk["chunk_index"]) for chunk in chunks}
         for chunk in chunks:
+            chunk_index = int(chunk["chunk_index"])
+            existing = existing_by_index.get(chunk_index)
+            chunk_id = str(existing["id"]) if existing is not None else str(chunk["id"])
+            chunk["id"] = chunk_id
+            locator_json = json.dumps(chunk["locator"], ensure_ascii=False, sort_keys=True)
+            if (
+                existing is not None
+                and str(existing["text"]) == str(chunk["text"])
+                and int(existing["token_count"]) == int(chunk["token_count"])
+                and str(existing["locator_json"]) == locator_json
+            ):
+                continue
             conn.execute(
                 """
                 INSERT INTO source_chunks (
                     id, source_id, chunk_index, text, token_count, locator_json,
                     embedding_status, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                ON CONFLICT(source_id, chunk_index) DO UPDATE SET
+                    text = excluded.text,
+                    token_count = excluded.token_count,
+                    locator_json = excluded.locator_json,
+                    embedding_status = 'pending',
+                    updated_at = excluded.updated_at
                 """,
                 (
-                    chunk["id"],
+                    chunk_id,
                     chunk["source_id"],
-                    chunk["chunk_index"],
+                    chunk_index,
                     chunk["text"],
                     chunk["token_count"],
-                    json.dumps(chunk["locator"], ensure_ascii=False, sort_keys=True),
+                    locator_json,
                     now,
                     now,
                 ),
             )
+        stale_ids = [row["id"] for row in existing_rows if int(row["chunk_index"]) not in new_indexes]
+        if stale_ids:
+            placeholders = ",".join("?" for _ in stale_ids)
+            conn.execute(f"DELETE FROM embeddings WHERE target_type = 'chunk' AND target_id IN ({placeholders})", stale_ids)
+            conn.execute(f"DELETE FROM source_chunks WHERE id IN ({placeholders})", stale_ids)
         conn.execute("UPDATE sources SET pipeline_stage = 'chunked', updated_at = ? WHERE id = ?", (now, source_id))
         conn.commit()
         artifact = record_artifact(

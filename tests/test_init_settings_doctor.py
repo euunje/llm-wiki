@@ -115,16 +115,19 @@ def test_settings_get_resolves_llm_values_from_documented_env_keys(
     _invoke(["init"], workspace)
     monkeypatch.setenv("LLM_WIKI_LLM_ENDPOINT", "https://example.invalid/v1")
     monkeypatch.setenv("LLM_WIKI_CHAT_MODEL", "chat-from-env")
-    monkeypatch.setenv("LLM_WIKI_EMBEDDING_MODEL", "embed-from-env")
+    monkeypatch.setenv("LLM_WIKI_EMBEDDING_MODEL", "ignored-embedding-env")
 
     _, payload = _invoke(["settings", "get"], workspace)
     llm = payload["value"]["llm"]
+    embedding = payload["value"]["embedding"]
     assert llm["endpoint"] == "https://example.invalid/v1"
     assert llm["default_chat_model"] == "chat-from-env"
-    assert llm["default_embedding_model"] == "embed-from-env"
+    assert embedding["model_root"] == "data/models/embeddings"
+    assert embedding["default_model"] != "ignored-embedding-env"
     assert llm["models"]["chat_default"]["endpoint"] == "https://example.invalid/v1"
     assert llm["models"]["chat_default"]["model_name"] == "chat-from-env"
-    assert llm["models"]["embedding_default"]["model_name"] == "embed-from-env"
+    assert llm["models"]["embedding_default"]["provider"] == "local_embedding_folder"
+    assert llm["models"]["embedding_default"]["request_format"] == "local_embedding_folder"
 
 
 def test_doctor_reports_workspace_state(workspace: Path) -> None:

@@ -64,7 +64,7 @@ def resolve_workspace(path: str | Path | None) -> WorkspacePaths:
         artifacts=data / "artifacts",
         exports=data / "exports",
         cache=data / "cache",
-        settings_file=settings_dir / "settings.yaml",
+        settings_file=root / "settings.yaml",
         env_file=root / ".env",
     )
 

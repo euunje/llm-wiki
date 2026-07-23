@@ -130,11 +130,10 @@ def test_mapping_template_has_state_containers(workspace: Path, monkeypatch: pyt
     response = client.get("/mapping")
     assert response.status_code == 200
     assert 'data-state-container="mapping-queue"' in response.text
-    assert 'data-state-container="wiki-matches"' in response.text
-    assert 'data-state-container="step1"' in response.text
-    assert 'data-state-container="step2"' in response.text
-    assert 'data-state-container="step3"' in response.text
-    assert 'data-state-container="errors"' in response.text
+    assert 'id="mapping-node-list"' in response.text
+    assert 'id="mapping-node-editor"' in response.text
+    assert '매핑 노드 검토 / Mapping Node Review' in response.text
+    assert '노드명, 실제 Wiki 문서 Frontmatter, 본문' in response.text
 
 
 def test_search_template_has_state_containers(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:

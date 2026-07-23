@@ -51,6 +51,52 @@ def _client(workspace: Path, monkeypatch: pytest.MonkeyPatch):
     return client, paths
 
 
+def test_settings_llm_test_connection_button_posts_model_tests() -> None:
+    app_js = Path("src/llm_wiki/web/static/js/app.js").read_text(encoding="utf-8")
+    settings_handler_start = app_js.index('document.getElementById("btn-settings-test-connection")')
+    settings_handler = app_js[settings_handler_start: app_js.index('document.getElementById("btn-settings-refresh-models")', settings_handler_start)]
+    assert 'apiFetch(API.settingsLlmTest("chat_default"), { method: "POST" })' in settings_handler
+    assert 'apiFetch(API.settingsLlmTest("embedding_default"), { method: "POST" })' in settings_handler
+    assert 'persistSettingsLlmBasicFormBeforeTest' in settings_handler
+    assert 'apiFetch(API.settingsLlmTest("chat_default"));' not in settings_handler
+
+
+def test_settings_llm_ui_shows_provider_model_names_not_internal_slot_ids() -> None:
+    app_js = Path("src/llm_wiki/web/static/js/app.js").read_text(encoding="utf-8")
+    assert 'Current LLM model' in app_js
+    assert 'Current chat model' not in app_js
+    assert 'settings-llm-model-select' in app_js
+    assert 'settings-embedding-model-select' in app_js
+    assert 'settings-embedding-model-input' not in app_js
+    assert 'provider_models' in app_js
+    assert 'embedding_models' in app_js
+    assert 'Fastembed supported models' not in app_js
+    assert 'qdrant.github.io/fastembed' not in app_js
+    assert 'python -c' not in app_js
+    assert 'cache_dir' not in app_js
+    assert '로컬 폴더의 하위 디렉토리 목록' in app_js
+    assert '실제 LLM 호출 단위 · ${liveGroups.length}개' in app_js
+    assert '현재 실제 LLM과 통신하는 prompt만 여기에 표시됩니다' in app_js
+    assert 'name="chat_model_name"' in app_js
+    assert 'name="timeout_seconds"' in app_js
+    assert 'Model timeout seconds' in app_js
+    assert 'OpenAI-compatible base URL 또는 /v1 URL' in app_js
+    assert ':11434' in app_js
+    assert ':1234' in app_js
+    assert '["127", "0", "0", "1"].join(".")' in app_js
+    assert 'modelDisplayName' in app_js
+    registry_start = app_js.index("// Model registry")
+    registry_section = app_js[registry_start: app_js.index("// Task routes", registry_start)]
+    assert 'Chat models' in registry_section
+    assert 'Fastembed supported models' not in registry_section
+    assert 'fastembed_models' not in registry_section
+    assert '<span class="model-name">${escapeHtml(modelDisplayName(m))}</span>' in registry_section
+    route_start = app_js.index("// Task routes")
+    route_section = app_js[route_start: app_js.index("// Concurrency", route_start)]
+    assert 'modelDisplayName(m)' in route_section
+    assert '<option value="${escapeHtml(m.id)}">${escapeHtml(m.id)}</option>' not in route_section
+
+
 def test_llm_route_and_prompt_test_confirm_flow_persist(
     workspace: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -59,12 +105,18 @@ def test_llm_route_and_prompt_test_confirm_flow_persist(
 
     route = client.post(
         "/api/settings/llm/route",
-        json={"task_type": "map", "model_id": "chat_review"},
+        json={"task_type": "ask", "model_id": "chat_review"},
     )
     assert route.status_code == 200
-    assert route.json()["route"] == {"task_type": "map", "model_id": "chat_review"}
+    assert route.json()["route"] == {"task_type": "ask", "model_id": "chat_review"}
     persisted_settings = load_settings(paths.settings_file, resolve_env=False)
-    assert persisted_settings["llm"]["routing"]["map"] == "chat_review"
+    assert persisted_settings["llm"]["routing"]["ask"] == "chat_review"
+
+    removed_route = client.post(
+        "/api/settings/llm/route",
+        json={"task_type": "map", "model_id": "chat_review"},
+    )
+    assert removed_route.status_code == 422
 
     created = client.post(
         "/api/settings/prompts/test",
@@ -139,28 +191,48 @@ def test_llm_config_save_api_persists_without_api_key_value(
     response = client.post(
         "/api/settings/llm/config",
         json={
+            "provider": "lmstudio",
             "endpoint": "https://llm.example.test/v1",
             "api_key_env": "LLM_WIKI_TEST_API_KEY",
             "default_chat_model": "chat_default",
             "default_embedding_model": "embedding_default",
             "chat_model_name": "test-chat-model",
             "embedding_model_name": "test-embedding-model",
+            "embedding_model_root": "models/embeddings",
+            "timeout_seconds": 240,
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
+    assert payload["settings"]["provider"] == "lmstudio"
     assert payload["settings"]["api_key_env"] == "LLM_WIKI_TEST_API_KEY"
     assert "api_key" not in payload["settings"]
 
     persisted = load_settings(paths.settings_file, resolve_env=False)
     llm = persisted["llm"]
+    assert llm["provider"] == "lmstudio"
     assert llm["endpoint"] == "https://llm.example.test/v1"
     assert llm["api_key_env"] == "LLM_WIKI_TEST_API_KEY"
+    assert llm["timeout_seconds"] == 240
     assert llm["default_chat_model"] == "chat_default"
     assert llm["models"]["chat_default"]["model_name"] == "test-chat-model"
-    assert llm["models"]["embedding_default"]["model_name"] == "test-embedding-model"
+    assert llm["models"]["embedding_default"]["provider"] == "local_embedding_folder"
+    assert llm["models"]["embedding_default"]["request_format"] == "local_embedding_folder"
+    assert "endpoint" not in llm["models"]["embedding_default"]
+    assert persisted["embedding"]["default_model"] == "test-embedding-model"
+    assert persisted["embedding"]["model_root"] == "models/embeddings"
+
+    models_payload = client.get("/api/settings/models")
+    assert models_payload.status_code == 200
+    models_by_id = {model["id"]: model for model in models_payload.json()["models"]}
+    assert models_by_id["chat_default"]["model_name"] == "test-chat-model"
+    assert models_by_id["chat_default"]["display_name"] == "test-chat-model"
+    assert models_payload.json()["settings"]["provider"] == "lmstudio"
+    assert "provider_models" in models_payload.json()
+    assert "embedding_models" in models_payload.json()
+    assert "fastembed_models" in models_payload.json()
 
     conn = connect(paths.db)
     try:
@@ -331,13 +403,13 @@ def test_active_prompt_id_recorded_in_placeholder_runs(
     workspace: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """WU-005: extract_claims and summarize runners record active prompt_version_id."""
+    """WU-005: extract_claims and ask runners record active prompt_version_id."""
     client, paths = _client(workspace, monkeypatch)
 
-    # Verify that get_active_prompt works for all task types
+    # Verify that get_active_prompt works for live task types
     from llm_wiki.schema.prompts import get_active_prompt
 
-    for task_type in ("extract_claims", "summarize", "map", "link", "compile", "ask"):
+    for task_type in ("extract_claims", "ask"):
         prompt = get_active_prompt(paths.db, task_type)
         assert prompt is not None
         assert "id" in prompt

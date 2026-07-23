@@ -17,7 +17,8 @@ def _client(workspace: Path):
     return TestClient(create_app(workspace))
 
 
-def test_login_requires_configured_password(workspace: Path) -> None:
+def test_login_requires_configured_password(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LLM_WIKI_WEB_ADMIN_PASSWORD", raising=False)
     client = _client(workspace)
     response = client.post("/login", data={"password": "anything"})
     assert response.status_code == 503

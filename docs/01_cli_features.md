@@ -20,8 +20,8 @@ CLI는 다음 원칙을 따른다.
 init/settings
   -> inbox/raw
   -> normalize/chunk/embed
-  -> extract/link/map/compile
-  -> validate/lint/fix/retry
+  -> extract/map/wiki ingest
+  -> validate/lint/debug-repair-source-stubs
   -> search/ask/status
 ```
 
@@ -293,33 +293,19 @@ wiki 품질 규칙을 검사한다.
 - 오래된 embedding
 - DB와 vault 파일 불일치
 
-### `wiki fix <target>`
+### `wiki debug-repair-source-stubs [target]`
 
-수정 가능한 오류를 자동 수정한다.
+디버그/운영 복구용 명령이다. DB에는 source row가 있는데
+`vault/10_Wiki/sources/<source_id>.md` stub 파일이 누락된 경우에만
+복구 계획을 출력하거나 `--apply`로 안전 복구한다.
 
-fix 대상:
+범위:
 
-- 깨진 JSON format
-- 누락 가능한 기본 필드
-- frontmatter 정렬
-- alias normalize
-- Obsidian link normalize
-- schema version migration
-- stale embedding 재생성
+- source stub markdown 복구
+- 기본 frontmatter 재작성
+- 원문/claim/candidate 의미 변경 없음
 
-`fix`는 원본 정보를 바꾸는 작업과 형식만 고치는 작업을 구분해야 한다.
-
-### `wiki retry <job_id|run_id>`
-
-실패한 job 또는 agent run을 다시 실행한다.
-
-필요 기능:
-
-- 같은 입력으로 재실행
-- 다른 모델로 재실행
-- 특정 단계부터 재실행
-- 이전 artifact와 새 artifact 비교
-- retry 횟수 제한
+`fix`라는 일반 명령명은 제거했다. 후보 retry는 CLI가 아니라 Web review/API 흐름에서 처리한다.
 
 ## 8. 모델 연결과 라우팅
 
@@ -465,12 +451,16 @@ v1에서 추가할 CLI:
 ```text
 wiki embed
 wiki extract-claims
-wiki link
-wiki map
-wiki compile
-wiki fix
-wiki retry
 wiki search
+wiki debug-repair-source-stubs
+```
+
+Web/API 전용 또는 제거된 CLI:
+
+```text
+link/map/compile: 현재 별도 top-level CLI가 아니라 ingest/Web pipeline 내부 단계
+fix: debug-repair-source-stubs로 명칭 축소
+retry/sync: CLI에서 제거; retry는 Web review/API 흐름에서 처리
 ```
 
 v2에서 추가할 CLI:

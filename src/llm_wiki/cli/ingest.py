@@ -9,7 +9,7 @@ from llm_wiki.workspace import resolve_workspace
 
 def run_ingest(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     workspace = resolve_workspace(args.path)
-    payload = ingest_markdown_file(workspace, args.input_path)
+    payload = ingest_markdown_file(workspace, args.input_path, use_llm=getattr(args, "use_llm", False))
     payload.update({"workspace": str(workspace.root)})
     return 0 if payload.get("status") != "duplicate" else 0, payload
 

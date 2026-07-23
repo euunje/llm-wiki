@@ -256,21 +256,119 @@ LLM이 wiki를 사용할 때는 다음 순서를 기본으로 한다.
 
 CLI는 자동화의 중심이다. Web UI와 외부 에이전트는 CLI 또는 API를 통해 같은 작업을 실행한다.
 
-초기 명령 후보:
+현재 CLI 명령 표면은 사용자/운영 명령과 debug/dev 명령을 분리한다.
 
 ```text
-wiki ingest <path|url>
+사용자/운영:
+wiki init
+wiki ingest <file.md> [--llm]
+wiki ingest-text <title> --text <text>
+wiki inbox scan
+wiki ask <question>
+wiki search <query>
+wiki status
+wiki web
+wiki settings get|set
+wiki models list|test
+wiki route get|set
+wiki doctor
+wiki healthcheck
+
+Debug/dev:
 wiki normalize <source_id>
 wiki chunk <source_id>
-wiki embed <target>
-wiki extract-claims <source_id>
+wiki embed source:<source_id>
+wiki extract-claims <source_id> [--llm]
 wiki validate
-wiki link
-wiki compile <concept_id>
-wiki healthcheck
+wiki lint
+wiki debug-repair-source-stubs
 ```
 
 CLI는 사람이 보지 않아도 실행 가능해야 한다. 그러나 모든 실행 결과는 DB와 artifact로 남아 Web UI에서 확인할 수 있어야 한다.
+
+### Wiki page candidate 생성 동작 logic
+
+LLM은 의미 기반 page candidate를 생성하거나 보완하고, CLI는 parse, repair, provenance, graph 연결, 최종 파일 검증을 책임진다. LLM 응답을 그대로 신뢰하지 않고, 원문 응답과 오류 내용을 artifact로 남긴 뒤 한 번의 correction retry를 허용한다.
+
+```text
+[CLI] section chunks 준비
+
+→ [LLM] page candidate 생성 요청
+    ├─ document_type 먼저 분류
+    ├─ spec/reference/manual/protocol/API/structured_guide → 6-12개 목표
+    ├─ short_readme/announcement/single_tool_overview → 1-4개 목표
+    ├─ essay/analysis/benchmark/comparison → 3-6개 목표
+    └─ 선택한 유형/range에 맞춰 candidate granularity 결정
+
+→ [LLM] page candidate JSON 응답
+    ├─ document_type 포함
+    ├─ target_candidate_count 포함
+    └─ candidates 배열 포함
+
+→ [CLI] JSON parse / syntax repair
+    ├─ JSON parse 성공
+    │   → schema normalize
+    └─ JSON parse 실패
+        ├─ [CLI] json_repair 시도
+        ├─ repair 성공
+        │   → schema normalize
+        └─ repair 실패
+            → [LLM retry] 원본 JSON + parse error 전달
+            → 재응답 parse
+
+→ [CLI] schema normalize / validation
+    ├─ ok
+    │   → merge
+    └─ fail
+        ├─ missing required fields
+        ├─ wrong field types
+        ├─ empty candidates
+        ├─ missing tags
+        ├─ missing title/body/summary
+        └─ [LLM retry] 원본 JSON + validation errors + schema contract 전달
+
+→ [CLI] retry response parse / normalize
+    ├─ ok
+    │   → merge
+    └─ fail
+        → deterministic fallback or failed
+
+→ [CLI] merge_wiki_page_candidates
+
+→ [CLI] repair_and_validate_candidates
+    ├─ source_id 누락
+    ├─ source_common_tag 누락
+    ├─ node_type tag 누락
+    ├─ source_section_refs 누락
+    └─ evidence_claims 누락
+    → deterministic repair
+
+→ [CLI] validate_wiki_page_candidate
+    ├─ ok
+    │   → write
+    └─ fail
+        → failed/degraded artifact
+
+→ [CLI] write_compiled_candidates
+
+→ [CLI] validate_compiled_pages
+    ├─ ok
+    │   → success
+    └─ fail
+        → compiler/write failure
+```
+
+처리 기준은 다음과 같다.
+
+| 실패 유형 | 1차 처리 | 2차 처리 |
+|---|---|---|
+| JSON 문법 오류 | CLI JSON repair | 실패 시 LLM correction retry |
+| schema field 불일치 | CLI normalize | 실패 시 LLM correction retry |
+| 필수 의미값 누락 | LLM correction retry | 실패 시 deterministic fallback 또는 failed |
+| source_id/common tag/node_type tag 누락 | CLI authoritative repair | 재검증 실패 시 quality gate failure |
+| compiled markdown 오류 | CLI/compiler failure | LLM retry 대상 아님 |
+
+source provenance와 graph identity는 CLI가 authoritative하게 주입한다. LLM은 `title`, `summary`, `semantic tags`, `draft_body`, `aliases` 같은 의미적 초안을 담당한다.
 
 ## 9. Web UI 방향
 

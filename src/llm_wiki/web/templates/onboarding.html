@@ -147,11 +147,17 @@
 
           {# Existing vault mode #}
           <div id="vault-existing-mode" class="vault-mode-section" style="display:none">
-            <p class="hint">기존 vault root를 먼저 선택합니다. 그 다음 같은 브라우저로 기존 하위 폴더를 열어가며 inbox/wiki/review/raws 역할에 매핑하고 config yaml/settings로 저장합니다.</p>
+            <p class="hint">기존 vault root를 먼저 선택합니다. 위 폴더 브라우저에서 폴더를 열고 Inbox/Raws/Wiki 메인 역할을 바로 지정합니다. Wiki 안의 세부 폴더명은 아래 고급 설정에서 이름만 입력합니다.</p>
             <div id="vault-browser-existing" class="vault-file-browser">
               <div class="vault-path-bar">
                 <span class="vault-current-path" id="vault-current-path-existing">~</span>
                 <button class="btn" id="btn-vault-parent-existing" type="button">↑ Parent</button>
+              </div>
+              <div class="vault-browser-quick-actions" aria-label="현재 열린 폴더 역할 지정">
+                <span class="hint">현재 폴더를 바로 지정:</span>
+                <button class="btn compact" type="button" data-quick-assign-role="inbox">📥 Inbox</button>
+                <button class="btn compact" type="button" data-quick-assign-role="raws">🗄️ Raws</button>
+                <button class="btn compact" type="button" data-quick-assign-role="wiki">📚 Wiki</button>
               </div>
               <div id="vault-folder-list-existing" class="vault-folder-list">
                 <div class="loading"><span class="spinner"></span>Loading folders…</div>
@@ -162,31 +168,41 @@
               </label>
             </div>
             <div class="folder-select-panel">
-              <p class="hint">폴더를 클릭하면 안으로 들어갑니다. 기존 vault로 사용할 폴더를 열어둔 뒤 아래 Select 버튼을 누르세요.</p>
-              <button class="btn" id="btn-select-existing-folder" type="button">Select current folder as existing vault</button>
+              <p class="hint">폴더를 클릭하면 안으로 들어갑니다. 기존 vault root로 사용할 폴더를 열어둔 뒤 선택합니다. 저장 후에도 이 Vault 단계에 머물며 상태만 갱신됩니다.</p>
+              <button class="btn" id="btn-select-existing-folder" type="button">Select as vault root</button>
             </div>
-            <p class="hint vault-selection-summary">현재 선택된 폴더: <span id="vault-selected-folder-existing">선택되지 않음</span></p>
+            <p class="hint vault-selection-summary">현재 선택된 vault root: <span id="vault-selected-folder-existing">선택되지 않음</span></p>
             <div class="vault-mapping-flow-note">
               <b>Mapping flow</b>
               <ol>
                 <li>기존 vault root를 선택합니다.</li>
-                <li>폴더를 클릭해 기존 inbox/wiki/review/raws 폴더로 이동합니다.</li>
-                <li>아래 role 행의 <b>Assign current folder</b>를 눌러 연결합니다.</li>
-                <li>구조를 확인한 뒤 config yaml/settings에 저장합니다.</li>
+                <li>위 폴더 브라우저에서 Inbox/Raws/Wiki 폴더로 이동합니다.</li>
+                <li>상단 또는 각 폴더 행의 Inbox/Raws/Wiki 버튼으로 바로 매핑합니다.</li>
+                <li>Wiki 내부 세부 폴더명은 Advanced에서 입력하고 저장합니다.</li>
               </ol>
             </div>
             <div class="actions">
               <button class="btn" id="btn-detect-structure" type="button">Auto-detect existing structure</button>
             </div>
             <div id="vault-mapping-table" class="vault-mapping-table">
-              <h4>Role mapping</h4>
-              <p class="hint">각 역할 행에서 <b>Assign current folder</b>를 누르면 현재 열려 있는 폴더가 해당 역할에 연결됩니다. 저장하면 설정 파일에 반영됩니다.</p>
-              <table class="model-table">
-                <thead><tr><th>System role</th><th>Mapped folder</th><th>Assign</th><th>Status</th></tr></thead>
+              <h4>Core folder mapping</h4>
+              <p class="hint">기본 매핑은 Inbox/Raws/Wiki 메인 폴더만 지정합니다. 행의 <b data-assign-current-label>↳</b> 버튼은 현재 열린 폴더를 해당 역할로 지정합니다.</p>
+              <table class="model-table vault-role-table">
+                <thead><tr><th>Role</th><th>Mapped folder / status</th><th>Assign</th></tr></thead>
                 <tbody id="vault-mapping-tbody">
-                  <tr><td colspan="4"><div class="empty">기존 vault root를 선택하면 자동 감지 결과와 수동 매핑 행이 표시됩니다.</div></td></tr>
+                  <tr><td colspan="3"><div class="empty">기존 vault root를 선택하면 자동 감지 결과와 수동 매핑 행이 표시됩니다.</div></td></tr>
                 </tbody>
               </table>
+              <details id="vault-wiki-advanced" class="advanced-box vault-wiki-advanced">
+                <summary>Wiki 세부 폴더명 고급 설정</summary>
+                <p class="hint">Wiki 메인 폴더 아래에서 사용할 세부 폴더 이름만 입력합니다. 브라우저에서 세부 폴더를 하나씩 매핑하지 않습니다.</p>
+                <div class="wiki-subfolder-grid">
+                  <label>Concepts <input class="input wiki-subfolder-input" id="wiki-subfolder-concepts" data-wiki-subrole="concepts" value="concepts" /></label>
+                  <label>Sources <input class="input wiki-subfolder-input" id="wiki-subfolder-sources" data-wiki-subrole="sources" value="sources" /></label>
+                  <label>Claims <input class="input wiki-subfolder-input" id="wiki-subfolder-claims" data-wiki-subrole="claims" value="claims" /></label>
+                  <label>Pages <input class="input wiki-subfolder-input" id="wiki-subfolder-pages" data-wiki-subrole="pages" value="pages" /></label>
+                </div>
+              </details>
               <div id="vault-mapping-result" class="vault-create-result"></div>
               <div class="actions">
                 <button class="btn primary" id="btn-save-vault-mapping" type="button">Save mapping to config yaml</button>
@@ -296,7 +312,7 @@
 
 {% block scripts %}
   <script type="module">
-    import { bindOnboardingWizard, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}";
+    import { bindOnboardingWizard, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}?v=prompt-live-call-units-20260721";
     document.addEventListener("DOMContentLoaded", () => {
       bindSideDrawer();
       bindOnboardingWizard();

@@ -5,6 +5,7 @@ import signal
 import struct
 import threading
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 from llm_wiki.common import new_id, sha256_text, utc_now
@@ -79,12 +80,37 @@ def _time_limit(seconds: int):
             timer.join(timeout=1.0)
 
 
-def _load_embedder(model_name: str, timeout_seconds: int):
+def _resolve_local_embedding_model(workspace: WorkspacePaths, embedding_settings: dict[str, Any], model_name: str) -> str:
+    model_root = str(embedding_settings.get("model_root") or "data/models/embeddings").strip()
+    if not model_root or not model_name:
+        return model_name
+    root = Path(model_root).expanduser()
+    if not root.is_absolute():
+        root = workspace.root / root
+    candidate = Path(model_name).expanduser()
+    if candidate.is_absolute() and candidate.exists():
+        return str(candidate.resolve())
+    local = root / model_name
+    if local.exists() and local.is_dir():
+        return str(local.resolve())
+    return model_name
+
+
+def _embedding_model_root(workspace: WorkspacePaths, embedding_settings: dict[str, Any]) -> Path:
+    model_root = str(embedding_settings.get("model_root") or "data/models/embeddings").strip()
+    root = Path(model_root).expanduser()
+    if not root.is_absolute():
+        root = workspace.root / root
+    root.mkdir(parents=True, exist_ok=True)
+    return root.resolve()
+
+
+def _load_embedder(model_name: str, timeout_seconds: int, *, cache_dir: Path | None = None):
     try:
         from fastembed import TextEmbedding  # type: ignore
 
         with _time_limit(timeout_seconds):
-            return TextEmbedding(model_name=model_name), None
+            return TextEmbedding(model_name=model_name, cache_dir=str(cache_dir) if cache_dir else None), None
     except Exception as exc:  # pragma: no cover - optional dependency path
         return None, str(exc)
 
@@ -175,6 +201,8 @@ def embed_target(workspace: WorkspacePaths, target: str) -> dict[str, object]:
     settings = load_settings(workspace.settings_file)
     embedding_settings = settings.get("embedding", {})
     model_name = embedding_settings.get("default_model") or ""
+    model_load_name = _resolve_local_embedding_model(workspace, embedding_settings, str(model_name))
+    model_cache_root = _embedding_model_root(workspace, embedding_settings)
     fallback_model = embedding_settings.get("fallback_model", "fallback-hash-v1")
     fastembed_timeout_seconds = max(1, int(embedding_settings.get("fastembed_timeout_seconds") or 30))
     job_id = create_job(workspace.db, "embed", target_type="embedding_target", target_id=target)
@@ -182,7 +210,15 @@ def embed_target(workspace: WorkspacePaths, target: str) -> dict[str, object]:
     conn = connect(workspace.db)
     try:
         source_scope, targets = _select_targets(conn, target)
-        embedder, embedder_error = _load_embedder(model_name, fastembed_timeout_seconds) if model_name else (None, "no model configured")
+        if model_load_name:
+            try:
+                embedder, embedder_error = _load_embedder(model_load_name, fastembed_timeout_seconds, cache_dir=model_cache_root)
+            except TypeError as exc:
+                if "cache_dir" not in str(exc):
+                    raise
+                embedder, embedder_error = _load_embedder(model_load_name, fastembed_timeout_seconds)
+        else:
+            embedder, embedder_error = (None, "no model configured")
         backend = "fastembed"
         model_used = model_name
         vectors: list[list[float]] = []

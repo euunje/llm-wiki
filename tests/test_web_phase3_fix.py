@@ -103,7 +103,10 @@ def test_onboarding_page_renders(workspace: Path, monkeypatch: pytest.MonkeyPatc
     assert 'href="/mapping"' in response.text
     assert 'href="/vault"' in response.text
     assert "Pipeline은 Inbox 입력이" in response.text
-    assert "Assign current folder" in response.text
+    assert "Assign current folder" not in response.text
+    assert "data-assign-current-label" in response.text
+    assert "Wiki 세부 폴더명" in response.text
+    assert 'data-quick-assign-role="inbox"' in response.text
     assert "Mapping flow" in response.text
 
     app_js = APP_JS.read_text(encoding="utf-8")
@@ -116,17 +119,25 @@ def test_settings_prompt_tabs_and_route_model_help_render(workspace: Path, monke
     response = client.get("/settings?tab=prompt")
     assert response.status_code == 200
     body = response.text
-    ordered = [
-        'data-prompt-task="ask"',
-        'data-prompt-task="compile"',
-        'data-prompt-task="extract_claims"',
-        'data-prompt-task="link"',
-        'data-prompt-task="map"',
-        'data-prompt-task="summarize"',
-    ]
     assert 'id="settings-prompt-top-tabs"' in body
-    positions = [body.index(item) for item in ordered]
-    assert positions == sorted(positions)
+    assert "실제 LLM 호출 단위만 상단에 먼저 표시" in body
+    assert 'data-prompt-task="compile"' not in body
+    assert 'data-prompt-task="summarize"' not in body
+    assert "Loading prompt units" in body
+
+    prompt_groups = client.get("/api/settings/prompts")
+    assert prompt_groups.status_code == 200
+    groups = prompt_groups.json()["task_groups"]
+    live = [group["task_type"] for group in groups if group.get("is_live_llm_unit") is True]
+    assert live == [
+        "extract_claims",
+        "wiki_page_candidates_initial",
+        "wiki_page_candidates_retry_parse_failed",
+        "wiki_page_candidates_retry_schema_validation_failed",
+        "wiki_page_candidates_retry_empty_candidates",
+        "ask",
+    ]
+    assert all("display_label" in group for group in groups)
 
     llm_response = client.get("/settings?tab=llm")
     assert llm_response.status_code == 200

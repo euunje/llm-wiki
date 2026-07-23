@@ -200,59 +200,51 @@ def test_vault_search_hides_dot_prefixed_files(workspace: Path, monkeypatch: pyt
 
 
 def test_inbox_upload_accepts_single_file_field_only(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """FR-3-NO-02: backend accepts only multipart field 'file'; .txt and missing field return 422."""
+    """FR-3-NO-02: backend accepts only multipart field 'file' and queues supported files in root Inbox."""
     from fastapi.testclient import TestClient
     from llm_wiki.web.app import create_app
     monkeypatch.setenv("LLM_WIKI_WEB_ADMIN_PASSWORD", "admin-pass")
     client = TestClient(create_app(workspace), raise_server_exceptions=False)
     client.post("/login", data={"password": "admin-pass"})
-    # valid .md
+    # valid .md queues under the single Inbox root
     r = client.post("/api/inbox/upload", files={"file": ("note.md", b"# Note", "text/markdown")})
     assert r.status_code == 200
-    assert r.json()["field_name"] == "file"
+    payload = r.json()
+    assert payload["field_name"] == "file"
+    assert payload["acceptance_status"] == "queued_for_scan"
+    assert payload["item"]["status"] == "queued"
+    assert Path(payload["item"]["path"]).parent == workspace / "vault" / "00. Inbox"
+    # supported non-md formats are queued for scan as well
+    r = client.post("/api/inbox/upload", files={"file": ("note.txt", b"plain text", "text/plain")})
+    assert r.status_code == 200
     # missing field
     r = client.post("/api/inbox/upload", files={"other": ("x.md", b"# x", "text/markdown")})
     assert r.status_code == 422
     # legacy 'files' field rejected
     r = client.post("/api/inbox/upload", files={"files": ("x.md", b"# x", "text/markdown")})
     assert r.status_code == 422
-    # .txt rejected
-    r = client.post("/api/inbox/upload", files={"file": ("note.txt", b"plain text", "text/plain")})
+    # unsupported extension rejected
+    r = client.post("/api/inbox/upload", files={"file": ("note.exe", b"binary", "application/octet-stream")})
     assert r.status_code == 422
 
 
-def test_inbox_upload_cleans_temp_files_on_non_markdown_error(
+def test_inbox_upload_rejects_unsupported_without_leaking_files(
     workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FR-3-NO-02: temp files written to inbox/files MUST be removed on any failure.
-
-    The previous fix only cleaned up on UnsupportedInputError. This test forces
-    a non-UnsupportedInputError failure during ingest_markdown_file and verifies
-    that the temp files do not leak into the inbox folder.
-    """
+    """Unsupported uploads must not leak files into the root Inbox queue."""
     from fastapi.testclient import TestClient
-    import llm_wiki.web.app as web_app
     from llm_wiki.web.app import create_app
 
     monkeypatch.setenv("LLM_WIKI_WEB_ADMIN_PASSWORD", "admin-pass")
     client = TestClient(create_app(workspace), raise_server_exceptions=False)
     client.post("/login", data={"password": "admin-pass"})
 
-    # Snapshot inbox_files before upload.
-    before = set((workspace / "00_Inbox" / "files").glob("*")) if (workspace / "00_Inbox" / "files").exists() else set()
-
-    def boom(*args, **kwargs):
-        raise RuntimeError("simulated DB / IO failure")
-
-    monkeypatch.setattr(web_app, "ingest_markdown_file", boom)
-
+    inbox = workspace / "vault" / "00. Inbox"
+    before = set(inbox.glob("*")) if inbox.exists() else set()
     r = client.post(
         "/api/inbox/upload",
-        files={"file": ("boom.md", b"# Boom", "text/markdown")},
+        files={"file": ("boom.exe", b"nope", "application/octet-stream")},
     )
-    assert r.status_code == 500
-
-    # Temp files written before the failure must be cleaned up.
-    after = set((workspace / "00_Inbox" / "files").glob("*")) if (workspace / "00_Inbox" / "files").exists() else set()
-    leaked = after - before
-    assert not leaked, f"Temp files leaked on non-UnsupportedInputError failure: {leaked}"
+    assert r.status_code == 422
+    after = set(inbox.glob("*")) if inbox.exists() else set()
+    assert after == before

@@ -13,7 +13,8 @@ from .embed import embed_target
 from .errors import UnsupportedInputError, UserInputError
 from .ingest import ingest_markdown_file, ingest_text, scan_inbox
 from .normalize import normalize_source
-from .web_runtime import process_inbox_source
+from .web_runtime import process_inbox_source, reset_inbox_source_for_full_retry
+from .wiki_ingest import run_wiki_ingest_pipeline
 
 __all__ = [
     "ConversionResult",
@@ -32,5 +33,7 @@ __all__ = [
     "ingest_text",
     "normalize_source",
     "process_inbox_source",
+    "reset_inbox_source_for_full_retry",
     "scan_inbox",
+    "run_wiki_ingest_pipeline",
 ]

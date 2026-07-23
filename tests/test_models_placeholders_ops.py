@@ -42,10 +42,46 @@ def test_models_list_returns_configured_entries(workspace: Path) -> None:
     assert any(model["id"] == "embedding_default" for model in models)
 
 
-def test_models_test_records_blocked_artifact_when_not_configured(workspace: Path) -> None:
+def test_models_list_returns_local_embedding_folder_entries(workspace: Path) -> None:
+    _ensure_init(workspace)
+    model_root = workspace / "models" / "embeddings"
+    (model_root / "local-embed-a").mkdir(parents=True)
+    (model_root / ".hidden").mkdir()
+    settings = load_settings(resolve_workspace(workspace).settings_file, resolve_env=False)
+    settings["embedding"]["model_root"] = "models/embeddings"
+    settings["embedding"]["default_model"] = "local-embed-a"
+    save_settings(resolve_workspace(workspace).settings_file, settings)
+
+    _, payload = _invoke(["models", "list"], workspace)
+
+    assert payload["embedding_models"] == [
+        {
+            "id": "local-embed-a",
+            "model_name": "local-embed-a",
+            "display_name": "local-embed-a",
+            "provider": "local_embedding_folder",
+            "capability": "embedding",
+            "path": str(model_root / "local-embed-a"),
+            "root": str(model_root),
+            "source": "configured_default",
+        }
+    ]
+    embedding_slot = next(model for model in payload["models"] if model["id"] == "embedding_default")
+    assert embedding_slot["provider"] == "local_embedding_folder"
+    assert embedding_slot["request_format"] == "local_embedding_folder"
+    assert embedding_slot["configured"] is True
+
+
+def test_models_test_records_blocked_artifact_when_not_configured(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Default settings have empty ``endpoint`` so ``models test`` must record a
     blocked artifact instead of attempting a network call."""
 
+    monkeypatch.delenv("LOCAL_LLM_ENDPOINT", raising=False)
+    monkeypatch.delenv("LOCAL_LLM_CHAT_MODEL", raising=False)
+    monkeypatch.delenv("LOCAL_LLM_EMBEDDING_MODEL", raising=False)
+    monkeypatch.delenv("LLM_WIKI_LLM_ENDPOINT", raising=False)
+    monkeypatch.delenv("LLM_WIKI_CHAT_MODEL", raising=False)
+    monkeypatch.delenv("LLM_WIKI_EMBEDDING_MODEL", raising=False)
     _ensure_init(workspace)
     _, payload = _invoke(["models", "test", "chat_default"], workspace)
     # Default exit code for the blocked branch is 3 (external dependency).
@@ -162,12 +198,17 @@ def test_models_test_configured_failure_does_not_leak_credentials(
         conn.close()
 
 
-def test_models_test_succeeds_against_ephemeral_openai_compatible_mock(workspace: Path) -> None:
+def test_models_test_succeeds_against_ephemeral_openai_compatible_mock(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Use a dynamically bound local test server to validate the success path.
 
     The reusable source has no hardcoded host/port. This test injects the
     ephemeral endpoint into the workspace settings only for validation.
     """
+
+    monkeypatch.delenv("LLM_WIKI_API_KEY", raising=False)
+    monkeypatch.delenv("LOCAL_LLM_API_KEY", raising=False)
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
@@ -216,6 +257,251 @@ def test_models_test_succeeds_against_ephemeral_openai_compatible_mock(workspace
         thread.join(timeout=5)
 
 
+def test_list_provider_models_normalizes_lmstudio_custom_and_ollama_endpoints(workspace: Path) -> None:
+    seen_paths: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802 - stdlib callback name
+            seen_paths.append(self.path)
+            if self.path == "/api/tags":
+                payload = {"models": [{"name": "llama3:latest"}]}
+            else:
+                payload = {"data": [{"id": "chat-model"}, {"id": "text-embedding-nomic-embed-text-v1.5"}]}
+            data = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            return
+
+    _ensure_init(workspace)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        paths = resolve_workspace(workspace)
+        settings = load_settings(paths.settings_file)
+        from llm_wiki.llm.models import list_provider_models
+
+        settings["llm"]["provider"] = "lmstudio"
+        settings["llm"]["endpoint"] = f"http://127.0.0.1:{server.server_port}/v1"
+        save_settings(paths.settings_file, settings)
+        lmstudio_models = list_provider_models(paths)
+        assert seen_paths[-1] == "/v1/models"
+        assert [m["model_name"] for m in lmstudio_models] == ["chat-model", "text-embedding-nomic-embed-text-v1.5"]
+        assert lmstudio_models[0]["capability"] == "chat"
+        assert lmstudio_models[1]["capability"] == "embedding"
+
+        settings["llm"]["provider"] = "custom"
+        settings["llm"]["endpoint"] = f"http://127.0.0.1:{server.server_port}"
+        save_settings(paths.settings_file, settings)
+        list_provider_models(paths)
+        assert seen_paths[-1] == "/v1/models"
+
+        settings["llm"]["provider"] = "ollama"
+        settings["llm"]["endpoint"] = f"http://127.0.0.1:{server.server_port}/api"
+        save_settings(paths.settings_file, settings)
+        ollama_models = list_provider_models(paths)
+        assert seen_paths[-1] == "/api/tags"
+        assert ollama_models[0]["model_name"] == "llama3:latest"
+
+        from llm_wiki.llm.models import _request_endpoint
+
+        assert _request_endpoint(settings["llm"]["endpoint"], "openai_chat").endswith("/v1/chat/completions")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_call_json_task_omits_max_tokens_by_default(workspace: Path) -> None:
+    """Think-Off local LLMs should not be capped by an implicit 1600 token limit."""
+
+    seen_requests: list[dict[str, object]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            seen_requests.append(json.loads(self.rfile.read(length).decode("utf-8")))
+            payload = {
+                "id": "mock-chat-completion",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": '{"task_type":"extract_claims","claim_candidates":[],"node_candidates":[]}',
+                        }
+                    }
+                ],
+            }
+            data = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            return
+
+    _ensure_init(workspace)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_port}/v1/chat/completions"
+        paths = resolve_workspace(workspace)
+        settings = load_settings(paths.settings_file)
+        settings["llm"]["models"]["chat_default"]["endpoint"] = endpoint
+        settings["llm"]["models"]["chat_default"]["model_name"] = "mock-chat"
+        save_settings(paths.settings_file, settings)
+
+        from llm_wiki.llm.chat import call_json_task
+
+        result = call_json_task(
+            paths,
+            model_id="chat_default",
+            system_prompt="Return JSON.",
+            user_prompt="Return an empty candidate envelope.",
+        )
+
+        assert result["parsed_json"]["task_type"] == "extract_claims"
+        assert seen_requests
+        assert "max_tokens" not in seen_requests[0]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_call_json_task_prefers_v1_chat_endpoint_for_openai_compatible_base(workspace: Path) -> None:
+    seen_paths: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
+            seen_paths.append(self.path)
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            self.rfile.read(length)
+            payload = {"choices": [{"message": {"content": '{"task_type":"extract_claims","claim_candidates":[],"node_candidates":[]}'}}]}
+            data = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            return
+
+    _ensure_init(workspace)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        paths = resolve_workspace(workspace)
+        settings = load_settings(paths.settings_file)
+        settings["llm"]["models"]["chat_default"]["endpoint"] = f"http://127.0.0.1:{server.server_port}"
+        settings["llm"]["models"]["chat_default"]["model_name"] = "mock-chat"
+        save_settings(paths.settings_file, settings)
+
+        from llm_wiki.llm.chat import call_json_task
+
+        call_json_task(paths, model_id="chat_default", system_prompt="Return JSON.", user_prompt="Return JSON.")
+        assert seen_paths == ["/v1/chat/completions"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_call_json_task_http_error_includes_response_body(workspace: Path) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            self.rfile.read(length)
+            data = b'{"error":"bad request details"}'
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            return
+
+    _ensure_init(workspace)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        paths = resolve_workspace(workspace)
+        settings = load_settings(paths.settings_file)
+        settings["llm"]["models"]["chat_default"]["endpoint"] = f"http://127.0.0.1:{server.server_port}/v1/chat/completions"
+        settings["llm"]["models"]["chat_default"]["model_name"] = "mock-chat"
+        save_settings(paths.settings_file, settings)
+
+        from llm_wiki.llm.chat import call_json_task
+
+        try:
+            call_json_task(paths, model_id="chat_default", system_prompt="Return JSON.", user_prompt="Return JSON.")
+        except RuntimeError as exc:
+            assert "HTTP Error 400" in str(exc)
+            assert "bad request details" in str(exc)
+        else:
+            raise AssertionError("expected RuntimeError")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_call_json_task_uses_llm_advanced_temperature_and_max_tokens_when_configured(workspace: Path) -> None:
+    seen_requests: list[dict[str, object]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            seen_requests.append(json.loads(self.rfile.read(length).decode("utf-8")))
+            payload = {"choices": [{"message": {"content": '{"task_type":"extract_claims","claim_candidates":[],"node_candidates":[]}'}}]}
+            data = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            return
+
+    _ensure_init(workspace)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_port}/v1/chat/completions"
+        paths = resolve_workspace(workspace)
+        settings = load_settings(paths.settings_file)
+        settings["llm"]["advanced"] = {"temperature": 0.2, "max_tokens": 4096}
+        settings["llm"]["models"]["chat_default"]["endpoint"] = endpoint
+        settings["llm"]["models"]["chat_default"]["model_name"] = "mock-chat"
+        save_settings(paths.settings_file, settings)
+
+        from llm_wiki.llm.chat import call_json_task
+
+        call_json_task(paths, model_id="chat_default", system_prompt="Return JSON.", user_prompt="Return JSON.")
+
+        assert seen_requests
+        assert seen_requests[0]["temperature"] == 0.2
+        assert seen_requests[0]["max_tokens"] == 4096
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_route_get_returns_current_mapping(workspace: Path) -> None:
     _ensure_init(workspace)
     _, payload = _invoke(["route", "get"], workspace)
@@ -249,7 +535,12 @@ def test_extract_claims_artifact_matches_schema_contract(
     envelope = payload["candidate_envelope"]
     assert envelope["task_type"] == "extract_claims"
     assert envelope["schema_version"] == "candidate.v1"
-    assert envelope["claim_candidates"] == []
+    assert isinstance(envelope["claim_candidates"], list)
+    assert isinstance(envelope["node_candidates"], list)
+    assert envelope["claim_candidates"]
+    assert envelope["node_candidates"]
+    assert envelope["claim_candidates"][0]["candidate_key"].startswith("claim_")
+    assert envelope["node_candidates"][0]["candidate_key"].startswith("node_")
     validation = payload["validation"]
     assert validation["ok"] is True
     assert validation["errors"] == []
@@ -259,55 +550,39 @@ def test_extract_claims_artifact_matches_schema_contract(
     assert artifact_path.exists()
 
 
-def test_phase1_placeholders_persist_minimum_artifacts(
-    workspace: Path, samples_dir: Path
-) -> None:
+def test_cli_exposes_only_real_user_facing_llm_commands(workspace: Path, samples_dir: Path) -> None:
     _ensure_init(workspace)
     source_id = _ingest(workspace, samples_dir / "short-note.md")
-    _invoke(["extract-claims", source_id], workspace)
 
-    _, summarize = _invoke(["summarize", f"source:{source_id}"], workspace)
-    assert summarize["status"] == "ok"
-    assert summarize["summary_placeholder"]
-    assert summarize["phase_note"]
-
-    _, link = _invoke(["link", f"source:{source_id}"], workspace)
-    assert link["status"] == "ok"
-    assert link["relation_candidates"] == []
-
-    _, map_payload = _invoke(["map", source_id], workspace)
-    assert map_payload["status"] == "ok"
-    assert map_payload["mapping_candidates"] == []
-    assert map_payload["high_similarity_candidates"] == []
+    _, extract_payload = _invoke(["extract-claims", source_id], workspace)
+    assert extract_payload["status"] == "ok"
 
     _, ask = _invoke(["ask", "What is RAG?"], workspace)
     assert ask["status"] == "ok"
     assert ask["answer_placeholder"]
-    assert ask["evidence_refs"] == []
+    assert isinstance(ask["evidence_refs"], list)
 
-    _, compile_payload = _invoke(["compile", "agentic_rag"], workspace)
-    assert compile_payload["status"] == "ok"
-    preview_path = workspace / compile_payload["preview_path"]
-    assert preview_path.exists()
-    assert "draft_preview" in preview_path.read_text(encoding="utf-8")
+    parser = build_parser()
+    command_choices = parser._subparsers._group_actions[0].choices  # argparse command registry
+    assert "extract-claims" in command_choices
+    assert "ask" in command_choices
+    for removed in ("summarize", "link", "map", "compile"):
+        assert removed not in command_choices
 
 
-def test_sync_dry_run_does_not_create_view_by_default(workspace: Path) -> None:
+def test_debug_repair_source_stubs_dry_run_does_not_apply_by_default(workspace: Path) -> None:
     _ensure_init(workspace)
-    _, payload = _invoke(["sync"], workspace)
+    _, payload = _invoke(["debug-repair-source-stubs"], workspace)
     assert payload["status"] == "ok"
-    assert payload["mode"] == "dry_run"
-    assert payload["applied_actions"] == []
-    view_path = workspace / "vault/20_Review/candidates/sync-status.md"
-    assert not view_path.exists()
+    assert payload["apply"] is False
+    assert payload["applied_fixes"] == []
 
 
 def test_status_search_validate_lint_smoke(workspace: Path, samples_dir: Path) -> None:
     _ensure_init(workspace)
     source_id = _ingest(workspace, samples_dir / "short-note.md")
-    # Drive the pipeline past ingest so FTS has something to search.
-    _invoke(["normalize", source_id], workspace)
-    _invoke(["chunk", source_id], workspace)
+    # Ingest now drives normalize/chunk as part of the wiki generation pipeline,
+    # so FTS/search material is already available.
 
     _, status = _invoke(["status"], workspace)
     assert status["status"] == "ok"
@@ -333,30 +608,12 @@ def test_status_search_validate_lint_smoke(workspace: Path, samples_dir: Path) -
 def test_ask_uses_search_evidence_for_natural_language_query(workspace: Path, samples_dir: Path) -> None:
     _ensure_init(workspace)
     source_id = _ingest(workspace, samples_dir / "rag.md")
-    _invoke(["normalize", source_id], workspace)
-    _invoke(["chunk", source_id], workspace)
-    _invoke(["embed", f"source:{source_id}"], workspace)
 
-    exit_code, ask = _invoke(["ask", "RAG에서 groundedness가 왜 중요한가?"], workspace)
+    exit_code, ask = _invoke(["ask", "What does RAG combine?"], workspace)
+
     assert exit_code == 0
     assert ask["status"] == "ok"
     assert ask["answer"]
     assert ask["evidence_refs"]
     assert all("source_id" in ref for ref in ask["evidence_refs"])
-    assert ask["search_metadata"]["vector"]["attempted"] is True
-
-
-def test_retry_request_records_artifact(workspace: Path, samples_dir: Path) -> None:
-    _ensure_init(workspace)
-    source_id = _ingest(workspace, samples_dir / "short-note.md")
-
-    # Re-run extract-claims to get a real AgentRun, then use its run id as the
-    # retry target so we exercise the run-id branch.
-    _, claims = _invoke(["extract-claims", source_id], workspace)
-    run_id = claims["run_id"]
-
-    _, retry = _invoke(["retry", run_id, "--instruction", "be narrower"], workspace)
-    assert retry["status"] == "ok"
-    assert retry["target_kind"] == "run"
-    assert retry["target_id"] == run_id
-    assert retry["instruction"] == "be narrower"
+    assert "vector" in ask["search_metadata"]

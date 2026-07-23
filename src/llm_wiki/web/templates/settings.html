@@ -52,6 +52,10 @@
               <p class="hint">대부분의 사용자는 변경하지 않아도 됩니다.</p>
 
               <div class="advanced-inner">
+                <div id="settings-llm-advanced-request-options">
+                  <div class="loading"><span class="spinner"></span>Loading request options…</div>
+                </div>
+
                 {# Concurrent LLM tasks #}
                 <div class="concurrency-control">
                   <h5>Concurrent LLM tasks</h5>
@@ -94,18 +98,11 @@
         <div class="settings-pane" id="settings-pane-prompt" role="tabpanel" {% if active_tab != 'prompt' %}style="display:none"{% endif %}>
           <h3>Prompt</h3>
           <div class="settings-prompt-inner">
+            <div class="prompt-page-intro">
+              <p>실제 LLM 호출 단위만 상단에 먼저 표시합니다. Placeholder/legacy prompt는 CLI 호환과 기록용이며 live 튜닝 대상이 아닙니다.</p>
+            </div>
             <div class="prompt-sequence" id="settings-prompt-top-tabs" role="tablist" aria-label="Prompt task sequence">
-              <button class="prompt-sequence-item active" data-prompt-task="ask" role="tab" aria-selected="true">ask</button>
-              <span class="prompt-sequence-arrow">›</span>
-              <button class="prompt-sequence-item" data-prompt-task="compile" role="tab" aria-selected="false">compile</button>
-              <span class="prompt-sequence-arrow">›</span>
-              <button class="prompt-sequence-item" data-prompt-task="extract_claims" role="tab" aria-selected="false">extract_claims</button>
-              <span class="prompt-sequence-arrow">›</span>
-              <button class="prompt-sequence-item" data-prompt-task="link" role="tab" aria-selected="false">link</button>
-              <span class="prompt-sequence-arrow">›</span>
-              <button class="prompt-sequence-item" data-prompt-task="map" role="tab" aria-selected="false">map</button>
-              <span class="prompt-sequence-arrow">›</span>
-              <button class="prompt-sequence-item" data-prompt-task="summarize" role="tab" aria-selected="false">summarize</button>
+              <div class="loading"><span class="spinner"></span>Loading prompt units…</div>
             </div>
 
             {# Prompt workspace #}
@@ -152,7 +149,7 @@
       loadSettingsVault,
       loadSettingsAuth,
       bindSideDrawer,
-    } from "{{ url_for('static', path='/js/app.js') }}";
+    } from "{{ url_for('static', path='/js/app.js') }}?v=prompt-live-call-units-20260721";
     document.addEventListener("DOMContentLoaded", () => {
       bindSideDrawer();
       loadSettingsTabs();

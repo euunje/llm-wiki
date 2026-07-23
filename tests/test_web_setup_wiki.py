@@ -382,6 +382,25 @@ def test_setup_complete_requires_passed_llm_connection_test(
     assert s["setup_complete"] is False
     assert s["llm"]["chat_model"] == "gpt-4"
     assert s["llm"]["embedding_model"] == "text-embedding-ada-002"
+
+    # Settings UI sends internal slot ids plus provider model names. Status must expose
+    # the provider model_name, not the internal slot id (chat_default/embedding_default).
+    cfg2b = client.post(
+        "/api/settings/llm/config",
+        json={
+            "endpoint": "http://localhost:11434",
+            "api_key_env": "LLM_WIKI_API_KEY",
+            "default_chat_model": "chat_default",
+            "default_embedding_model": "embedding_default",
+            "chat_model_name": "actual-chat-model",
+            "embedding_model_name": "actual-embedding-model",
+        },
+    )
+    assert cfg2b.status_code == 200
+    s = client.get("/api/setup/status").json()
+    assert s["llm"]["chat_model"] == "actual-chat-model"
+    assert s["llm"]["embedding_model"] == "actual-embedding-model"
+    assert s["components"]["llm_chat_model"]["detail"] == "Chat model selected: actual-chat-model"
     # Without a successful test, llm_connection is still blocked.
     assert s["components"]["llm_connection"]["test_status"] in {"blocked", "failed"}
 
@@ -392,5 +411,5 @@ def test_setup_complete_requires_passed_llm_connection_test(
     )
     assert cfg3.status_code == 200
     s = client.get("/api/setup/status").json()
-    assert s["llm"]["chat_model"] == "gpt-4", "chat model must survive endpoint-only update"
-    assert s["llm"]["embedding_model"] == "text-embedding-ada-002", "embedding must survive endpoint-only update"
+    assert s["llm"]["chat_model"] == "actual-chat-model", "chat model must survive endpoint-only update"
+    assert s["llm"]["embedding_model"] == "actual-embedding-model", "embedding must survive endpoint-only update"

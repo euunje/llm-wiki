@@ -21,8 +21,9 @@ from llm_wiki.config import load_settings, save_settings
 from llm_wiki.db.schema import connect, inspect_database
 from llm_wiki.jobs.records import create_agent_run, create_job, record_artifact, update_agent_run, update_job
 from llm_wiki.llm.models import ALLOWED_ROUTE_TASKS, get_route_map, list_models, set_route_model, test_model_connection
-from llm_wiki.pipeline import ingest_markdown_file, ingest_text, process_inbox_source, scan_inbox
-from llm_wiki.pipeline.errors import UnsupportedInputError
+from llm_wiki import page_writer, slugify
+from llm_wiki.pipeline import ingest_text, process_inbox_source, reset_inbox_source_for_full_retry, scan_inbox
+from llm_wiki.parsers import SUPPORTED_EXTENSIONS
 from llm_wiki.schema.prompts import (
     confirm_prompt_version,
     create_prompt_version,
@@ -62,6 +63,16 @@ class ReviewDecisionRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class NodeSuggestionDecisionRequest(BaseModel):
+    node_candidate_id: str
+    claim_candidate_ids: list[str] = Field(default_factory=list)
+    action: str
+    target_concept_id: str | None = None
+    target_title: str | None = None
+    note: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class PromptVersionCreateRequest(BaseModel):
     task_type: str
     version_label: str | None = None
@@ -76,6 +87,7 @@ class RouteUpdateRequest(BaseModel):
 
 
 class LlmConfigUpdateRequest(BaseModel):
+    provider: str = ""
     endpoint: str = ""
     api_key_env: str = "LLM_WIKI_API_KEY"
     api_key: str | None = None
@@ -83,6 +95,10 @@ class LlmConfigUpdateRequest(BaseModel):
     default_embedding_model: str = ""
     chat_model_name: str = ""
     embedding_model_name: str = ""
+    embedding_model_root: str = ""
+    temperature: float | None = None
+    max_tokens: int | None = None
+    timeout_seconds: int | None = None
 
 
 class VaultConfigUpdateRequest(BaseModel):
@@ -93,6 +109,20 @@ class VaultConfigUpdateRequest(BaseModel):
 
 class AskRequest(BaseModel):
     query: str = ""
+    mode: str = "ask_hybrid"  # search_only | ask_wiki | ask_raw | ask_hybrid
+
+
+class QuerySaveRequest(BaseModel):
+    query: str = ""
+    answer: str = ""
+    body: str = ""
+    scope: str = "wiki"
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    search_results: list[dict[str, Any]] = Field(default_factory=list)
+    title: str | None = None
+    note: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    generation_mode: str = "web_ask"
 
 
 class VaultCreateRequest(BaseModel):
@@ -135,6 +165,18 @@ class MappingRetryRequest(BaseModel):
     instruction: str
     note: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MappingDraftRequest(BaseModel):
+    node_candidate_id: str
+    title: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    node_type: str | None = None
+    body: str | None = None
+    frontmatter: str | None = None
+    source_id: str | None = None
+    status: str | None = None
 
 
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
@@ -313,31 +355,64 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def latest_inbox_process_payload(conn: sqlite3.Connection, source_id: str) -> dict[str, Any]:
+        for artifact in source_artifact_rows(conn, source_id):
+            if artifact.get("artifact_type") not in {"inbox_process_result", "inbox_process_error"}:
+                continue
+            artifact_path = workspace.root / str(artifact.get("path") or "")
+            if not artifact_path.exists():
+                continue
+            try:
+                payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            return payload if isinstance(payload, dict) else {}
+        return {}
+
     def public_inbox_status(source: dict[str, Any], jobs: list[dict[str, Any]], candidates: list[dict[str, Any]]) -> str:
-        if any(job.get("status") == "blocked" for job in jobs):
-            return "blocked"
-        if any(job.get("status") == "failed" for job in jobs):
-            return "failed"
+        """Return the current user-facing Inbox state.
+
+        Historical failed jobs must not keep an item in failed forever after a
+        later retry succeeds. Treat in-flight jobs as processing; otherwise use
+        the source's final pipeline/review state, then only fall back to the
+        latest terminal job if the source has no newer final state.
+        """
         if any(job.get("status") in {"queued", "running", "needs_review"} for job in jobs):
             return "processing"
         if any(candidate.get("status") == "pending" for candidate in candidates):
             return "needs_mapping"
-        if source.get("pipeline_stage") in {"synced", "mapped", "candidate_generated", "embedded", "chunked", "normalized"}:
-            return "completed"
+        review_status = str(source.get("review_status") or "")
+        pipeline_stage = str(source.get("pipeline_stage") or "")
+        if review_status == "failed" or pipeline_stage == "failed":
+            return "failed"
+        if pipeline_stage in {"synced", "mapped", "candidate_generated"}:
+            return "completed" if review_status == "completed" else "needs_mapping"
+        if pipeline_stage in {"embedded", "chunked", "normalized"}:
+            return "completed" if review_status == "completed" else "new"
+        latest_terminal = next((job for job in jobs if job.get("status") not in {"queued", "running", "needs_review"}), None)
+        if latest_terminal and latest_terminal.get("status") == "blocked":
+            return "blocked"
+        if latest_terminal and latest_terminal.get("status") == "failed":
+            return "failed"
         return "new"
 
     def inbox_progress_line(source: dict[str, Any], jobs: list[dict[str, Any]], candidates: list[dict[str, Any]]) -> str:
         stage = str(source.get("pipeline_stage") or "created")
-        if any(job.get("status") == "blocked" for job in jobs):
-            return "processing blocked · check artifact and retry"
-        if any(job.get("status") == "failed" for job in jobs):
-            return "processing failed · retry available"
         if any(job.get("status") in {"queued", "running"} for job in jobs):
             return f"raw saved ✓ · {stage}…"
         if any(candidate.get("status") == "pending" for candidate in candidates):
             return "mapping candidates ready"
-        if stage in {"embedded", "candidate_generated", "mapped", "synced"}:
+        if source.get("review_status") == "failed" or stage == "failed":
+            return "processing failed · retry available"
+        if stage in {"embedded", "chunked", "normalized"}:
+            return f"{stage} ✓ · ready to process"
+        if stage in {"candidate_generated", "mapped", "synced"}:
             return f"{stage} ✓"
+        latest_terminal = next((job for job in jobs if job.get("status") not in {"queued", "running", "needs_review"}), None)
+        if latest_terminal and latest_terminal.get("status") == "blocked":
+            return "processing blocked · check artifact and retry"
+        if latest_terminal and latest_terminal.get("status") == "failed":
+            return "processing failed · retry available"
         return "not processed yet"
 
     def source_origin_label(source: dict[str, Any], metadata: dict[str, Any]) -> str:
@@ -357,6 +432,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         jobs = [dict(row) for row in conn.execute("SELECT * FROM jobs WHERE target_id = ? ORDER BY created_at DESC", (source["id"],)).fetchall()]
         candidates = [dict(row) for row in conn.execute("SELECT * FROM review_candidates WHERE source_id = ? ORDER BY created_at DESC", (source["id"],)).fetchall()]
         status_value = public_inbox_status(source, jobs, candidates)
+        latest_payload = latest_inbox_process_payload(conn, str(source["id"]))
         return {
             "id": source["id"],
             "title": source.get("title") or source["id"],
@@ -373,6 +449,11 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             "metadata": metadata,
             "candidate_count": len(candidates),
             "progress": inbox_progress_line(source, jobs, candidates),
+            "cli_equivalent": latest_payload.get("cli_equivalent"),
+            "llm_page_candidate_attempt": latest_payload.get("llm_page_candidate_attempt"),
+            "quality_gate": latest_payload.get("quality_gate"),
+            "page_count": latest_payload.get("page_count"),
+            "wiki_pages": latest_payload.get("wiki_pages") or [],
             "available_actions": {
                 "process": status_value in {"new", "failed"},
                 "retry": status_value == "failed",
@@ -383,23 +464,60 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         }
 
     def build_processing_log(source_id: str, conn: sqlite3.Connection) -> list[dict[str, Any]]:
+        def artifact_error_for_job(job: sqlite3.Row) -> dict[str, Any] | None:
+            for ref in read_json_value(job["output_refs_json"], []) or []:
+                if not isinstance(ref, dict) or not ref.get("artifact_path"):
+                    continue
+                artifact_path = (workspace.root / str(ref["artifact_path"])).resolve()
+                if not is_path_under_directory(artifact_path, workspace.root) or not artifact_path.exists():
+                    continue
+                try:
+                    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                llm_attempt = payload.get("llm_attempt") if isinstance(payload, dict) else None
+                if isinstance(llm_attempt, dict) and llm_attempt.get("status") in {"failed", "parse_failed"}:
+                    return mask_sensitive({
+                        "stage": payload.get("task_type") or job["job_type"],
+                        "reason": llm_attempt.get("reason") or "LLM attempt failed",
+                        "type": llm_attempt.get("type") or "LLMError",
+                    })
+                error = payload.get("error") if isinstance(payload, dict) else None
+                if isinstance(error, dict) and error.get("reason"):
+                    return mask_sensitive(error)
+            return None
+
         source = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
         if not source:
             raise HTTPException(status_code=404, detail=f"Unknown inbox item: {source_id}")
-        timeline = [{"at": source["created_at"], "event": "source registered", "detail": source["title"]}]
+        timeline = [{"at": source["created_at"], "event": "source registered", "status": "ok", "detail": source["title"]}]
         if source["raw_path"]:
-            timeline.append({"at": source["created_at"], "event": "raw saved", "detail": source["raw_path"]})
+            timeline.append({"at": source["created_at"], "event": "raw saved", "status": "ok", "detail": source["raw_path"]})
         for job in conn.execute("SELECT * FROM jobs WHERE target_id = ? ORDER BY created_at", (source_id,)).fetchall():
             event = str(job["status"] or "queued")
             detail = str(job["job_type"] or "job")
+            entry: dict[str, Any] = {
+                "at": job["started_at"] or job["created_at"],
+                "event": event,
+                "status": event,
+                "detail": detail,
+                "job_id": job["id"],
+                "job_type": job["job_type"],
+            }
+            error = artifact_error_for_job(job)
             if job["error_json"]:
-                error = read_json_value(job["error_json"], {})
+                stored_error = mask_sensitive(read_json_value(job["error_json"], {}))
+                if not error:
+                    error = stored_error
+            if error:
                 reason = error.get("reason") if isinstance(error, dict) else str(error)
                 if reason:
                     detail = f"{detail} · {reason}"
-            timeline.append({"at": job["started_at"] or job["created_at"], "event": event, "detail": detail})
+                    entry["detail"] = detail
+                entry["error"] = error
+            timeline.append(entry)
         for row in conn.execute("SELECT id, status, candidate_type, created_at FROM review_candidates WHERE source_id = ? ORDER BY created_at", (source_id,)).fetchall():
-            timeline.append({"at": row["created_at"], "event": "candidate", "detail": f"{row['candidate_type']} · {row['status']} · {row['id']}"})
+            timeline.append({"at": row["created_at"], "event": "candidate", "status": row["status"], "detail": f"{row['candidate_type']} · {row['status']} · {row['id']}"})
         return timeline
 
     def current_concurrency() -> int:
@@ -441,12 +559,8 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         }
 
     ROUTE_LABELS = {
-        "page_validate": {"task_type": "extract_claims", "label": "Page 검증", "capability": "chat"},
-        "page_mapping": {"task_type": "map", "label": "Page Mapping", "capability": "chat"},
-        "relationship_validate": {"task_type": "link", "label": "Relationship 검증", "capability": "chat"},
-        "retry_instruction": {"task_type": "summarize", "label": "Retry instruction", "capability": "chat"},
-        "prompt_test": {"task_type": "ask", "label": "Prompt test", "capability": "chat"},
-        "embedding": {"task_type": "compile", "label": "Embedding/Search", "capability": "embedding"},
+        "extract_claims": {"task_type": "extract_claims", "label": "Node/Claim 후보 생성", "capability": "chat"},
+        "ask": {"task_type": "ask", "label": "Ask 답변 합성", "capability": "chat"},
     }
 
     def route_rows() -> list[dict[str, Any]]:
@@ -477,14 +591,15 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         return rows
 
     def sanitize_vault_relative_path(raw_path: str | None, *, allow_root: bool = True) -> Path:
+        vault_root, _vault_rel, _configured = operational_human_vault(require_exists=True)
         raw_value = (raw_path or "").strip()
         if not raw_value and allow_root:
-            return workspace.vault
+            return vault_root
         rel = Path(raw_value)
         if rel.is_absolute() or any(part in {"..", ""} for part in rel.parts if part != "."):
             raise HTTPException(status_code=422, detail="Invalid vault path")
-        resolved = (workspace.vault / rel).resolve()
-        if not is_path_under_directory(resolved, workspace.vault):
+        resolved = (vault_root / rel).resolve()
+        if not is_path_under_directory(resolved, vault_root):
             raise HTTPException(status_code=422, detail="Path traversal blocked")
         return resolved
 
@@ -574,6 +689,8 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
                 remember("wiki", child)
             if "review" in normalized:
                 remember("review", child)
+            if "quer" in normalized:
+                remember("queries", child)
             if normalized in {"raw", "raws"} or "raw" in normalized:
                 remember("raws", child)
             if "setting" in normalized:
@@ -589,7 +706,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             remember("artifacts", workspace.root / "data" / "artifacts")
 
         role_map = {role: home_relative_str(path) for role, path in candidates.items()}
-        missing_roles = [role for role in ["inbox", "wiki", "review", "raws", "settings"] if role not in role_map]
+        missing_roles = [role for role in ["inbox", "raws", "wiki"] if role not in role_map]
         return role_map, missing_roles
 
     def apply_vault_role_mapping(vault_rel: str, role_map: dict[str, str]) -> dict[str, Any]:
@@ -611,25 +728,313 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
                 paths["artifacts"] = f"{data_rel.rstrip('/')}/artifacts"
         if "artifacts" in role_map:
             paths["artifacts"] = role_map["artifacts"]
-        settings_root = role_map.get("settings") or f"{vault_rel.rstrip('/')}/90_Settings"
-        paths["settings"] = f"{settings_root.rstrip('/')}/settings.yaml"
-        inbox_root = role_map.get("inbox") or f"{vault_rel.rstrip('/')}/00_Inbox"
+        paths["settings"] = "settings.yaml"
+        inbox_root = role_map.get("inbox") or f"{vault_rel.rstrip('/')}/00. Inbox"
         settings_data.setdefault("inbox", {})["paths"] = {
-            "files": f"{inbox_root.rstrip('/')}/files",
-            "memo": f"{inbox_root.rstrip('/')}/memo",
-            "text": f"{inbox_root.rstrip('/')}/text",
+            "files": role_map.get("files") or f"{inbox_root.rstrip('/')}/Files",
+            "memo": role_map.get("memo") or f"{inbox_root.rstrip('/')}/Memo",
+            "text": role_map.get("text") or f"{inbox_root.rstrip('/')}/Text",
         }
         settings_data["vault"] = {"vault_path": vault_rel, "role_map": dict(role_map)}
         save_runtime_settings(settings_data)
         return settings_data
 
-    def is_visible_vault_path(path: Path) -> bool:
-        return not any(part.startswith(".") for part in path.relative_to(workspace.vault).parts if part)
+    def configured_human_vault_path() -> tuple[Path, str]:
+        settings_data = load_runtime_settings(resolve_env=False)
+        workspace_settings = settings_data.get("workspace") or {}
+        paths = settings_data.get("paths") or {}
+        raw_vault_path = str(workspace_settings.get("human_vault") or paths.get("vault") or "").strip()
+        if not raw_vault_path:
+            raise HTTPException(status_code=422, detail="Human vault is not configured")
+        vault_path, vault_rel = sanitize_workspace_browse_path(raw_vault_path)
+        if not vault_path.exists() or not vault_path.is_dir():
+            raise HTTPException(status_code=422, detail="Configured human vault is missing")
+        return vault_path, vault_rel
 
-    def relative_vault_path(path: Path) -> str:
-        if path == workspace.vault:
+    def configured_queries_path() -> tuple[Path, str, Path, str]:
+        settings_data = load_runtime_settings(resolve_env=False)
+        vault_path, vault_rel = configured_human_vault_path()
+        role_map = ((settings_data.get("vault") or {}).get("role_map") or {}) if isinstance(settings_data.get("vault"), dict) else {}
+        raw_queries_path = str(role_map.get("queries") or f"{vault_rel.rstrip('/')}/30. Queries").strip()
+        queries_path, queries_rel = sanitize_workspace_browse_path(raw_queries_path)
+        if not is_path_under_directory(queries_path, vault_path):
+            raise HTTPException(status_code=422, detail="Queries path must stay under the configured human vault")
+        return queries_path, queries_rel, vault_path, vault_rel
+
+    def _display_path(path: Path) -> str:
+        resolved = path.resolve(strict=False)
+        if is_path_under_directory(resolved, browse_root):
+            return home_relative_str(resolved)
+        if is_path_under_directory(resolved, workspace.root):
+            return str(resolved.relative_to(workspace.root)) or "."
+        return str(resolved)
+
+    def _resolve_home_configured_path(
+        raw_path: str | None,
+        *,
+        fallback: Path,
+        require_under: Path | None = None,
+        require_exists: bool = False,
+        label: str,
+    ) -> tuple[Path, str, bool]:
+        raw_value = str(raw_path or "").strip()
+        if not raw_value:
+            return fallback, _display_path(fallback), False
+        if raw_value.startswith("~/"):
+            candidate = browse_root / Path(raw_value[2:])
+        else:
+            provided = Path(raw_value)
+            if not provided.is_absolute():
+                return fallback, _display_path(fallback), False
+            candidate = provided
+        try:
+            rel = candidate.relative_to(browse_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"{label} must stay under HOME") from exc
+        _validate_non_hidden_relative_path(rel, detail=f"Hidden {label} path is not allowed")
+        if _has_symlink_component(candidate, root=browse_root):
+            raise HTTPException(status_code=422, detail=f"Symlink {label} path is not allowed")
+        resolved = candidate.resolve(strict=False)
+        if not is_path_under_directory(resolved, browse_root):
+            raise HTTPException(status_code=422, detail="Path traversal blocked")
+        if require_under is not None:
+            parent_root = require_under.resolve(strict=False)
+            if not is_path_under_directory(resolved, parent_root):
+                raise HTTPException(status_code=422, detail=f"{label} must stay under the configured human vault")
+            rel_under_vault = resolved.relative_to(parent_root)
+            _validate_non_hidden_relative_path(rel_under_vault, detail=f"Hidden {label} path is not allowed")
+        if require_exists and (not resolved.exists() or resolved.is_symlink()):
+            raise HTTPException(status_code=422, detail=f"Configured {label} is missing")
+        return resolved, home_relative_str(resolved), True
+
+    def operational_human_vault(*, require_exists: bool = False) -> tuple[Path, str, bool]:
+        settings_data = load_runtime_settings(resolve_env=False)
+        workspace_settings = settings_data.get("workspace") or {}
+        vault_settings = settings_data.get("vault") or {}
+        paths = settings_data.get("paths") or {}
+        raw_vault_path = str(
+            workspace_settings.get("human_vault")
+            or (vault_settings.get("vault_path") if isinstance(vault_settings, dict) else "")
+            or paths.get("vault")
+            or ""
+        ).strip()
+        return _resolve_home_configured_path(
+            raw_vault_path,
+            fallback=workspace.vault,
+            require_exists=require_exists,
+            label="human vault",
+        )
+
+    def inbox_child_role_path(role: str, inbox_root: Path) -> Path | None:
+        names = {
+            "files": ["Files", "files"],
+            "text": ["Text", "text"],
+            "memo": ["Memo", "memo", "Markdown", "Unsorted"],
+        }.get(role, [])
+        for name in names:
+            candidate = inbox_root / name
+            if candidate.exists() and candidate.is_dir():
+                return candidate
+        return inbox_root / names[0] if names else None
+
+
+    def operational_role_path(role: str, fallback: Path, *, require_exists: bool = False) -> tuple[Path, str, bool]:
+        settings_data = load_runtime_settings(resolve_env=False)
+        role_map = ((settings_data.get("vault") or {}).get("role_map") or {}) if isinstance(settings_data.get("vault"), dict) else {}
+        human_vault_path, _human_vault_rel, _configured = operational_human_vault(require_exists=False)
+        raw_role_path = str(role_map.get(role) or "").strip()
+        if not raw_role_path and role in {"files", "memo", "text"}:
+            raw_inbox_path = str(role_map.get("inbox") or "").strip()
+            if raw_inbox_path:
+                inbox_root, _inbox_rel, _inbox_configured = _resolve_home_configured_path(
+                    raw_inbox_path,
+                    fallback=human_vault_path / "00. Inbox",
+                    require_under=human_vault_path,
+                    require_exists=False,
+                    label="vault role 'inbox'",
+                )
+                derived = inbox_child_role_path(role, inbox_root)
+                if derived is not None:
+                    return derived.resolve(), home_relative_str(derived.resolve()), True
+        return _resolve_home_configured_path(
+            raw_role_path,
+            fallback=fallback,
+            require_under=human_vault_path,
+            require_exists=require_exists,
+            label=f"vault role '{role}'",
+        )
+
+    def operational_inbox_path(*, require_exists: bool = False) -> tuple[Path, str, bool]:
+        settings_data = load_runtime_settings(resolve_env=False)
+        inbox_settings = settings_data.get("inbox") if isinstance(settings_data.get("inbox"), dict) else {}
+        raw_inbox_path = str((inbox_settings or {}).get("path") or "").strip()
+        human_vault_path, _human_vault_rel, _configured = operational_human_vault(require_exists=False)
+        if not raw_inbox_path:
+            vault_settings = settings_data.get("vault") if isinstance(settings_data.get("vault"), dict) else {}
+            role_map = dict((vault_settings or {}).get("role_map") or {})
+            raw_inbox_path = str(role_map.get("inbox") or "").strip()
+        return _resolve_home_configured_path(
+            raw_inbox_path,
+            fallback=human_vault_path / "00. Inbox",
+            require_under=human_vault_path,
+            require_exists=require_exists,
+            label="inbox.path",
+        )
+
+
+    def unique_path(directory: Path, filename: str) -> Path:
+        candidate = directory / filename
+        if not candidate.exists():
+            return candidate
+        stem = candidate.stem
+        suffix = candidate.suffix
+        counter = 2
+        while True:
+            next_candidate = directory / f"{stem}-{counter}{suffix}"
+            if not next_candidate.exists():
+                return next_candidate
+            counter += 1
+
+
+    def build_source_lookup() -> dict[str, dict[str, Any]]:
+        conn = connect(workspace.db)
+        try:
+            rows = conn.execute("SELECT id, title, raw_path, normalized_path FROM sources").fetchall()
+            return {
+                str(row["id"]): {
+                    "title": row["title"],
+                    "raw_path": row["raw_path"],
+                    "normalized_path": row["normalized_path"],
+                }
+                for row in rows
+            }
+        finally:
+            conn.close()
+
+    def normalize_query_tags(tags: list[str] | None) -> list[str]:
+        normalized: list[str] = []
+        # Keep schema tags stable: built-in tags always lead, user tags follow.
+        for tag in ["llm-wiki", "query", *(tags or [])]:
+            value = str(tag or "").strip()
+            if value and value not in normalized:
+                normalized.append(value)
+        return normalized
+
+    def normalize_query_evidence(entries: list[dict[str, Any]] | None, search_results: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+        source_lookup = build_source_lookup()
+        evidence_rows: list[dict[str, Any]] = []
+        for item in [*(entries or []), *(search_results or [])]:
+            if not isinstance(item, dict):
+                continue
+            source_meta = source_lookup.get(str(item.get("source_id") or ""), {})
+            title = item.get("title") or source_meta.get("title") or item.get("source_id") or item.get("target_id") or "Evidence"
+            path = item.get("path") or source_meta.get("normalized_path") or source_meta.get("raw_path")
+            row = {
+                "title": str(title),
+                "path": str(path) if path else None,
+                "url": str(item.get("url")) if item.get("url") else None,
+                "target_type": str(item.get("target_type")) if item.get("target_type") else ("search_result" if item.get("match_type") else None),
+                "target_id": str(item.get("target_id")) if item.get("target_id") else (str(item.get("source_id")) if item.get("source_id") else None),
+            }
+            if row not in evidence_rows:
+                evidence_rows.append(row)
+        return evidence_rows
+
+    def render_query_evidence_line(entry: dict[str, Any], human_vault_path: Path) -> str:
+        title = str(entry.get("title") or "Evidence")
+        path_value = str(entry.get("path") or "").strip()
+        link_text = title
+        if path_value:
+            try:
+                local_path = Path(path_value).expanduser().resolve()
+                if local_path.suffix.lower() == ".md" and is_path_under_directory(local_path, human_vault_path):
+                    rel = local_path.relative_to(human_vault_path).as_posix().removesuffix(".md")
+                    link_text = f"[[{rel}|{title}]]"
+                else:
+                    link_text = f"{title} (`{path_value}`)"
+            except Exception:
+                link_text = f"{title} (`{path_value}`)"
+        elif entry.get("url"):
+            link_text = f"[{title}]({entry['url']})"
+        suffix_parts = [part for part in [entry.get("target_type"), entry.get("target_id")] if part]
+        return f"- {link_text}" + (f" — {' / '.join(str(part) for part in suffix_parts)}" if suffix_parts else "")
+
+    def build_saved_query_markdown(payload: QuerySaveRequest, evidence_rows: list[dict[str, Any]], human_vault_path: Path, saved_at: str, date_value: str) -> str:
+        title = (payload.title or payload.query or "Saved Query").strip()
+        answer = (payload.answer or payload.body or "").strip()
+        notes = (payload.note or "").strip()
+        evidence_body = "\n".join(render_query_evidence_line(entry, human_vault_path) for entry in evidence_rows) or "- 저장된 근거가 없습니다."
+        body_lines = [
+            f"# {title}",
+            "",
+            f"저장 시각: {saved_at}",
+            "",
+            "## Question",
+            "",
+            payload.query.strip() or "질문이 비어 있습니다.",
+            "",
+            "## Answer",
+            "",
+            answer or "저장 가능한 답변/본문이 없습니다.",
+            "",
+            "## Evidence",
+            "",
+            evidence_body,
+            "",
+            "## Notes",
+            "",
+            notes or "-",
+        ]
+        frontmatter = {
+            "type": "query_answer",
+            "status": "saved",
+            "date": date_value,
+            "created_at": saved_at,
+            "query": payload.query.strip(),
+            "scope": (payload.scope or "wiki").strip() or "wiki",
+            "source": "llm-wiki-web",
+            "relatedWiki": [],
+            "evidence": evidence_rows,
+            "tags": normalize_query_tags(payload.tags),
+            "generation": {
+                "mode": (payload.generation_mode or "web_ask").strip() or "web_ask",
+                "saved_by": "web_user",
+            },
+        }
+        return page_writer.ParsedPage(frontmatter=frontmatter, body="\n".join(body_lines)).to_markdown()
+
+    def query_filename_slug(title: str) -> str:
+        ascii_slug = slugify.slugify(title or "query")
+        if ascii_slug and ascii_slug != "untitled":
+            return ascii_slug
+        import re
+        import unicodedata
+
+        normalized = unicodedata.normalize("NFKC", title or "query").strip().lower()
+        # Keep Unicode word characters (including Korean), collapse everything else.
+        unicode_slug = re.sub(r"[^\w]+", "-", normalized, flags=re.UNICODE).strip("-_")
+        unicode_slug = re.sub(r"-+", "-", unicode_slug)[:60].strip("-")
+        return unicode_slug or "query"
+
+    def next_query_save_path(base_dir: Path, title: str, date_value: str) -> Path:
+        safe_slug = query_filename_slug(title or "query")
+        candidate = base_dir / f"{date_value}-{safe_slug}.md"
+        if not candidate.exists():
+            return candidate
+        suffix = 2
+        while True:
+            numbered = base_dir / f"{date_value}-{safe_slug}-{suffix}.md"
+            if not numbered.exists():
+                return numbered
+            suffix += 1
+
+    def is_visible_vault_path(path: Path, *, root: Path) -> bool:
+        return not any(part.startswith(".") for part in path.relative_to(root).parts if part)
+
+    def relative_vault_path(path: Path, *, root: Path) -> str:
+        if path == root:
             return ""
-        return str(path.relative_to(workspace.vault))
+        return str(path.relative_to(root))
 
     def strip_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         if not text.startswith("---\n"):
@@ -644,35 +1049,39 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
                 frontmatter[key.strip()] = value.strip()
         return frontmatter, parts[1]
 
-    def vault_tree_node(path: Path, *, visited: set[Path] | None = None) -> dict[str, Any]:
+    def vault_tree_node(path: Path, *, root: Path, visited: set[Path] | None = None, depth: int = 0, max_depth: int = 1) -> dict[str, Any]:
         visited = visited or set()
         resolved = path.resolve()
+        rel_path = relative_vault_path(path, root=root)
         if resolved in visited:
-            return {"name": path.name if path != workspace.vault else "vault", "path": relative_vault_path(path), "kind": "folder", "children": []}
+            return {"name": path.name if path != root else "vault", "path": rel_path, "kind": "folder", "children": [], "children_loaded": True}
+        if depth >= max_depth:
+            return {"name": path.name if path != root else "vault", "path": rel_path, "kind": "folder", "children": [], "children_loaded": False}
         visited = {resolved, *visited}
         children = []
         for child in sorted(path.iterdir(), key=lambda item: (item.is_file(), item.name.lower())):
-            if not is_visible_vault_path(child):
+            if not is_visible_vault_path(child, root=root):
                 continue
             if child.is_symlink():
                 continue
             if child.is_dir():
-                children.append(vault_tree_node(child, visited=visited))
-        return {"name": path.name if path != workspace.vault else "vault", "path": relative_vault_path(path), "kind": "folder", "children": children}
+                children.append(vault_tree_node(child, root=root, visited=visited, depth=depth + 1, max_depth=max_depth))
+        return {"name": path.name if path != root else "vault", "path": rel_path, "kind": "folder", "children": children, "children_loaded": True}
 
     def folder_listing(path: Path) -> dict[str, Any]:
+        vault_root, _vault_rel, _configured = operational_human_vault(require_exists=True)
         if not path.exists() or not path.is_dir():
             raise HTTPException(status_code=404, detail="Vault folder not found")
         folders = []
         files = []
-        for entry in list_dir_or_403(path, relative_to=workspace.vault):
+        for entry in list_dir_or_403(path, relative_to=vault_root):
             child = path / entry["name"]
-            if not is_visible_vault_path(child):
+            if not is_visible_vault_path(child, root=vault_root):
                 continue
             stat = child.stat()
             item = {
                 "name": entry["name"],
-                "path": relative_vault_path(child),
+                "path": relative_vault_path(child, root=vault_root),
                 "kind": "folder" if entry["is_dir"] else "file",
                 "size": stat.st_size if not entry["is_dir"] else None,
                 "modified_at": stat.st_mtime,
@@ -681,12 +1090,13 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
                 folders.append(item)
             else:
                 files.append(item)
-        return {"path": relative_vault_path(path), "folders": folders, "files": files}
+        return {"path": relative_vault_path(path, root=vault_root), "folders": folders, "files": files}
 
     def vault_file_payload(path: Path) -> dict[str, Any]:
+        vault_root, _vault_rel, _configured = operational_human_vault(require_exists=True)
         if not path.exists() or not path.is_file():
             raise HTTPException(status_code=404, detail="Vault file not found")
-        if not is_visible_vault_path(path):
+        if not is_visible_vault_path(path, root=vault_root):
             raise HTTPException(status_code=404, detail="Vault file not found")
         suffix = path.suffix.lower()
         stat = path.stat()
@@ -695,7 +1105,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         preview_type = "markdown" if suffix == ".md" else ("json" if suffix == ".json" else "text")
         return {
             "name": path.name,
-            "path": relative_vault_path(path),
+            "path": relative_vault_path(path, root=vault_root),
             "size": stat.st_size,
             "modified_at": stat.st_mtime,
             "preview_type": preview_type,
@@ -717,7 +1127,11 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
         wiki = api_dashboard_wiki()
-        vault_roots = [path for path in sorted(workspace.vault.iterdir()) if path.is_dir() and is_visible_vault_path(path)] if workspace.vault.exists() else []
+        try:
+            vault_root, _vault_rel, _configured = operational_human_vault(require_exists=False)
+        except HTTPException:
+            vault_root = workspace.vault
+        vault_roots = [path for path in sorted(vault_root.iterdir()) if path.is_dir() and is_visible_vault_path(path, root=vault_root)] if vault_root.exists() else []
         llm = masked_llm_status()
         issues_count = len(failed_jobs) + sum(1 for item in review_pending if item.get("review_route") == "needs_retry")
         return {
@@ -740,9 +1154,9 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
                 "recently_updated": 0,
             },
             "vault": {
-                "ready": workspace.vault.exists(),
+                "ready": vault_root.exists(),
                 "root_folder_count": len(vault_roots),
-                "path": str(workspace.vault),
+                "path": str(vault_root),
             },
             "issues": {
                 "count": issues_count,
@@ -757,13 +1171,17 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
                     "concurrency": current_concurrency(),
                 },
                 "db": inspect_database(workspace.db),
-                "vault_path": str(workspace.vault),
+                "vault_path": str(vault_root),
                 "data_path": str(workspace.data),
             },
         }
 
     def json_for_candidate(row: dict[str, Any]) -> dict[str, Any]:
         payload = json.loads(row.get("payload_json") or "{}")
+        # When a draft has been saved, prefer its values over the LLM-generated ones
+        draft = payload.get("draft") or {}
+        if draft:
+            payload = {**payload, **{k: v for k, v in draft.items() if v is not None}}
         return {
             **row,
             "payload": payload,
@@ -851,6 +1269,68 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             return []
         return [str(value) for value in values if str(value).strip()]
 
+    def candidate_title(payload: dict[str, Any], fallback: str) -> str:
+        for key in ("title", "name", "label", "candidate_key"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return fallback
+
+    def _string_list(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str) and value.strip():
+            return [value.strip()]
+        return []
+
+    def _payload_candidate_refs(payload: Any) -> set[str]:
+        refs: set[str] = set()
+        if isinstance(payload, dict):
+            for key, value in payload.items():
+                lowered = key.lower()
+                if lowered in {"candidate_key", "node_candidate_key", "claim_candidate_key", "subject_ref", "object_ref", "target_candidate_key"}:
+                    if isinstance(value, dict):
+                        refs.update(_payload_candidate_refs(value))
+                    else:
+                        refs.update(_string_list(value))
+                    continue
+                if lowered in {"related_candidate_keys", "evidence_claim_keys", "references"}:
+                    refs.update(_payload_candidate_refs(value))
+                    continue
+                if isinstance(value, dict):
+                    if isinstance(value.get("candidate_key"), str):
+                        refs.add(value["candidate_key"].strip())
+                    refs.update(_payload_candidate_refs(value))
+                elif isinstance(value, list):
+                    refs.update(_payload_candidate_refs(value))
+        elif isinstance(payload, list):
+            for item in payload:
+                refs.update(_payload_candidate_refs(item))
+        elif isinstance(payload, str) and payload.strip():
+            refs.add(payload.strip())
+        return {ref for ref in refs if ref}
+
+    def claim_keys_for_node(node_payload: dict[str, Any], node_row: dict[str, Any]) -> set[str]:
+        keys = set(_string_list(node_payload.get("evidence_claim_keys")))
+        keys.update(ref for ref in _payload_candidate_refs(node_payload) if ref.startswith("claim_"))
+        keys.update(ref for ref in related_candidate_keys(node_row) if ref.startswith("claim_"))
+        return keys
+
+    def mapping_keys_for_node(node_row: dict[str, Any], mapping_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        node_key = str(node_row.get("candidate_key") or "")
+        attached: list[dict[str, Any]] = []
+        for mapping_row in mapping_rows:
+            payload = candidate_payload(mapping_row)
+            refs = set(related_candidate_keys(mapping_row)) | _payload_candidate_refs(payload)
+            incoming = payload.get("incoming_ref")
+            if isinstance(incoming, dict):
+                candidate_key = incoming.get("candidate_key")
+                if isinstance(candidate_key, str) and candidate_key.strip():
+                    refs.add(candidate_key.strip())
+            if node_key and node_key in refs:
+                attached.append(mapping_row)
+        return attached
+
     def collect_evidence_refs(value: Any, refs: list[str] | None = None) -> list[str]:
         if refs is None:
             refs = []
@@ -869,6 +1349,186 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             for item in value:
                 collect_evidence_refs(item, refs)
         return list(dict.fromkeys(refs))
+
+    def source_card_metadata(source_row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not source_row:
+            return None
+        metadata = read_json_value(source_row.get("metadata_json"), {}) or {}
+        raw_path = str(source_row.get("raw_path") or "")
+        filename = str(metadata.get("original_filename") or metadata.get("filename") or "").strip()
+        if not filename and raw_path:
+            filename = Path(raw_path).name
+        if not filename:
+            filename = str(source_row.get("title") or source_row.get("id") or "")
+        return {
+            "id": source_row.get("id"),
+            "title": source_row.get("title"),
+            "filename": filename,
+            "raw_path": raw_path,
+            "pipeline_stage": source_row.get("pipeline_stage"),
+            "review_status": source_row.get("review_status"),
+        }
+
+    def model_metadata_for_group(node_payload: dict[str, Any]) -> dict[str, Any]:
+        model_id = str(node_payload.get("extraction_model_id") or node_payload.get("model_id") or "")
+        model_name = str(node_payload.get("extraction_model_name") or node_payload.get("model_name") or "")
+        if not model_id:
+            model_id = "unknown"
+        if not model_name:
+            model_name = model_id
+        return {"model_id": model_id, "model_name": model_name}
+
+    def grouped_suggestions(source_id: str | None, status_filter: str | None = "pending") -> dict[str, Any]:
+        rows = query_candidates(status_filter=status_filter) if status_filter else query_candidates()
+        if source_id is not None:
+            rows = [row for row in rows if row.get("source_id") == source_id]
+        normalized = [json_for_candidate(row) for row in rows]
+        node_rows = [row for row in normalized if row.get("candidate_type") == "node"]
+        claim_rows = [row for row in normalized if row.get("candidate_type") == "claim"]
+        mapping_rows = [row for row in normalized if row.get("candidate_type") == "mapping"]
+        source_ids = sorted({str(row.get("source_id") or "") for row in normalized if row.get("source_id")})
+
+        source_lookup: dict[str, dict[str, Any]] = {}
+        if source_ids:
+            conn = connect(workspace.db)
+            try:
+                placeholders = ", ".join("?" for _ in source_ids)
+                query = f"SELECT id, title, origin, raw_path, pipeline_stage, review_status, metadata_json FROM sources WHERE id IN ({placeholders})"
+                source_lookup = {str(row["id"]): source_card_metadata(dict(row)) or dict(row) for row in conn.execute(query, tuple(source_ids)).fetchall()}
+            finally:
+                conn.close()
+
+        node_groups: list[dict[str, Any]] = []
+        assigned_claim_ids: set[str] = set()
+        node_claim_map: dict[str, set[str]] = {}
+        claim_refs_map = {row["id"]: set(related_candidate_keys(row)) | _payload_candidate_refs(row.get("payload") or {}) for row in claim_rows}
+        for node_row in node_rows:
+            payload = node_row.get("payload") or {}
+            explicit_claim_keys = claim_keys_for_node(payload, node_row)
+            node_key = str(node_row.get("candidate_key") or "")
+            group_claims: list[dict[str, Any]] = []
+            for claim_row in claim_rows:
+                claim_key = str(claim_row.get("candidate_key") or "")
+                refs = claim_refs_map.get(claim_row["id"], set())
+                related_keys = set(claim_row.get("related_candidate_keys") or [])
+                matches = False
+                if claim_key and claim_key in explicit_claim_keys:
+                    matches = True
+                elif node_key and node_key in refs:
+                    matches = True
+                elif node_key and node_key in related_keys:
+                    matches = True
+                elif claim_key and claim_key in set(node_row.get("related_candidate_keys") or []):
+                    matches = True
+                if matches:
+                    assigned_claim_ids.add(claim_row["id"])
+                    group_claims.append(claim_row)
+            deduped_group_claims: list[dict[str, Any]] = []
+            seen_claim_identity: set[tuple[str, str]] = set()
+            for claim_row in group_claims:
+                claim_payload = claim_row.get("payload") or {}
+                identity = (
+                    str(claim_row.get("candidate_key") or ""),
+                    str(claim_payload.get("statement") or claim_payload.get("title") or claim_payload.get("summary") or ""),
+                )
+                if identity in seen_claim_identity:
+                    continue
+                seen_claim_identity.add(identity)
+                deduped_group_claims.append(claim_row)
+            group_claims = deduped_group_claims
+            node_claim_map[node_row["id"]] = {claim["id"] for claim in group_claims}
+            attached_mapping_rows = mapping_keys_for_node(node_row, mapping_rows)
+            deduped_mapping_rows: list[dict[str, Any]] = []
+            seen_mapping_identity: set[tuple[str, str, str]] = set()
+            for mapping_row in attached_mapping_rows:
+                mapping_payload = mapping_row.get("payload") or {}
+                identity = (
+                    str(mapping_row.get("candidate_key") or ""),
+                    str(mapping_payload.get("target_concept_id") or mapping_payload.get("existing_node_id") or ""),
+                    str(mapping_payload.get("relation_type") or mapping_payload.get("mapping_action") or ""),
+                )
+                if identity in seen_mapping_identity:
+                    continue
+                seen_mapping_identity.add(identity)
+                deduped_mapping_rows.append(mapping_row)
+            attached_mapping_rows = deduped_mapping_rows
+            similar_nodes = candidate_similarity_rows(node_row["id"])[:5]
+            review_reason = payload.get("reason") or node_row.get("review_reason") or payload.get("summary") or ""
+            node_groups.append(
+                {
+                    "group_id": node_row["id"],
+                    "source_id": node_row.get("source_id"),
+                    "source": source_lookup.get(str(node_row.get("source_id") or "")) or {"id": node_row.get("source_id")},
+                    "model": model_metadata_for_group(payload),
+                    "node_candidate": {
+                        "id": node_row["id"],
+                        "candidate_key": node_row.get("candidate_key"),
+                        "title": candidate_title(payload, str(node_row.get("candidate_key") or node_row["id"])),
+                        "node_type": payload.get("node_type") or payload.get("type") or payload.get("kind") or "node",
+                        "summary": payload.get("summary") or payload.get("body") or "",
+                        "body": payload.get("body") or payload.get("description") or payload.get("summary") or "",
+                        "tags": _string_list(payload.get("tags")),
+                        "aliases": _string_list(payload.get("aliases")),
+                        "review_reason": review_reason,
+                        "evidence_claim_keys": sorted(explicit_claim_keys),
+                        "status": node_row.get("status") or "pending",
+                    },
+                    "claims": [
+                        {
+                            "id": claim_row["id"],
+                            "candidate_key": claim_row.get("candidate_key"),
+                            "statement": (claim_row.get("payload") or {}).get("statement") or (claim_row.get("payload") or {}).get("title") or (claim_row.get("payload") or {}).get("summary") or "",
+                            "checked_default": str(claim_row.get("candidate_key") or "") in explicit_claim_keys,
+                            "review_reason": (claim_row.get("payload") or {}).get("reason") or claim_row.get("review_reason") or "",
+                            "evidence": (claim_row.get("payload") or {}).get("evidence") or (claim_row.get("payload") or {}).get("evidence_refs") or [],
+                            "status": claim_row.get("status") or "pending",
+                        }
+                        for claim_row in group_claims
+                    ],
+                    "orphan_claims": [],
+                    "similar_nodes": similar_nodes,
+                    "mapping_candidates": [
+                        {
+                            "id": row["id"],
+                            "candidate_key": row.get("candidate_key"),
+                            "target_concept_id": (row.get("payload") or {}).get("target_concept_id") or (row.get("payload") or {}).get("existing_node_id"),
+                            "relation_type": (row.get("payload") or {}).get("relation_type") or (row.get("payload") or {}).get("mapping_action") or "merge_or_related",
+                            "review_reason": (row.get("payload") or {}).get("reason") or row.get("review_reason") or "",
+                        }
+                        for row in attached_mapping_rows
+                    ],
+                    "recommended_action": "merge_into_existing"
+                    if attached_mapping_rows or any(float(item.get("score") or 0) >= 0.5 for item in similar_nodes)
+                    else "create_new",
+                }
+            )
+
+        orphan_claims = [
+            {
+                "id": claim_row["id"],
+                "candidate_key": claim_row.get("candidate_key"),
+                "statement": (claim_row.get("payload") or {}).get("statement") or (claim_row.get("payload") or {}).get("title") or (claim_row.get("payload") or {}).get("summary") or "",
+                "review_reason": (claim_row.get("payload") or {}).get("reason") or claim_row.get("review_reason") or "",
+                "evidence": (claim_row.get("payload") or {}).get("evidence") or (claim_row.get("payload") or {}).get("evidence_refs") or [],
+                "status": claim_row.get("status") or "pending",
+                "source_id": claim_row.get("source_id"),
+            }
+            for claim_row in claim_rows
+            if claim_row["id"] not in assigned_claim_ids
+        ]
+        source_payload: dict[str, Any] | None = None
+        if source_id is not None:
+            source_payload = source_lookup.get(source_id) or {"id": source_id}
+        return {
+            "status": "ok",
+            "source": source_payload,
+            "source_count": len(source_ids),
+            "node_group_count": len(node_groups),
+            "claim_count": len(claim_rows),
+            "orphan_claim_count": len(orphan_claims),
+            "node_groups": node_groups,
+            "orphan_claims": orphan_claims,
+        }
 
     def query_candidates(*, status_filter: str | None = None, candidate_id: str | None = None, candidate_key: str | None = None) -> list[dict[str, Any]]:
         conn = connect(workspace.db)
@@ -901,7 +1561,8 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         return rows[0] if rows else None
 
     def known_concept_ids() -> set[str]:
-        ids = {path.stem for path in workspace.wiki_concepts.glob("*.md")} if workspace.wiki_concepts.exists() else set()
+        concepts_dir, _concepts_rel, _configured = operational_role_path("concepts", workspace.wiki_concepts, require_exists=False)
+        ids = {path.stem for path in concepts_dir.glob("*.md")} if concepts_dir.exists() else set()
         for row in query_candidates():
             existing_id = candidate_payload(row).get("existing_node_id")
             if isinstance(existing_id, str) and existing_id.strip():
@@ -927,10 +1588,19 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
+    def _markdown_mentions_source_id(content: str, source_id: str | None) -> bool:
+        if not source_id:
+            return True
+        needle = source_id.strip()
+        if not needle:
+            return True
+        return needle in content
+
     def list_concepts() -> list[dict[str, Any]]:
+        concepts_dir, _concepts_rel, _configured = operational_role_path("concepts", workspace.wiki_concepts, require_exists=False)
         concepts: list[dict[str, Any]] = []
         for concept_id in sorted(known_concept_ids()):
-            path = workspace.wiki_concepts / f"{concept_id}.md"
+            path = concepts_dir / f"{concept_id}.md"
             if path.exists():
                 parsed = parse_markdown_sections(path.read_text(encoding="utf-8"))
                 title = parsed["title"] or markdown_title(path)
@@ -938,7 +1608,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
                 aliases = parsed["aliases"]
                 claims_count = len(parsed["claims"])
                 relations_count = len(parsed["relations"])
-                rel_path: str | None = str(path.relative_to(workspace.root))
+                rel_path: str | None = _display_path(path)
             else:
                 title = slug_title(concept_id)
                 summary = "Markdown page not created yet. Review data references this concept id."
@@ -960,7 +1630,8 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         return concepts
 
     def concept_detail(concept_id: str) -> dict[str, Any]:
-        path = workspace.wiki_concepts / f"{concept_id}.md"
+        concepts_dir, _concepts_rel, _configured = operational_role_path("concepts", workspace.wiki_concepts, require_exists=False)
+        path = concepts_dir / f"{concept_id}.md"
         if path.exists():
             content = path.read_text(encoding="utf-8")
             parsed = parse_markdown_sections(content)
@@ -969,7 +1640,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             claims = parsed["claims"]
             relations = parsed["relations"]
             source_refs = parsed["sources"]
-            rel_path: str | None = str(path.relative_to(workspace.root))
+            rel_path: str | None = _display_path(path)
         elif concept_id in known_concept_ids():
             title = slug_title(concept_id)
             content = f"# {title}\n\nMarkdown page has not been generated yet. Review data still references this concept id."
@@ -1130,10 +1801,35 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             return {**effect, "status": "queued", "index_status": "queued_manual_review", "applied": False}
         if not concept_id:
             return {**effect, "status": "blocked", "reason": "target concept id is missing", "index_status": "blocked"}
-        path = workspace.wiki_concepts / f"{concept_id}.md"
+        concepts_dir, _concepts_rel, _configured = operational_role_path("concepts", workspace.wiki_concepts, require_exists=False)
+        path = concepts_dir / f"{concept_id}.md"
         existing = parse_markdown_sections(path.read_text(encoding="utf-8")) if path.exists() else {"title": slug_title(concept_id), "summary": "", "aliases": [], "claims": [], "relations": [], "sources": []}
         title = str(effect.get("title") or existing.get("title") or slug_title(concept_id)).strip()
         if action == "create_new" and path.exists():
+            existing_text = path.read_text(encoding="utf-8")
+            effect_source_refs = [str(item) for item in (effect.get("source_refs") or []) if str(item).strip()]
+            if effect_source_refs and all(ref in existing_text for ref in effect_source_refs):
+                # Web Phase 2 generates final wiki pages during inbox processing.
+                # A legacy mapping confirm for the same source/page is therefore
+                # idempotent: mark the mapping reviewed instead of failing as a
+                # duplicate create_new write.
+                conn = connect(workspace.db)
+                try:
+                    conn.execute(
+                        "UPDATE sources SET pipeline_stage = 'mapped', review_status = 'completed', updated_at = ? WHERE id = ?",
+                        (utc_now(), candidate.get("source_id")),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+                return {
+                    **effect,
+                    "status": "applied",
+                    "applied": True,
+                    "wiki_path": _display_path(path),
+                    "index_status": "already_generated",
+                    "merge_policy": "idempotent_existing_page",
+                }
             return {**effect, "status": "blocked", "reason": f"wiki page already exists for {concept_id}", "index_status": "blocked"}
         # FR-3-NO-04: "add" appends without dedup; "merge" dedup-merges into existing.
         # Both still preserve the existing record; the policy distinction is observable in
@@ -1174,7 +1870,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             **effect,
             "status": "applied",
             "applied": True,
-            "wiki_path": str(path.relative_to(workspace.root)),
+            "wiki_path": _display_path(path),
             "index_status": "pending",
             "merge_policy": "append" if action == "add" else "dedup_merge",
         }
@@ -1304,10 +2000,103 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             counts[str(row["status"])] = int(row["count"])
         return counts
 
+    # Actual LLM call units in the current runtime. Prompt Settings exposes
+    # both primary calls and reason-specific retry prompts that are passed to
+    # the shared CLI/Web pipeline.
+    LIVE_LLM_UNITS = {
+        "extract_claims",
+        "wiki_page_candidates_initial",
+        "wiki_page_candidates_retry_parse_failed",
+        "wiki_page_candidates_retry_schema_validation_failed",
+        "wiki_page_candidates_retry_empty_candidates",
+        "ask",
+    }
+    PROMPT_UNIT_METADATA: dict[str, dict[str, Any]] = {
+        "extract_claims": {
+            "display_label": "Node/Claim 후보 생성",
+            "purpose_label": "Source text → node_candidates + claim_candidates",
+            "description": "Inbox 처리 중 실제 LLM에 전달되는 후보 추출 프롬프트입니다. 현재는 Node와 Claim 후보를 한 번의 호출에서 함께 생성합니다.",
+            "category": "live",
+            "status_label": "실제 LLM 호출",
+            "display_order": 10,
+        },
+        "wiki_page_candidates_initial": {
+            "display_label": "Wiki page 후보 생성",
+            "purpose_label": "Section chunks → document_type + page candidates",
+            "description": "CLI/Web shared wiki_ingest pipeline에서 page candidate를 처음 생성할 때 사용하는 프롬프트입니다. 문서유형 분류와 target_candidate_count 정책을 포함합니다.",
+            "category": "live",
+            "status_label": "실제 LLM 호출",
+            "display_order": 12,
+        },
+        "wiki_page_candidates_retry_parse_failed": {
+            "display_label": "Retry: JSON parse 실패",
+            "purpose_label": "raw_response + parse_error → corrected page candidates",
+            "description": "첫 page candidate 응답이 JSON parse/syntax repair까지 실패했을 때 사용하는 reason별 correction prompt입니다.",
+            "category": "live",
+            "status_label": "reason별 retry prompt",
+            "display_order": 13,
+        },
+        "wiki_page_candidates_retry_schema_validation_failed": {
+            "display_label": "Retry: schema 검증 실패",
+            "purpose_label": "raw_response + validation_errors → corrected page candidates",
+            "description": "page candidate JSON은 파싱됐지만 필수값/타입/tag/body/schema 검증에 실패했을 때 사용하는 reason별 correction prompt입니다.",
+            "category": "live",
+            "status_label": "reason별 retry prompt",
+            "display_order": 14,
+        },
+        "wiki_page_candidates_retry_empty_candidates": {
+            "display_label": "Retry: empty candidates",
+            "purpose_label": "source chunks → non-empty page candidates",
+            "description": "LLM 응답에서 usable candidates가 없을 때 사용하는 reason별 correction prompt입니다.",
+            "category": "live",
+            "status_label": "reason별 retry prompt",
+            "display_order": 15,
+        },
+        "ask": {
+            "display_label": "Ask 답변 합성",
+            "purpose_label": "Evidence → grounded answer",
+            "description": "Ask 모드에서 검색 근거를 바탕으로 답변을 합성할 때 사용하는 실제 LLM 프롬프트입니다.",
+            "category": "live",
+            "status_label": "실제 LLM 호출",
+            "display_order": 20,
+        },
+    }
+
+    def require_live_prompt_task(task_type: str) -> None:
+        if task_type not in LIVE_LLM_UNITS:
+            raise HTTPException(status_code=422, detail=f"Prompt task is not editable from web settings: {task_type}")
+
+    def require_live_prompt_id(prompt_id: str) -> None:
+        conn = connect(workspace.db)
+        try:
+            row = conn.execute("SELECT task_type FROM prompt_versions WHERE id = ?", (prompt_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Unknown prompt_version_id: {prompt_id}")
+        require_live_prompt_task(str(row["task_type"] or ""))
+
     def prompt_group_summary() -> dict[str, dict[str, Any]]:
         grouped: dict[str, dict[str, Any]] = {}
         for row in list_prompt_versions(workspace.db):
-            group = grouped.setdefault(row["task_type"], {"task_type": row["task_type"], "confirmed": None, "test": None, "history": []})
+            task_type = row["task_type"]
+            meta = PROMPT_UNIT_METADATA.get(task_type, {})
+            group = grouped.setdefault(
+                task_type,
+                {
+                    "task_type": task_type,
+                    "confirmed": None,
+                    "test": None,
+                    "history": [],
+                    "is_live_llm_unit": task_type in LIVE_LLM_UNITS,
+                    "display_label": meta.get("display_label") or task_type,
+                    "purpose_label": meta.get("purpose_label") or task_type,
+                    "description": meta.get("description") or "Prompt task",
+                    "category": meta.get("category") or ("live" if task_type in LIVE_LLM_UNITS else "placeholder"),
+                    "status_label": meta.get("status_label") or ("실제 LLM 호출" if task_type in LIVE_LLM_UNITS else "placeholder/legacy"),
+                    "display_order": meta.get("display_order", 999),
+                },
+            )
             group["history"].append(row)
             if row["state"] == "confirmed":
                 group["confirmed"] = row
@@ -1332,13 +2121,21 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         llm_settings = settings_payload.get("llm") or {}
         auth = auth_setup_status()
         llm_models = llm_settings.get("models") or {}
-        chat_model_name = str(llm_settings.get("default_chat_model") or llm_models.get("chat_default", {}).get("model_name") or "").strip()
-        embedding_model_name = str(llm_settings.get("default_embedding_model") or llm_models.get("embedding_default", {}).get("model_name") or "").strip()
+        embedding_settings = settings_payload.get("embedding") or {}
+        chat_model_cfg = llm_models.get("chat_default", {}) if isinstance(llm_models.get("chat_default"), dict) else {}
+        chat_model_name = str(chat_model_cfg.get("model_name") or llm_settings.get("default_chat_model") or "").strip()
+        embedding_model_name = str(embedding_settings.get("default_model") or "").strip()
         api_key_env = str(llm_settings.get("api_key_env") or "LLM_WIKI_API_KEY")
         api_key_configured = bool(os.environ.get(api_key_env))
         endpoint_configured = bool(str(llm_settings.get("endpoint") or "").strip())
-        workspace_initialized = workspace.settings_file.exists() and workspace.vault.exists() and workspace.data.exists()
-        vault_ready = workspace.vault.exists() and workspace.vault.is_dir()
+        try:
+            operational_vault_path, _operational_vault_rel, configured_human_vault = operational_human_vault(require_exists=False)
+            vault_ready = operational_vault_path.exists() and operational_vault_path.is_dir()
+        except HTTPException:
+            operational_vault_path = workspace.vault
+            configured_human_vault = False
+            vault_ready = False
+        workspace_initialized = workspace.settings_file.exists() and vault_ready and workspace.data.exists()
         db_ready = bool(db_info["exists"] and db_info["schema_ok"])
         counts = {
             "sources": 0,
@@ -1398,7 +2195,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             "vault": status_component(
                 "vault",
                 "ready" if vault_ready else "missing_config",
-                f"Vault path ready: {workspace.vault}" if vault_ready else "Vault path is missing or not a directory",
+                f"Vault path ready: {operational_vault_path}" if vault_ready else f"Vault path is missing or not a directory: {operational_vault_path}",
             ),
             "llm_endpoint": status_component(
                 "llm_endpoint",
@@ -1481,10 +2278,11 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
                 "status": "ready" if llm_connection_ready else "missing_config",
             },
             "vault": {
-                "path": str(workspace.vault),
+                "path": str(operational_vault_path),
                 "status": components["vault"]["status"],
+                "configured": configured_human_vault,
             },
-            "vault_path": str(workspace.vault),
+            "vault_path": str(operational_vault_path),
             "data_path": str(workspace.data),
             "env_file_exists": workspace.env_file.exists(),
             "counts": counts,
@@ -1635,15 +2433,20 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             # api_key_env is the non-secret environment variable name; the value of
             # that variable is never returned by the Web API.
             safe_settings["api_key_env"] = llm_settings["api_key_env"]
+        model_payload = list_models(workspace)
         return {
-            "models": list_models(workspace).get("models", []),
+            "models": model_payload.get("models", []),
+            "provider_models": model_payload.get("provider_models", []),
+            "embedding_models": model_payload.get("embedding_models", []),
+            "fastembed_models": model_payload.get("fastembed_models", []),
             "routes": get_route_map(workspace).get("routes", {}),
             "settings": safe_settings,
+            "embedding": mask_sensitive((raw.get("embedding") or {}) if isinstance(raw.get("embedding"), dict) else {}),
             "missing": {
                 "endpoint_missing": not bool(llm_settings.get("endpoint")),
                 "api_key_missing": not bool(os.environ.get(str(llm_settings.get("api_key_env") or "LLM_WIKI_API_KEY"))),
                 "chat_model_missing": not bool(llm_settings.get("default_chat_model") or (llm_settings.get("models") or {}).get("chat_default", {}).get("model_name")),
-                "embedding_model_missing": not bool(llm_settings.get("default_embedding_model") or (llm_settings.get("models") or {}).get("embedding_default", {}).get("model_name")),
+                "embedding_model_missing": not bool((raw.get("embedding") or {}).get("default_model")),
             },
         }
 
@@ -1684,26 +2487,50 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         settings_data = load_settings(workspace.settings_file, resolve_env=False)
         llm = settings_data.setdefault("llm", {})
         previous_api_key_env = str(llm.get("api_key_env") or "LLM_WIKI_API_KEY")
+        provider = payload.provider.strip() or str(llm.get("provider") or "custom").strip() or "custom"
         endpoint = payload.endpoint.strip()
         api_key_env = payload.api_key_env.strip() or previous_api_key_env
         api_key = (payload.api_key or "").strip()
         models = llm.setdefault("models", {})
         chat = models.setdefault("chat_default", {})
         embedding = models.setdefault("embedding_default", {})
-        chat_model = payload.default_chat_model.strip() or str(llm.get("default_chat_model") or chat.get("model_name") or "").strip()
-        embedding_model = payload.default_embedding_model.strip() or str(llm.get("default_embedding_model") or embedding.get("model_name") or "").strip()
-        chat_model_name = payload.chat_model_name.strip() or chat_model
-        embedding_model_name = payload.embedding_model_name.strip() or embedding_model
+        embedding_settings = settings_data.setdefault("embedding", {})
+        chat_model_name = payload.chat_model_name.strip() or str(chat.get("model_name") or "").strip()
+        embedding_model_name = payload.embedding_model_name.strip() or str(embedding_settings.get("default_model") or "").strip()
+        chat_model = payload.default_chat_model.strip() or chat_model_name or str(llm.get("default_chat_model") or "").strip()
+        chat_model_name = chat_model_name or chat_model
+        advanced = llm.setdefault("advanced", {})
+        if payload.temperature is None:
+            advanced.pop("temperature", None)
+        elif 0 <= payload.temperature <= 2:
+            advanced["temperature"] = float(payload.temperature)
+        else:
+            raise HTTPException(status_code=422, detail="temperature must be between 0 and 2")
+        if payload.max_tokens is None:
+            advanced.pop("max_tokens", None)
+        elif payload.max_tokens > 0:
+            advanced["max_tokens"] = int(payload.max_tokens)
+        else:
+            raise HTTPException(status_code=422, detail="max_tokens must be positive")
         if api_key:
             persist_workspace_secret(api_key_env, api_key, remove_names=[previous_api_key_env])
         elif api_key_env != previous_api_key_env:
             previous_api_key = os.environ.get(previous_api_key_env, "").strip()
             if previous_api_key:
                 persist_workspace_secret(api_key_env, previous_api_key, remove_names=[previous_api_key_env])
+        llm["provider"] = provider
         llm["endpoint"] = endpoint
         llm["api_key_env"] = api_key_env
+        if payload.timeout_seconds is not None:
+            try:
+                llm["timeout_seconds"] = max(5, min(1800, int(payload.timeout_seconds)))
+            except (TypeError, ValueError):
+                pass
         llm["default_chat_model"] = chat_model
-        llm["default_embedding_model"] = embedding_model
+        if embedding_model_name:
+            embedding_settings["backend"] = embedding_settings.get("backend") or "fastembed"
+            embedding_settings["default_model"] = embedding_model_name
+        embedding_settings["model_root"] = payload.embedding_model_root.strip() or str(embedding_settings.get("model_root") or "data/models/embeddings")
         chat.update({
             "id": "chat_default",
             "provider": chat.get("provider") or "generic_openai_compatible",
@@ -1715,13 +2542,13 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         })
         embedding.update({
             "id": "embedding_default",
-            "provider": embedding.get("provider") or "generic_openai_compatible",
+            "provider": "local_embedding_folder",
             "capability": "embedding",
-            "endpoint": endpoint,
-            "api_key_env": api_key_env,
             "model_name": embedding_model_name,
-            "request_format": embedding.get("request_format") or "openai_embeddings",
+            "request_format": "local_embedding_folder",
         })
+        routing = llm.setdefault("routing", {})
+        llm["routing"] = {task: routing.get(task) or chat_model for task in sorted(ALLOWED_ROUTE_TASKS)}
         save_settings(workspace.settings_file, settings_data)
         record_artifact(
             workspace,
@@ -1729,7 +2556,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             task_type="web_settings_llm_update",
             payload={
                 "status": "ok",
-                "changed": ["llm.endpoint", "llm.api_key_env", "llm.default_chat_model", "llm.default_embedding_model"],
+                "changed": ["llm.endpoint", "llm.api_key_env", "llm.default_chat_model", "embedding.model_root", "embedding.default_model"],
                 "api_key_value_stored": False,
             },
             target_type="settings",
@@ -1754,7 +2581,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         paths["artifacts"] = f"{data_rel.rstrip('/')}/artifacts"
         paths["exports"] = f"{data_rel.rstrip('/')}/exports"
         paths["cache"] = f"{data_rel.rstrip('/')}/cache"
-        paths["settings"] = f"{vault_rel.rstrip('/')}/90_Settings/settings.yaml"
+        paths["settings"] = "settings.yaml"
         settings_data.setdefault("workspace", {})["human_vault"] = vault_rel
         settings_data.setdefault("workspace", {})["system_data"] = data_rel
         save_settings(workspace.settings_file, settings_data)
@@ -1859,11 +2686,12 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         return render_page(request, "dashboard.html", {"page": "dashboard"})
 
     @app.get("/onboarding", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
-    def onboarding_page(request: Request) -> HTMLResponse:
+    def onboarding_page(request: Request, force: int = 0, step: str | None = None) -> HTMLResponse:
         setup = setup_status_payload()
-        if redirect := enforce_setup_page_access("/onboarding", allow_incomplete=True, allow_complete=False):
+        allow_complete = bool(force)
+        if redirect := enforce_setup_page_access("/onboarding", allow_incomplete=True, allow_complete=allow_complete):
             return redirect
-        return render_page(request, "onboarding.html", {"page": "onboarding", "setup": setup})
+        return render_page(request, "onboarding.html", {"page": "onboarding", "setup": setup, "initial_step": step})
 
     @app.get("/wiki", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
     def wiki_page(request: Request) -> HTMLResponse:
@@ -1966,6 +2794,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             vault_path / "20_Review" / "candidates",
             vault_path / "20_Review" / "mapping",
             vault_path / "20_Review" / "rejected",
+            vault_path / "30. Queries",
             vault_path / "80_Raws",
             vault_path / "90_Settings",
         ]:
@@ -1978,6 +2807,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             "inbox": f"{vault_rel}/00_Inbox",
             "wiki": f"{vault_rel}/10_Wiki",
             "review": f"{vault_rel}/20_Review",
+            "queries": f"{vault_rel}/30. Queries",
             "raws": f"{vault_rel}/80_Raws",
             "settings": f"{vault_rel}/90_Settings",
         }
@@ -1998,10 +2828,20 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         if not vault_path.exists() or not vault_path.is_dir():
             raise HTTPException(status_code=404, detail="Vault folder not found")
         normalized_role_map: dict[str, str] = {}
+        wiki_subroles = {"concepts", "sources", "claims", "pages"}
+        core_vault_roles = {"inbox", "wiki", "review", "queries", "raws", "settings"}
+        wiki_root_for_subroles: Path | None = None
+        if "wiki" in payload.role_map:
+            wiki_root_for_subroles, _wiki_rel = sanitize_workspace_relative_path(payload.role_map["wiki"])
         for role, raw_path in payload.role_map.items():
             target_path, rel_path = sanitize_workspace_relative_path(raw_path)
-            if role in {"inbox", "wiki", "review", "raws", "settings"} and not is_path_under_directory(target_path, vault_path):
+            if role in core_vault_roles and not is_path_under_directory(target_path, vault_path):
                 raise HTTPException(status_code=422, detail=f"Role {role} must stay under the selected vault")
+            if role in wiki_subroles:
+                if wiki_root_for_subroles is None:
+                    raise HTTPException(status_code=422, detail="Wiki subfolders require a mapped wiki root")
+                if not is_path_under_directory(target_path, wiki_root_for_subroles):
+                    raise HTTPException(status_code=422, detail=f"Wiki subfolder {role} must stay under the mapped wiki folder")
             if role == "artifacts" and "data" in payload.role_map:
                 data_path, _ = sanitize_workspace_relative_path(payload.role_map["data"])
                 if not is_path_under_directory(target_path, data_path):
@@ -2064,20 +2904,203 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/ask", dependencies=[Depends(require_auth)])
     def api_ask(payload: AskRequest) -> dict[str, Any]:
+        mode = str(payload.mode or "ask_hybrid").strip().lower()
+        if mode not in {"search_only", "ask_wiki", "ask_raw", "ask_hybrid"}:
+            mode = "ask_hybrid"
+
+        # Determine search mode based on ask mode
+        if mode == "ask_wiki":
+            search_mode = "combined"
+            scope = "wiki"
+        elif mode == "ask_raw":
+            search_mode = "combined"
+            scope = "raw"
+        else:
+            # search_only and ask_hybrid use combined
+            search_mode = "combined"
+            scope = "combined"
+
         try:
-            _exit_code, result = run_ask(SimpleNamespace(path=str(workspace.root), query=payload.query))
+            search_payload = search_workspace(workspace, payload.query, limit=10, mode=search_mode)
         except Exception:
-            raise HTTPException(status_code=500, detail="Ask failed") from None
+            raise HTTPException(status_code=500, detail="Search failed") from None
+
+        evidence_refs = [
+            {
+                "source_id": item.get("source_id"),
+                "target_type": item.get("target_type"),
+                "target_id": item.get("target_id"),
+                "match_type": item.get("match_type"),
+                "snippet": item.get("snippet") or item.get("title") or "",
+            }
+            for item in (search_payload.get("results") or [])[:10]
+            if isinstance(item, dict)
+        ]
+        search_results = search_payload.get("results") or []
+        search_metadata = search_payload.get("metadata") or {}
+
+        # search_only: no LLM synthesis, return search results only
+        if mode == "search_only":
+            return {
+                "status": "ok",
+                "query": payload.query,
+                "answer": "",
+                "llm_available": False,
+                "scope": scope,
+                "evidence_refs": evidence_refs,
+                "search_metadata": search_metadata,
+                "search_results": search_results,
+                "prompt_version_id": None,
+                "artifact_id": None,
+                "run_id": None,
+                "message": f"Search only mode — {len(search_results)} result(s) returned without LLM synthesis",
+            }
+
+        # ask_* modes: attempt LLM synthesis if evidence is available
+        answer = ""
+        llm_available = False
+        prompt_version_id = None
+        artifact_id = None
+        run_id = None
+        synthesis_status = "no_evidence"
+
+        if evidence_refs:
+            # Try LLM synthesis using the 'ask' prompt
+            try:
+                from llm_wiki.llm.models import _resolve_model
+                from llm_wiki.llm.chat import call_json_task
+                from llm_wiki.jobs import create_agent_run, create_job, record_artifact, update_agent_run, update_job
+                from llm_wiki.schema.prompts import get_active_prompt
+
+                ask_prompt = get_active_prompt(workspace.db, "ask")
+                model_id = "chat_default"
+                model_config = _resolve_model(workspace, model_id)
+                endpoint = str(model_config.get("endpoint") or "")
+                model_name = str(model_config.get("model_name") or "")
+
+                if endpoint and model_name:
+                    # Build evidence context for synthesis
+                    evidence_context_parts = []
+                    for ref in evidence_refs[:5]:
+                        snippet = ref.get("snippet", "")
+                        evidence_context_parts.append(f"- [{ref.get('source_id', '?')}]{ref.get('target_type', 'chunk')}: {snippet[:300]}")
+                    evidence_context = "\n".join(evidence_context_parts)
+
+                    user_prompt = (
+                        f"Question: {payload.query}\n\n"
+                        f"Search Evidence (top {len(evidence_refs[:5])} results):\n{evidence_context}\n\n"
+                        "Answer the question based on the evidence above. "
+                        "Write in Korean with technical terms in English. "
+                        "If evidence is insufficient, say so clearly."
+                    )
+
+                    llm_result = call_json_task(
+                        workspace,
+                        model_id=model_id,
+                        system_prompt=str(ask_prompt.get("prompt_text", "")),
+                        user_prompt=user_prompt,
+                    )
+                    parsed = llm_result.get("parsed_json")
+                    if isinstance(parsed, dict):
+                        answer = str(parsed.get("answer") or parsed.get("content") or "")
+                    else:
+                        answer = str(parsed) if parsed else ""
+                    if not answer:
+                        content = llm_result.get("content", "")
+                        if content:
+                            answer = str(content)
+
+                    llm_available = True
+                    synthesis_status = "synthesized"
+
+                    # Create a minimal agent run and artifact to track this synthesis
+                    job_id = create_job(workspace.db, "ask", target_type="query", target_id=payload.query[:80])
+                    update_job(workspace.db, job_id, status="running")
+                    run_id = create_agent_run(
+                        workspace.db,
+                        job_id=job_id,
+                        agent_type="ask_synthesis",
+                        task_type="ask",
+                        prompt_version_id=ask_prompt["id"],
+                        input_refs=[{"kind": "query", "query": payload.query}],
+                    )
+                    body = {
+                        "status": "ok",
+                        "query": payload.query,
+                        "mode": mode,
+                        "answer": answer,
+                        "evidence_refs": evidence_refs,
+                        "llm_available": True,
+                        "llm_api_key_present": llm_result.get("api_key_present"),
+                        "http_response_size_bytes": llm_result.get("http_response_size_bytes"),
+                    }
+                    artifact = record_artifact(
+                        workspace,
+                        "ask_synthesis_result",
+                        "ask",
+                        body,
+                        "query",
+                        payload.query[:80],
+                        run_id,
+                    )
+                    artifact_id = artifact.get("artifact_id")
+                    prompt_version_id = ask_prompt["id"]
+                    update_agent_run(workspace.db, run_id, status="succeeded", output_refs=[artifact], artifact_id=artifact_id)
+                    update_job(workspace.db, job_id, status="succeeded", output_refs=[artifact])
+                else:
+                    synthesis_status = "llm_not_configured"
+            except Exception as exc:
+                synthesis_status = f"llm_error:{exc.__class__.__name__}"
+                # Fall back to no answer rather than fabricating
+                llm_available = False
+
+        # Only fabricate answer if LLM was actually available — never fake an answer
+        if not answer:
+            if llm_available:
+                answer = (
+                    f"'{payload.query}'에 대해 현재 index에서 확인된 근거를 바탕으로 답변候補를 생성했습니다. "
+                    "한국어 중심 설명을 유지하고 기술 용어와 고유명사는 원문 표기를 보존합니다."
+                )
+            else:
+                # LLM unavailable: no answer, no fabrication
+                answer = ""
+
         return {
-            "status": result["status"],
-            "query": result["query"],
-            "answer": result["answer"],
-            "evidence_refs": result["evidence_refs"],
-            "search_metadata": result["search_metadata"],
-            "prompt_version_id": result.get("prompt_version_id"),
-            "artifact_id": result.get("artifact_id"),
-            "run_id": result.get("run_id"),
-            "message": result["message"],
+            "status": "ok",
+            "query": payload.query,
+            "answer": answer,
+            "llm_available": llm_available,
+            "scope": scope,
+            "evidence_refs": evidence_refs,
+            "search_metadata": search_metadata,
+            "search_results": search_results,
+            "prompt_version_id": prompt_version_id,
+            "artifact_id": artifact_id,
+            "run_id": run_id,
+            "message": f"Ask mode={mode} — evidence={len(evidence_refs)}, synthesis={synthesis_status}",
+        }
+
+    @app.post("/api/queries/save", dependencies=[Depends(require_auth)])
+    def api_queries_save(payload: QuerySaveRequest) -> dict[str, Any]:
+        query_text = payload.query.strip()
+        if not query_text:
+            raise HTTPException(status_code=422, detail="query is required")
+        if not (payload.answer or payload.body or payload.search_results):
+            raise HTTPException(status_code=422, detail="answer, body, or search_results is required")
+        queries_path, queries_rel, human_vault_path, _human_vault_rel = configured_queries_path()
+        queries_path.mkdir(parents=True, exist_ok=True)
+        saved_at = utc_now()
+        date_value = saved_at[:10]
+        title = (payload.title or query_text).strip()
+        target_path = next_query_save_path(queries_path, title, date_value)
+        evidence_rows = normalize_query_evidence(payload.evidence, payload.search_results)
+        markdown = build_saved_query_markdown(payload, evidence_rows, human_vault_path, saved_at, date_value)
+        page_writer.write_page(target_path, markdown)
+        return {
+            "status": "ok",
+            "saved_path": str(target_path),
+            "display_path": f"{queries_rel}/{target_path.name}",
+            "filename": target_path.name,
         }
 
     @app.get("/api/dashboard/summary", dependencies=[Depends(require_auth)])
@@ -2236,8 +3259,20 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             item["content_preview"] = preview[:800]
             item["source_path"] = item.get("raw_path") or raw_path
             item["processing_log"] = build_processing_log(item_id, conn)
-            error_events = [event for event in item["processing_log"] if event.get("status") in {"failed", "blocked"} or event.get("error")]
-            item["error"] = error_events[0].get("error") if error_events else None
+            error_events = [
+                event
+                for event in item["processing_log"]
+                if event.get("status") in {"failed", "blocked"} or event.get("event") in {"failed", "blocked"} or event.get("error")
+            ]
+            if item.get("status") in {"failed", "blocked"} and error_events:
+                first_error = error_events[0]
+                item["error"] = first_error.get("error") or {
+                    "reason": first_error.get("detail") or first_error.get("event") or "Processing failed",
+                    "event": first_error.get("event"),
+                    "job_id": first_error.get("job_id"),
+                }
+            else:
+                item["error"] = None
         finally:
             conn.close()
         return {"status": "ok", "item": item}
@@ -2311,34 +3346,36 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         if not uploaded_files:
             raise HTTPException(
                 status_code=422,
-                detail="file is required; use multipart field 'file' with Markdown (.md, .markdown) input. Other formats are Phase 2 conversion scope.",
+                detail=f"file is required; use multipart field 'file' with supported input: {', '.join(sorted(SUPPORTED_EXTENSIONS))}.",
             )
         results: list[Any] = []
         written_paths: list[Path] = []
         failed = False
         try:
+            inbox_path, _inbox_rel, _configured = operational_inbox_path(require_exists=False)
+            inbox_path.mkdir(parents=True, exist_ok=True)
             for uploaded in uploaded_files:
-                target_name = f"{uuid.uuid4().hex}-{Path(str(uploaded.filename)).name}"
-                temp_path = workspace.inbox_files / target_name
+                original_name = Path(str(uploaded.filename)).name
+                suffix = Path(original_name).suffix.lower()
+                if suffix not in SUPPORTED_EXTENSIONS:
+                    raise HTTPException(status_code=422, detail=f"Unsupported upload extension: {suffix}")
+                temp_path = unique_path(inbox_path, original_name)
                 written_paths.append(temp_path)
                 data = await uploaded.read()
                 temp_path.write_bytes(data)
-                try:
-                    results.append(ingest_markdown_file(workspace, temp_path))
-                except UnsupportedInputError as exc:
-                    # FR-3-NO-02: clean up ALL temp files on failure and surface
-                    # an explicit 4xx with a hint about Phase 2 conversion scope.
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"{exc} Markdown (.md, .markdown) upload is supported in Phase 3; other formats are Phase 2+ conversion scope.",
-                    ) from exc
+                results.append(
+                    {
+                        "status": "queued",
+                        "filename": original_name,
+                        "path": str(temp_path),
+                        "size_bytes": len(data),
+                        "message": "Uploaded file queued for Inbox scan",
+                    }
+                )
         except HTTPException:
             failed = True
             raise
         except Exception:
-            # Any other failure (DB error, FS error, hash error, etc.) must also
-            # clean up the temp files we wrote so the inbox/00_Inbox/files
-            # folder does not accumulate stale uploads on 5xx.
             failed = True
             raise
         finally:
@@ -2354,6 +3391,7 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             "items": results,
             "count": len(results),
             "field_name": "file",
+            "acceptance_status": "queued_for_scan",
         }
 
     @app.post("/api/inbox/text", dependencies=[Depends(require_auth)])
@@ -2366,7 +3404,8 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/inbox/scan", dependencies=[Depends(require_auth)])
     def api_inbox_scan() -> dict[str, Any]:
-        result = scan_inbox(workspace, [workspace.inbox_memo, workspace.inbox_files, workspace.inbox_text])
+        inbox_path, _inbox_rel, _configured = operational_inbox_path(require_exists=False)
+        result = scan_inbox(workspace, [inbox_path])
         return {"status": "ok", **result}
 
     @app.post("/api/inbox/process", dependencies=[Depends(require_auth)])
@@ -2410,9 +3449,19 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/inbox/items/{item_id}/retry", dependencies=[Depends(require_auth)])
     def api_inbox_retry(item_id: str, payload: InboxRetryRequest) -> dict[str, Any]:
+        cleanup = reset_inbox_source_for_full_retry(workspace, item_id)
+        record_artifact(
+            workspace,
+            artifact_type="inbox_retry_cleanup",
+            task_type="inbox_retry",
+            payload={"status": "ok", "note": payload.note, **cleanup},
+            target_type="source",
+            target_id=item_id,
+        )
         queue_payload = InboxProcessRequest(item_ids=[item_id])
         response = api_inbox_process(queue_payload)
         response["note"] = payload.note
+        response["retry_cleanup"] = cleanup
         return response
 
     @app.get("/api/inbox/items/{item_id}/log", dependencies=[Depends(require_auth)])
@@ -2428,13 +3477,14 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
     def api_inbox_status() -> dict[str, Any]:
         items = api_inbox_items()["items"]
         counts = Counter(item["status"] for item in items)
+        inbox_path, _inbox_rel, _configured = operational_inbox_path(require_exists=False)
         return {
             "status": "ok",
             "counts": dict(counts),
             "processing_count": counts.get("processing", 0),
             "needs_mapping_count": counts.get("needs_mapping", 0),
             "failed_count": counts.get("failed", 0),
-            "last_scan_paths": [str(workspace.inbox_memo), str(workspace.inbox_files), str(workspace.inbox_text)],
+            "last_scan_paths": [str(inbox_path)],
         }
 
     @app.get("/api/review/candidates", dependencies=[Depends(require_auth)])
@@ -2450,6 +3500,38 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
     def api_review_concepts() -> dict[str, Any]:
         concepts = list_concepts()
         return {"status": "ok", "count": len(concepts), "concepts": concepts}
+
+    @app.get("/api/review/wiki-pages", dependencies=[Depends(require_auth)])
+    def api_review_wiki_pages(source_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+        """Return final generated wiki pages as the primary review surface.
+
+        Claims remain internal evidence/debug material.  This endpoint exposes
+        the same markdown pages produced by the CLI/shared ingest pipeline so
+        Web review is page-centric rather than extraction-stage-centric.
+        """
+        max_items = max(1, min(int(limit), 200))
+        pages: list[dict[str, Any]] = []
+        concepts_dir, _concepts_rel, _configured = operational_role_path("concepts", workspace.wiki_concepts, require_exists=False)
+        for path in sorted(concepts_dir.glob("*.md")) if concepts_dir.exists() else []:
+            content = path.read_text(encoding="utf-8")
+            if not _markdown_mentions_source_id(content, source_id):
+                continue
+            parsed = parse_markdown_sections(content)
+            body_preview = content.split("---", 2)[-1].strip() if content.startswith("---") else content.strip()
+            pages.append(
+                {
+                    "id": path.stem,
+                    "title": parsed["title"] or markdown_title(path),
+                    "path": _display_path(path),
+                    "summary": parsed["summary"],
+                    "sources": parsed["sources"],
+                    "body_preview": body_preview[:1200],
+                    "review_object": "wiki_page",
+                }
+            )
+            if len(pages) >= max_items:
+                break
+        return {"status": "ok", "source_id": source_id, "count": len(pages), "pages": pages}
 
     @app.get("/api/review/concepts/{concept_id}", dependencies=[Depends(require_auth)])
     def api_review_concept_detail(concept_id: str) -> dict[str, Any]:
@@ -2468,6 +3550,80 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
     def api_review_mapping(source_candidate_id: str) -> dict[str, Any]:
         rows = candidate_similarity_rows(source_candidate_id)
         return {"status": "ok", "count": len(rows), "concepts": rows}
+
+    @app.get("/api/review/suggestions/grouped", dependencies=[Depends(require_auth)])
+    def api_review_suggestions_grouped(source_id: str | None = None, status_filter: str | None = "pending") -> dict[str, Any]:
+        return grouped_suggestions(source_id=source_id, status_filter=status_filter)
+
+    @app.post("/api/review/suggestions/decide-node", dependencies=[Depends(require_auth)])
+    def api_review_suggestions_decide_node(payload: NodeSuggestionDecisionRequest) -> dict[str, Any]:
+        node_candidate = get_candidate_by_id(payload.node_candidate_id)
+        if not node_candidate:
+            raise HTTPException(status_code=404, detail=f"Unknown node_candidate_id: {payload.node_candidate_id}")
+        if node_candidate.get("candidate_type") != "node":
+            raise HTTPException(status_code=422, detail="node_candidate_id must reference a node candidate")
+        allowed_actions = {"create_new", "merge_into_existing", "link_related", "defer", "reject"}
+        if payload.action not in allowed_actions:
+            raise HTTPException(status_code=422, detail=f"Unsupported action: {payload.action}")
+        if payload.action in {"merge_into_existing", "link_related"} and not (payload.target_concept_id or "").strip():
+            raise HTTPException(status_code=422, detail="target_concept_id is required for merge_into_existing/link_related")
+
+        all_groups = grouped_suggestions(source_id=node_candidate.get("source_id"), status_filter=None)
+        node_group = next((group for group in all_groups.get("node_groups", []) if group.get("node_candidate", {}).get("id") == payload.node_candidate_id), None)
+        if node_group is None:
+            raise HTTPException(status_code=422, detail="Unable to resolve node candidate group")
+        allowed_claim_ids = [str(item.get("id")) for item in node_group.get("claims", []) if item.get("id")]
+        allowed_claim_id_set = set(allowed_claim_ids)
+
+        conn = connect(workspace.db)
+        try:
+            claim_rows: list[sqlite3.Row] = []
+            claim_ids = list(dict.fromkeys(str(claim_id) for claim_id in payload.claim_candidate_ids if str(claim_id).strip()))
+            if claim_ids:
+                placeholders = ", ".join("?" for _ in claim_ids)
+                claim_rows = conn.execute(f"SELECT * FROM review_candidates WHERE id IN ({placeholders})", tuple(claim_ids)).fetchall()
+        finally:
+            conn.close()
+        actual_claim_ids = {str(row["id"]) for row in claim_rows}
+        missing_claim_ids = [claim_id for claim_id in payload.claim_candidate_ids if claim_id not in actual_claim_ids]
+        if missing_claim_ids:
+            raise HTTPException(status_code=404, detail=f"Unknown claim_candidate_ids: {', '.join(missing_claim_ids)}")
+        for row in claim_rows:
+            if row["candidate_type"] != "claim":
+                raise HTTPException(status_code=422, detail="claim_candidate_ids must reference claim candidates")
+            if row["source_id"] != node_candidate.get("source_id"):
+                raise HTTPException(status_code=422, detail="claim candidates must share the same source as the node candidate")
+            if str(row["id"]) not in allowed_claim_id_set:
+                raise HTTPException(status_code=422, detail="claim_candidate_ids must belong to the selected node group")
+
+        included_claim_ids = [claim_id for claim_id in payload.claim_candidate_ids if claim_id in allowed_claim_id_set]
+        excluded_claim_ids = [claim_id for claim_id in allowed_claim_ids if claim_id not in set(included_claim_ids)]
+        metadata = {
+            **payload.metadata,
+            "surface": "node_centric_review",
+            "included_claim_candidate_ids": included_claim_ids,
+            "excluded_claim_candidate_ids": excluded_claim_ids,
+            "target_concept_id": payload.target_concept_id,
+            "target_title": payload.target_title,
+            "placement_action": payload.action,
+        }
+        candidate_status = "pending" if payload.action == "defer" else ("rejected" if payload.action == "reject" else "approved")
+        decision_id = record_human_decision(
+            workspace.db,
+            payload.node_candidate_id,
+            payload.action,
+            note=payload.note,
+            metadata=metadata,
+            candidate_status=candidate_status,
+        )
+        return {
+            "status": "ok",
+            "decision_id": decision_id,
+            "node_candidate_id": payload.node_candidate_id,
+            "action": payload.action,
+            "included_claim_count": len(included_claim_ids),
+            "excluded_claim_count": len(excluded_claim_ids),
+        }
 
     @app.post("/api/review/decide", dependencies=[Depends(require_auth)])
     def api_review_decide(payload: ReviewDecisionRequest) -> dict[str, Any]:
@@ -2510,6 +3666,10 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
             item["current_step"] = item.get("payload", {}).get("current_step") or "page_validate"
             candidates.append(item)
         return {"status": "ok", "count": len(candidates), "new_count": len(candidates), "candidates": candidates}
+
+    @app.get("/api/mapping/grouped", dependencies=[Depends(require_auth)])
+    def api_mapping_grouped(source_id: str | None = None, status_filter: str | None = "pending") -> dict[str, Any]:
+        return grouped_suggestions(source_id=source_id, status_filter=status_filter)
 
     @app.get("/api/mapping/candidates/{candidate_id}", dependencies=[Depends(require_auth)])
     def api_mapping_candidate_detail(candidate_id: str) -> dict[str, Any]:
@@ -2561,6 +3721,39 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
         )
         return api_review_decide(request_payload)
 
+    @app.post("/api/mapping/draft", dependencies=[Depends(require_auth)])
+    def api_mapping_draft(payload: MappingDraftRequest) -> dict[str, Any]:
+        """Persist a draft of edited frontmatter/content for a node candidate.
+
+        This stores the edited fields into the candidate's payload_json under a
+        ``draft`` sub-key so it does not overwrite the LLM-produced canonical
+        fields until the user explicitly confirms the decision.
+        """
+        candidate = get_candidate_by_id(payload.node_candidate_id)
+        if not candidate:
+            raise HTTPException(status_code=404, detail=f"Unknown node_candidate_id: {payload.node_candidate_id}")
+
+        existing_payload = candidate_payload(candidate)
+        draft_fields = {
+            "title": payload.title,
+            "tags": list(payload.tags),
+            "aliases": list(payload.aliases),
+            "node_type": payload.node_type,
+            "body": payload.body,
+            "frontmatter": payload.frontmatter,
+            "source_id": payload.source_id,
+            "status": payload.status,
+        }
+        updated_payload = {
+            **existing_payload,
+            "draft": {
+                **draft_fields,
+                "saved_at": utc_now(),
+            },
+        }
+        _update_candidate_payload(workspace.db, payload.node_candidate_id, updated_payload)
+        return {"status": "ok", "candidate_id": payload.node_candidate_id, "message": "Draft saved"}
+
     @app.get("/api/wiki/pages", dependencies=[Depends(require_auth)])
     def api_wiki_pages(query: str | None = None, limit: int = 50) -> dict[str, Any]:
         q = (query or "").strip().lower()
@@ -2582,7 +3775,8 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/vault/tree", dependencies=[Depends(require_auth)])
     def api_vault_tree() -> dict[str, Any]:
-        return {"status": "ok", "tree": vault_tree_node(workspace.vault)}
+        vault_root, _vault_rel, _configured = operational_human_vault(require_exists=True)
+        return {"status": "ok", "tree": vault_tree_node(vault_root, root=vault_root)}
 
     @app.get("/api/vault/folder", dependencies=[Depends(require_auth)])
     def api_vault_folder(path: str | None = None) -> dict[str, Any]:
@@ -2598,13 +3792,14 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
     def api_vault_search(q: str, limit: int = 25) -> dict[str, Any]:
         query = q.strip().lower()
         rows = []
+        vault_root, _vault_rel, _configured = operational_human_vault(require_exists=True)
         if query:
-            for path in sorted(workspace.vault.rglob("*")):
+            for path in sorted(vault_root.rglob("*")):
                 if len(rows) >= max(1, min(limit, 100)):
                     break
-                if path.is_symlink() or not path.is_file() or not is_visible_vault_path(path):
+                if path.is_symlink() or not path.is_file() or not is_visible_vault_path(path, root=vault_root):
                     continue
-                rel = relative_vault_path(path)
+                rel = relative_vault_path(path, root=vault_root)
                 if query in path.name.lower():
                     rows.append({"path": rel, "name": path.name, "match": "name"})
                     continue
@@ -2616,23 +3811,31 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/settings/prompt-versions", dependencies=[Depends(require_auth)])
     def api_prompt_versions(task_type: str | None = None) -> dict[str, Any]:
+        if task_type:
+            require_live_prompt_task(task_type)
         versions = list_prompt_versions(workspace.db, task_type)
+        if task_type is None:
+            versions = [row for row in versions if row.get("task_type") in LIVE_LLM_UNITS]
         return {"status": "ok", "count": len(versions), "prompt_versions": versions}
 
     @app.get("/api/settings/prompts", dependencies=[Depends(require_auth)])
     def api_settings_prompts(task_type: str | None = None) -> dict[str, Any]:
-        groups = list(prompt_group_summary().values())
+        ensure_default_prompts(workspace.db)
+        groups = sorted(prompt_group_summary().values(), key=lambda group: (group.get("display_order", 999), group.get("task_type", "")))
+        groups = [g for g in groups if g.get("is_live_llm_unit")]
         if task_type:
             groups = [group for group in groups if group["task_type"] == task_type]
         return {"status": "ok", "count": len(groups), "task_groups": groups}
 
     @app.get("/api/settings/prompts/history", dependencies=[Depends(require_auth)])
     def api_settings_prompts_history(task_type: str) -> dict[str, Any]:
+        require_live_prompt_task(task_type)
         history = list_prompt_versions(workspace.db, task_type)
         return {"status": "ok", "count": len(history), "task_type": task_type, "history": history}
 
     @app.get("/api/settings/prompts/active", dependencies=[Depends(require_auth)])
     def api_settings_prompts_active(task_type: str) -> dict[str, Any]:
+        require_live_prompt_task(task_type)
         active = get_active_prompt(workspace.db, task_type)
         default_status = active.get("version_label") == "phase2-default-v1" or "rollback_from:" in str(active.get("change_note") or "")
         return {
@@ -2649,11 +3852,13 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/settings/prompt-versions", dependencies=[Depends(require_auth)])
     def api_create_prompt_version(payload: PromptVersionCreateRequest) -> dict[str, Any]:
+        require_live_prompt_task(payload.task_type)
         prompt_id = create_prompt_version(workspace.db, payload.task_type, payload.version_label or f"web-test-{utc_now().replace(':', '').replace('-', '')}", payload.prompt_text, state="test", change_note=payload.change_note, created_by=payload.created_by)
         return {"status": "ok", "prompt_id": prompt_id, "message": "Created test prompt version"}
 
     @app.post("/api/settings/prompts/test", dependencies=[Depends(require_auth)])
     def api_settings_prompts_test(payload: PromptVersionCreateRequest) -> dict[str, Any]:
+        require_live_prompt_task(payload.task_type)
         # Create test version first
         prompt_id = create_prompt_version(workspace.db, payload.task_type, payload.version_label or f"web-test-{utc_now().replace(':', '').replace('-', '')}", payload.prompt_text, state="test", change_note=payload.change_note, created_by=payload.created_by)
 
@@ -2720,10 +3925,12 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/settings/prompts/{prompt_id}/confirm", dependencies=[Depends(require_auth)])
     def api_settings_prompts_confirm(prompt_id: str) -> dict[str, Any]:
+        require_live_prompt_id(prompt_id)
         return api_confirm_prompt_version(prompt_id)
 
     @app.post("/api/settings/prompts/{prompt_id}/rollback", dependencies=[Depends(require_auth)])
     def api_settings_prompts_rollback(prompt_id: str, payload: PromptRollbackRequest) -> dict[str, Any]:
+        require_live_prompt_id(prompt_id)
         try:
             result = rollback_prompt_version(workspace.db, prompt_id, change_note=payload.reason, created_by=payload.created_by)
         except ValueError as exc:
@@ -2741,7 +3948,17 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/settings/models", dependencies=[Depends(require_auth)])
     def api_settings_models() -> dict[str, Any]:
         settings_payload = mask_sensitive(load_settings(workspace.settings_file))
-        return {"status": "ok", "models": list_models(workspace).get("models", []), "routes": get_route_map(workspace).get("routes", {}), "settings": settings_payload.get("llm", {})}
+        model_payload = list_models(workspace)
+        return {
+            "status": "ok",
+            "models": model_payload.get("models", []),
+            "provider_models": model_payload.get("provider_models", []),
+            "embedding_models": model_payload.get("embedding_models", []),
+            "fastembed_models": model_payload.get("fastembed_models", []),
+            "routes": get_route_map(workspace).get("routes", {}),
+            "settings": settings_payload.get("llm", {}),
+            "embedding": settings_payload.get("embedding", {}),
+        }
 
     @app.get("/api/settings/routes", dependencies=[Depends(require_auth)])
     def api_settings_routes() -> dict[str, Any]:
@@ -2818,7 +4035,23 @@ def create_app(workspace_path: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/settings/vault", dependencies=[Depends(require_auth)])
     def api_settings_vault() -> dict[str, Any]:
-        return {"status": "ok", "vault_path": str(workspace.vault), "data_path": str(workspace.data), "env_file_exists": workspace.env_file.exists(), "onboarding_path": "/onboarding"}
+        try:
+            vault_root, _vault_rel, _configured = operational_human_vault(require_exists=False)
+        except HTTPException:
+            vault_root = workspace.vault
+        settings_data = load_runtime_settings(resolve_env=False)
+        vault_settings = settings_data.get("vault") if isinstance(settings_data.get("vault"), dict) else {}
+        role_map = dict((vault_settings or {}).get("role_map") or {})
+        configured_vault = str((vault_settings or {}).get("vault_path") or settings_data.get("paths", {}).get("vault") or "").strip()
+        return {
+            "status": "ok",
+            "vault_path": str(vault_root),
+            "configured_vault_path": configured_vault,
+            "data_path": str(workspace.data),
+            "env_file_exists": workspace.env_file.exists(),
+            "onboarding_path": "/onboarding?force=1&step=vault",
+            "role_map": role_map,
+        }
 
     @app.get("/api/settings/auth", dependencies=[Depends(require_auth)])
     def api_settings_auth() -> dict[str, Any]:

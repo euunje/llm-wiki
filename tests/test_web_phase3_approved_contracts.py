@@ -132,7 +132,7 @@ def test_approved_top_navigation_is_exact_and_ordered(
     [
         ("/dashboard", ('id="dashboard-metrics"', 'id="dashboard-attention"', 'id="dashboard-system"', 'id="dashboard-activity"')),
         ("/inbox", ('id="inbox-item-list"', 'id="inbox-detail"', 'id="inbox-queue"', 'id="btn-inbox-process"')),
-        ("/mapping", ('class="mapping-stepbar"', 'id="mapping-candidate-queue"', 'id="mapping-pane-1"', 'id="mapping-pane-2"', 'id="mapping-pane-3"', 'id="mapping-pane-errors"', 'id="btn-mapping-confirm"')),
+        ("/mapping", ('매핑 노드 검토 / Mapping Node Review', 'id="mapping-node-list"', 'id="mapping-node-editor"', '노드명, 실제 Wiki 문서 Frontmatter, 본문')),
         ("/vault", ('id="vault-folder-tree"', 'id="vault-file-list"', 'id="vault-viewer"')),
         ("/wiki", ('id="wiki-page-list"', 'id="wiki-detail"', 'id="wiki-toc-drawer"')),
         ("/settings?tab=llm", ('class="settings-tab active" data-tab="llm"', 'id="settings-pane-llm"', 'id="settings-advanced-options"', 'id="settings-concurrency"')),
@@ -154,6 +154,27 @@ def test_approved_page_routes_render_landmarks(
     assert response.status_code == 200
     for landmark in landmarks:
         assert landmark in response.text, f"{route} missing approved landmark: {landmark}"
+
+
+def test_inbox_process_button_uses_row_selection_not_only_checkboxes() -> None:
+    app_js = Path("src/llm_wiki/web/static/js/app.js").read_text(encoding="utf-8")
+    assert "getInboxProcessTargetIds" in app_js
+    assert "_inboxState.selectedId" in app_js
+    assert 'btn.textContent = selectedCount === 1 ? "▶ Process this item" : `▶ Process ${selectedCount} selected`' in app_js
+
+
+def test_inbox_process_sets_immediate_processing_ui_before_api_wait() -> None:
+    app_js = Path("src/llm_wiki/web/static/js/app.js").read_text(encoding="utf-8")
+    run_start = app_js.index("async function runInboxProcess")
+    run_end = app_js.index("async function selectInboxItem", run_start)
+    run_body = app_js[run_start:run_end]
+    assert "function markInboxItemsProcessing" in app_js
+    assert "markInboxItemsProcessing(activeIds);" in run_body
+    assert run_body.index("markInboxItemsProcessing(activeIds);") < run_body.index("apiFetch(endpoint")
+    assert "inbox-progress-bar" in app_js
+    assert "inbox-operation-log" in app_js
+    assert "status-processing" in app_js
+    assert "if (!checkedIds.length && _inboxState.selectedId)" in app_js
 
 
 def test_dashboard_summary_exposes_approved_card_groups(
@@ -180,6 +201,11 @@ def test_inbox_text_upload_scan_process_retry_log_and_result_record_contracts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, _paths = _client(workspace, monkeypatch)
+    monkeypatch.delenv("LLM_WIKI_API_KEY", raising=False)
+    monkeypatch.delenv("LOCAL_LLM_ENDPOINT", raising=False)
+    monkeypatch.delenv("LOCAL_LLM_CHAT_MODEL", raising=False)
+    monkeypatch.delenv("LLM_WIKI_LLM_ENDPOINT", raising=False)
+    monkeypatch.delenv("LLM_WIKI_CHAT_MODEL", raising=False)
 
     text_response = client.post(
         "/api/inbox/text",
@@ -200,7 +226,10 @@ def test_inbox_text_upload_scan_process_retry_log_and_result_record_contracts(
         files={"file": ("phase3-upload.md", b"# Uploaded\n\nInbox upload contract.\n", "text/markdown")},
     )
     assert upload_response.status_code == 200
-    assert upload_response.json()["item"]["source_id"]
+    upload_payload = upload_response.json()
+    assert upload_payload["acceptance_status"] == "queued_for_scan"
+    assert upload_payload["item"]["status"] == "queued"
+    assert Path(upload_payload["item"]["path"]).parent == workspace / "vault" / "00. Inbox"
 
     items_response = client.get("/api/inbox/items")
     assert items_response.status_code == 200
@@ -223,6 +252,14 @@ def test_inbox_text_upload_scan_process_retry_log_and_result_record_contracts(
     assert scan["status"] == "ok"
     assert {"new_candidate_count", "duplicate_count", "skipped_count", "scanned_paths"} <= set(scan)
 
+    post_scan_items = client.get("/api/inbox/items").json()["items"]
+    uploaded_item = next(item for item in post_scan_items if item["origin"] == "phase3-upload.md")
+    assert uploaded_item["title"] == "phase3-upload"
+    assert uploaded_item["pipeline_stage"] in {"normalized", "chunked", "embedded"}
+    assert uploaded_item["review_status"] == "pending"
+    assert uploaded_item["status"] == "new"
+    assert uploaded_item["available_actions"]["process"] is True
+
     process_response = client.post("/api/inbox/process", json={"item_ids": [item_id]})
     assert process_response.status_code == 200
     process = process_response.json()
@@ -234,6 +271,45 @@ def test_inbox_text_upload_scan_process_retry_log_and_result_record_contracts(
     assert process["items"][0]["item_id"] == item_id
     assert process["items"][0]["status"] == "ok"
     assert process["items"][0]["final_state"] in {"needs_mapping", "completed"}
+    assert "cli_equivalent" in process["items"][0]
+    assert process["items"][0]["llm_page_candidate_attempt"]["attempted"] is False
+    assert process["items"][0]["quality_gate"]["issue_count"] >= 0
+    assert process["items"][0]["persisted_review_candidates"]
+    process_steps = [step["step"] for step in process["items"][0]["steps"]]
+    assert "publish_mapping_candidates" in process_steps
+    assert "extract_claims" not in process_steps
+    assert "map" not in process_steps
+
+    conn = connect(_paths.db)
+    try:
+        pending_nodes = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT * FROM review_candidates WHERE source_id = ? AND status = 'pending' AND candidate_type = 'node' ORDER BY created_at",
+                (item_id,),
+            ).fetchall()
+        ]
+        non_node_pending_count = conn.execute(
+            "SELECT COUNT(*) FROM review_candidates WHERE source_id = ? AND status = 'pending' AND candidate_type != 'node'",
+            (item_id,),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert len(pending_nodes) == process["items"][0]["page_count"]
+    assert non_node_pending_count == 0
+    first_node_payload = json.loads(pending_nodes[0]["payload_json"])
+    assert first_node_payload["body"].strip()
+    assert first_node_payload["tags"]
+    assert first_node_payload["frontmatter"]["source_ids"] == [item_id]
+
+    pages_before_retry = [p["path"] for p in process["items"][0]["wiki_pages"]]
+    assert pages_before_retry
+    old_page_path = workspace / pages_before_retry[0]
+    assert old_page_path.exists()
+    old_page_path.write_text(old_page_path.read_text(encoding="utf-8") + "\nSTALE RETRY SENTINEL\n", encoding="utf-8")
+    source_summary_path = workspace / process["items"][0]["source_summary_path"]
+    assert source_summary_path.exists()
+    source_summary_path.write_text(source_summary_path.read_text(encoding="utf-8") + "\nSTALE SOURCE SUMMARY SENTINEL\n", encoding="utf-8")
 
     retry_response = client.post(
         f"/api/inbox/items/{item_id}/retry",
@@ -247,6 +323,17 @@ def test_inbox_text_upload_scan_process_retry_log_and_result_record_contracts(
     if "queued_count" in retry_payload:
         assert retry_payload["queued_count"] == retry_payload["processed_count"]
     assert retry_payload["note"] == "Retry from focused contract test"
+    assert retry_payload["retry_cleanup"]["mode"] == "full_regeneration"
+    retry_item = retry_payload["items"][0]
+    assert retry_item["status"] == "ok"
+    assert retry_item["cli_equivalent"]["mode"] == "shared_pipeline"
+    for page in retry_item["wiki_pages"]:
+        page_path = workspace / page["path"]
+        assert page_path.exists()
+        assert "STALE RETRY SENTINEL" not in page_path.read_text(encoding="utf-8")
+    retry_summary_path = workspace / retry_item["source_summary_path"]
+    assert retry_summary_path.exists()
+    assert "STALE SOURCE SUMMARY SENTINEL" not in retry_summary_path.read_text(encoding="utf-8")
 
     status_response = client.get("/api/inbox/status")
     assert status_response.status_code == 200
@@ -289,6 +376,11 @@ def test_vault_tree_folder_file_and_path_safety_contracts(
     tree_payload = tree_response.json()
     assert tree_payload["tree"]["kind"] == "folder"
     assert ".hidden" not in json.dumps(tree_payload, ensure_ascii=False)
+    root_children = tree_payload["tree"].get("children", [])
+    ten_wiki = next(item for item in root_children if item["name"] == "10_Wiki")
+    assert ten_wiki["children"] == []
+    assert ten_wiki["children_loaded"] is False
+    assert "phase3-vault.md" not in json.dumps(tree_payload, ensure_ascii=False)
 
     folder_response = client.get("/api/vault/folder", params={"path": "10_Wiki/concepts"})
     assert folder_response.status_code == 200
@@ -521,7 +613,7 @@ def test_prompt_active_and_rollback_create_a_new_confirmed_copy(
 
     active_before_response = client.get(
         "/api/settings/prompts/active",
-        params={"task_type": "map"},
+        params={"task_type": "extract_claims"},
     )
     assert active_before_response.status_code == 200
     active_before = active_before_response.json()
@@ -533,11 +625,11 @@ def test_prompt_active_and_rollback_create_a_new_confirmed_copy(
     custom_response = client.post(
         "/api/settings/prompts/test",
         json={
-            "task_type": "map",
-            "version_label": "phase3-custom-map-v1",
+            "task_type": "extract_claims",
+            "version_label": "phase3-custom-extract-v1",
             "prompt_text": (
-                "Return JSON mapping candidate output for map tasks with candidate, "
-                "existing_node_id, mapping decisions, and JSON structure."
+                "Return JSON candidate output for extract_claims tasks with candidate, "
+                "claim, node, evidence, and JSON structure."
             ),
             "change_note": "Make custom prompt active before rollback",
         },
@@ -561,7 +653,7 @@ def test_prompt_active_and_rollback_create_a_new_confirmed_copy(
 
     active_after_response = client.get(
         "/api/settings/prompts/active",
-        params={"task_type": "map"},
+        params={"task_type": "extract_claims"},
     )
     assert active_after_response.status_code == 200
     active_after = active_after_response.json()
@@ -586,6 +678,39 @@ def test_prompt_active_and_rollback_create_a_new_confirmed_copy(
     assert rows[new_version_id]["state"] == "confirmed"
     assert rows[new_version_id]["prompt_text"] == rows[source_version["id"]]["prompt_text"]
     assert f"rollback_from:{source_version['id']}" in rows[new_version_id]["change_note"]
+
+
+def test_settings_exposes_reason_specific_page_candidate_prompts(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _paths = _client(workspace, monkeypatch)
+
+    prompts_response = client.get("/api/settings/prompts")
+    assert prompts_response.status_code == 200
+    groups = {group["task_type"]: group for group in prompts_response.json()["task_groups"]}
+    expected = {
+        "wiki_page_candidates_initial",
+        "wiki_page_candidates_retry_parse_failed",
+        "wiki_page_candidates_retry_schema_validation_failed",
+        "wiki_page_candidates_retry_empty_candidates",
+    }
+    assert expected <= set(groups)
+    for task_type in expected:
+        group = groups[task_type]
+        assert group["is_live_llm_unit"] is True
+        assert group["confirmed"]
+        assert "candidate" in group["confirmed"]["prompt_text"].lower()
+
+    prompt_text = "Return ONLY JSON page candidate correction output for parse_failed with document_type, target_candidate_count, candidates, raw_response, parse_error."
+    test_response = client.post(
+        "/api/settings/prompts/test",
+        json={
+            "task_type": "wiki_page_candidates_retry_parse_failed",
+            "prompt_text": prompt_text,
+            "change_note": "Customize parse retry prompt",
+            "created_by": "web-test",
+        },
+    )
+    assert test_response.status_code == 200
+    assert test_response.json()["test_status"] == "passed"
 
 
 def test_llm_concurrency_defaults_to_one_and_is_bounded_to_three(
@@ -699,6 +824,16 @@ def test_reusable_app_js_avoids_localhost_literals_and_uses_supported_mapping_ac
     assert 'body: JSON.stringify({ value: val })' in script
     assert 'action = decision === "keep_new" ? "create_new" : decision === "defer" ? "edit" : decision' in script
     assert 'metadata = { step: "relationship_validate" }' in script
+    assert 'reviewSuggestionsGrouped: "/api/review/suggestions/grouped"' in script
+    assert 'reviewSuggestionDecideNode: "/api/review/suggestions/decide-node"' in script
+    assert 'export async function loadMappingUI()' in script
+    assert 'export function bindMappingUIActions()' in script
+    assert 'function renderMappingNodeList()' in script
+    assert 'function renderMappingNodeEditor()' in script
+    assert 'id="mapping-btn-save"' in script
+    assert '변경사항을 먼저 저장하세요.' in script
+    assert 'LLM 진단 / Claim' in script
+    assert 'class="node-claim-checkbox"' in script
 
 
 def test_inbox_detail_renders_result_record_via_separate_endpoint(
@@ -743,3 +878,83 @@ def test_inbox_detail_renders_result_record_via_separate_endpoint(
     assert record["status"] == "ok"
     assert "record" in record
     assert {"source", "model_run", "results", "artifacts"} <= set(record["record"])
+
+
+
+def test_failed_inbox_detail_exposes_non_empty_error_and_log(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, paths = _client(workspace, monkeypatch)
+
+    text_resp = client.post(
+        "/api/inbox/text",
+        json={"title": "Failure detail smoke", "text": "This item is forced into a failed job state."},
+    )
+    assert text_resp.status_code == 200
+    item_id = text_resp.json()["item"]["source_id"]
+    now = utc_now()
+    error_payload = {"reason": "forced failure for UI detail", "type": "RuntimeError", "stage": "extract_claims"}
+    conn = connect(paths.db)
+    try:
+        conn.execute(
+            "INSERT INTO jobs (id, job_type, target_type, target_id, status, input_refs_json, output_refs_json, error_json, retry_count, created_at, started_at, finished_at) VALUES (?, 'inbox_process', 'source', ?, 'failed', '[]', '[]', ?, 0, ?, ?, ?)",
+            (new_id("job"), item_id, json.dumps(error_payload), now, now, now),
+        )
+        conn.execute("UPDATE sources SET pipeline_stage = 'failed', review_status = 'failed', updated_at = ? WHERE id = ?", (now, item_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    detail = client.get(f"/api/inbox/items/{item_id}")
+    assert detail.status_code == 200
+    item = detail.json()["item"]
+    assert item["status"] == "failed"
+    assert item["error"]["reason"] == "forced failure for UI detail"
+    assert item["error"]["stage"] == "extract_claims"
+    failed_events = [event for event in item["processing_log"] if event.get("event") == "failed"]
+    assert failed_events
+    assert failed_events[0]["error"]["reason"] == "forced failure for UI detail"
+    assert "forced failure for UI detail" in failed_events[0]["detail"]
+
+
+
+def test_inbox_status_uses_latest_final_state_not_historical_failed_job(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, paths = _client(workspace, monkeypatch)
+
+    text_resp = client.post(
+        "/api/inbox/text",
+        json={"title": "Retry final state wins", "text": "A previous failed job should not hide the later successful state."},
+    )
+    assert text_resp.status_code == 200
+    item_id = text_resp.json()["item"]["source_id"]
+    now = utc_now()
+    conn = connect(paths.db)
+    try:
+        conn.execute(
+            "INSERT INTO jobs (id, job_type, target_type, target_id, status, input_refs_json, output_refs_json, error_json, retry_count, created_at, started_at, finished_at) VALUES (?, 'inbox_process', 'source', ?, 'failed', '[]', '[]', ?, 0, ?, ?, ?)",
+            (new_id("job"), item_id, json.dumps({"reason": "old timeout", "type": "TimeoutError"}), now, now, now),
+        )
+        conn.execute(
+            "INSERT INTO jobs (id, job_type, target_type, target_id, status, input_refs_json, output_refs_json, error_json, retry_count, created_at, started_at, finished_at) VALUES (?, 'inbox_process', 'source', ?, 'succeeded', '[]', '[]', NULL, 0, ?, ?, ?)",
+            (new_id("job"), item_id, now, now, now),
+        )
+        candidate_id = new_id("candidate")
+        conn.execute(
+            "INSERT INTO review_candidates (id, candidate_type, candidate_key, source_id, run_id, payload_json, review_route, review_reason, related_candidate_keys_json, status, superseded_by, created_at, updated_at) VALUES (?, 'node', 'retry-final-state', ?, NULL, '{}', 'normal_review', 'test', '[]', 'pending', NULL, ?, ?)",
+            (candidate_id, item_id, now, now),
+        )
+        conn.execute("UPDATE sources SET pipeline_stage = 'candidate_generated', review_status = 'needs_mapping', updated_at = ? WHERE id = ?", (now, item_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    detail = client.get(f"/api/inbox/items/{item_id}")
+    assert detail.status_code == 200
+    item = detail.json()["item"]
+    assert item["status"] == "needs_mapping"
+    assert item["progress"] == "mapping candidates ready"
+    assert item["available_actions"]["retry"] is False
+    assert item["available_actions"]["open_mapping"] is True
+    assert item["error"] is None

@@ -150,3 +150,55 @@ def test_review_graph_and_concept_detail_fallback_to_candidate(workspace: Path, 
     detail = client.get("/api/review/concepts/candidate_only")
     assert detail.status_code == 200
     assert "fallback detail" in detail.json()["concept"]["content"]
+
+
+def test_grouped_review_suggestions_groups_claims_under_node(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, paths = _client(workspace, monkeypatch)
+    now = utc_now()
+    source_id = "source_grouped_01"
+    node_id = new_id("candidate")
+    claim_1_id = new_id("candidate")
+    claim_2_id = new_id("candidate")
+    mapping_id = new_id("candidate")
+
+    conn = connect(paths.db)
+    try:
+        conn.execute(
+            "INSERT INTO sources (id, source_type, title, origin, raw_path, normalized_path, content_hash, pipeline_stage, review_status, metadata_json, created_at, updated_at) VALUES (?, 'text', 'Grouped Source', 'test', 'data/raw/grouped-source.md', NULL, ?, 'candidate_generated', 'needs_mapping', ?, ?, ?)",
+            (source_id, f"hash-{source_id}", json.dumps({"original_filename": "Grouped Source Original.md"}, ensure_ascii=False), now, now),
+        )
+        conn.execute(
+            "INSERT INTO review_candidates (id, candidate_type, candidate_key, source_id, run_id, payload_json, review_route, review_reason, related_candidate_keys_json, status, superseded_by, created_at, updated_at) VALUES (?, 'node', 'node_01', ?, NULL, ?, 'normal_review', 'node review', '[\"claim_01\"]', 'pending', NULL, ?, ?)",
+            (node_id, source_id, json.dumps({"candidate_key": "node_01", "title": "Node 01", "summary": "Grouped node", "node_type": "concept", "evidence_claim_keys": ["claim_01"], "extraction_model_id": "chat_default", "extraction_model_name": "google/gemma-4-26b-a4b-qat"}, ensure_ascii=False), now, now),
+        )
+        conn.execute(
+            "INSERT INTO review_candidates (id, candidate_type, candidate_key, source_id, run_id, payload_json, review_route, review_reason, related_candidate_keys_json, status, superseded_by, created_at, updated_at) VALUES (?, 'claim', 'claim_01', ?, NULL, ?, 'normal_review', 'claim attached', '[\"node_01\"]', 'pending', NULL, ?, ?)",
+            (claim_1_id, source_id, json.dumps({"candidate_key": "claim_01", "statement": "Attached claim", "evidence": [{"quote": "claim one evidence"}]}, ensure_ascii=False), now, now),
+        )
+        conn.execute(
+            "INSERT INTO review_candidates (id, candidate_type, candidate_key, source_id, run_id, payload_json, review_route, review_reason, related_candidate_keys_json, status, superseded_by, created_at, updated_at) VALUES (?, 'claim', 'claim_02', ?, NULL, ?, 'normal_review', 'claim orphan', '[]', 'pending', NULL, ?, ?)",
+            (claim_2_id, source_id, json.dumps({"candidate_key": "claim_02", "statement": "Orphan claim", "evidence": [{"quote": "claim two evidence"}]}, ensure_ascii=False), now, now),
+        )
+        conn.execute(
+            "INSERT INTO review_candidates (id, candidate_type, candidate_key, source_id, run_id, payload_json, review_route, review_reason, related_candidate_keys_json, status, superseded_by, created_at, updated_at) VALUES (?, 'mapping', 'mapping_01', ?, NULL, ?, 'needs_merge_decision', 'mapping attached', '[\"node_01\"]', 'pending', NULL, ?, ?)",
+            (mapping_id, source_id, json.dumps({"candidate_key": "mapping_01", "existing_node_id": "rag", "reason": "similar", "incoming_ref": {"candidate_key": "node_01"}}, ensure_ascii=False), now, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = client.get(f"/api/review/suggestions/grouped?source_id={source_id}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["node_group_count"] == 1
+    assert payload["source"]["id"] == source_id
+    assert payload["source"]["filename"] == "Grouped Source Original.md"
+    group = payload["node_groups"][0]
+    assert group["source"]["filename"] == "Grouped Source Original.md"
+    assert group["model"]["model_id"] == "chat_default"
+    assert group["model"]["model_name"] == "google/gemma-4-26b-a4b-qat"
+    assert group["node_candidate"]["candidate_key"] == "node_01"
+    assert [claim["candidate_key"] for claim in group["claims"]] == ["claim_01"]
+    assert group["mapping_candidates"][0]["target_concept_id"] == "rag"
+    assert payload["orphan_claims"][0]["candidate_key"] == "claim_02"

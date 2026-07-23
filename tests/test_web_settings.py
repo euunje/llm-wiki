@@ -70,13 +70,17 @@ def test_settings_apis_manage_prompt_versions_and_mask_model_settings(workspace:
     assert llm_status.status_code == 200
     assert llm_status.json()["routes"]["extract_claims"] == "chat_default"
 
-    route = client.post("/api/settings/llm/route", json={"task_type": "summarize", "model_id": "chat_default"})
+    route = client.post("/api/settings/llm/route", json={"task_type": "ask", "model_id": "chat_default"})
     assert route.status_code == 200
-    assert route.json()["route"]["task_type"] == "summarize"
+    assert route.json()["route"]["task_type"] == "ask"
+
+    removed_route = client.post("/api/settings/llm/route", json={"task_type": "summarize", "model_id": "chat_default"})
+    assert removed_route.status_code == 422
 
     vault = client.get("/api/settings/vault")
     assert vault.status_code == 200
-    assert vault.json()["onboarding_path"] == "/onboarding"
+    assert vault.json()["onboarding_path"] == "/onboarding?force=1&step=vault"
+    assert "role_map" in vault.json()
 
     auth = client.get("/api/settings/auth")
     assert auth.status_code == 200
@@ -84,3 +88,23 @@ def test_settings_apis_manage_prompt_versions_and_mask_model_settings(workspace:
 
     prompt_test_artifacts = list((paths.artifacts / "prompt_confirm_test" / prompt_id).glob("*.json"))
     assert prompt_test_artifacts
+
+
+def test_settings_vault_onboarding_link_forces_completed_setup_into_vault_step(
+    workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _paths = _client(workspace, monkeypatch)
+    page = client.get("/settings?tab=vault")
+    assert page.status_code == 200
+
+    app_js = Path("src/llm_wiki/web/static/js/app.js").read_text(encoding="utf-8")
+    assert 'onboardingVault: "/onboarding?force=1&step=vault"' in app_js
+    assert "data.onboarding_path || API.onboardingVault" in app_js
+    assert "initialStep = params.get(\"step\")" in app_js
+    assert "preloadConfiguredVaultMapping" in app_js
+    assert "API.settingsVault" in app_js
+
+    forced = client.get("/onboarding?force=1&step=vault")
+    assert forced.status_code == 200
+    assert 'id="wizard-pane-vault"' in forced.text

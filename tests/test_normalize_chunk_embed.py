@@ -343,7 +343,7 @@ def test_embed_falls_back_when_embedder_returns_mismatched_dimensions(
 ) -> None:
     import llm_wiki.pipeline.embed as embed_module
 
-    # rag.md produces 2 chunks so the count check passes and the
+    # rag.md produces section-aware chunks; provide the same target count so the
     # dimension mismatch check is what triggers the fallback.
     source_id = _drive_through_chunk(workspace, samples_dir / "rag.md")
     monkeypatch.setattr(
@@ -352,6 +352,7 @@ def test_embed_falls_back_when_embedder_returns_mismatched_dimensions(
         _stub_embedder_factory(
             [
                 [0.1, 0.2, 0.3, 0.4],
+                [0.2, 0.3, 0.4, 0.5],
                 [-0.5, 0.6, 0.7],  # dimension 3 vs 4
             ]
         ),
@@ -372,7 +373,7 @@ def test_embed_falls_back_when_embedder_returns_all_zero_vectors(
 ) -> None:
     import llm_wiki.pipeline.embed as embed_module
 
-    # rag.md produces 2 chunks; one of them returns an all-zero vector
+    # rag.md produces section-aware chunks; one of them returns an all-zero vector
     # so the validator falls back explicitly.
     source_id = _drive_through_chunk(workspace, samples_dir / "rag.md")
     monkeypatch.setattr(
@@ -381,6 +382,7 @@ def test_embed_falls_back_when_embedder_returns_all_zero_vectors(
         _stub_embedder_factory(
             [
                 [0.1, 0.2, 0.3, 0.4],
+                [0.2, 0.3, 0.4, 0.5],
                 [0.0, 0.0, 0.0, 0.0],  # all-zero
             ]
         ),
@@ -412,6 +414,7 @@ def test_embed_succeeds_with_valid_fastembed_output(
             [
                 [0.1, 0.2, -0.3, 0.4],
                 [-0.5, 0.6, 0.7, -0.8],
+                [0.9, -0.1, 0.2, -0.3],
             ]
         ),
     )

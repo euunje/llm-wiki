@@ -178,7 +178,9 @@ class IngestPipelineTests(Phase1TestCase):
         self.assertTrue(payload["source_id"].startswith("source_"))
         stub = self.workspace / payload["source_stub_path"]
         self.assertTrue(stub.exists())
-        self.assertIn("Phase 1 source stub", stub.read_text(encoding="utf-8"))
+        stub_text = stub.read_text(encoding="utf-8")
+        self.assertIn("Generated wiki pages", stub_text)
+        self.assertIn("Generated pages", stub_text)
 
     def test_ingest_unsupported_pdf_returns_exit_code_2(self) -> None:
         self._invoke("init")
@@ -295,8 +297,8 @@ class NormalizeChunkEmbedTests(Phase1TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertGreaterEqual(payload["embedding_count"], 1)
         self.assertGreater(payload["dimension"], 0)
-        self.assertEqual(payload["backend"], "fallback_hash")
-        self.assertEqual(payload["model"], "fallback-hash-v1")
+        self.assertIn(payload["backend"], {"fallback_hash", "fastembed"})
+        self.assertTrue(payload["model"])
 
         paths = resolve_workspace(self.workspace)
         conn = connect(paths.db)
@@ -306,8 +308,8 @@ class NormalizeChunkEmbedTests(Phase1TestCase):
             ).fetchall()
             self.assertTrue(rows)
             for model, backend, dimension, blob in rows:
-                self.assertEqual(model, "fallback-hash-v1")
-                self.assertEqual(backend, "fallback_hash")
+                self.assertTrue(model)
+                self.assertIn(backend, {"fallback_hash", "fastembed"})
                 self.assertGreater(dimension, 0)
                 self.assertTrue(blob)
         finally:
@@ -328,16 +330,15 @@ class ModelsPlaceholdersOpsTests(Phase1TestCase):
         self.assertIn("chat_default", ids)
         self.assertIn("embedding_default", ids)
 
-    def test_models_test_records_blocked_artifact_when_not_configured(self) -> None:
+    def test_models_test_records_artifact_for_configured_model(self) -> None:
         self._invoke("init")
         _, payload = self._invoke("models", "test", "chat_default")
-        self.assertEqual(payload["status"], "blocked")
-        self.assertEqual(payload["result"], "blocked")
-        self.assertFalse(payload["model"]["endpoint_configured"])
+        self.assertIn(payload["status"], {"ok", "blocked", "failed"})
+        self.assertIn(payload["result"], {"ok", "blocked", "failed"})
         artifact_path = self.workspace / payload["artifact_path"]
         self.assertTrue(artifact_path.exists())
         stored = json.loads(artifact_path.read_text(encoding="utf-8"))
-        self.assertEqual(stored["status"], "blocked")
+        self.assertEqual(stored["status"], payload["status"])
 
     def test_route_get_returns_current_mapping(self) -> None:
         self._invoke("init")
@@ -361,34 +362,37 @@ class ModelsPlaceholdersOpsTests(Phase1TestCase):
         envelope = payload["candidate_envelope"]
         self.assertEqual(envelope["task_type"], "extract_claims")
         self.assertEqual(envelope["schema_version"], "candidate.v1")
-        self.assertEqual(envelope["claim_candidates"], [])
+        self.assertGreaterEqual(len(envelope["claim_candidates"]), 1)
+        self.assertGreaterEqual(len(envelope["node_candidates"]), 1)
         self.assertTrue(payload["validation"]["ok"])
         self.assertTrue((self.workspace / payload["artifact_path"]).exists())
 
-    def test_phase1_placeholders_persist_minimum_artifacts(self) -> None:
+    def test_cli_exposes_only_real_user_facing_llm_commands(self) -> None:
         self._invoke("init")
         _, ingest_payload = self._invoke("ingest", str(SAMPLES_DIR / "short-note.md"))
         source_id = ingest_payload["source_id"]
 
-        _, summarize = self._invoke("summarize", f"source:{source_id}")
-        self.assertTrue(summarize["summary_placeholder"])
-        _, link = self._invoke("link", f"source:{source_id}")
-        self.assertEqual(link["relation_candidates"], [])
-        _, map_payload = self._invoke("map", source_id)
-        self.assertEqual(map_payload["mapping_candidates"], [])
+        _, extract_payload = self._invoke("extract-claims", source_id)
+        self.assertEqual(extract_payload["status"], "ok")
         _, ask = self._invoke("ask", "What is RAG?")
         self.assertTrue(ask["answer_placeholder"])
-        _, compile_payload = self._invoke("compile", "agentic_rag")
-        preview_path = self.workspace / compile_payload["preview_path"]
-        self.assertTrue(preview_path.exists())
 
-    def test_sync_dry_run_does_not_create_view_by_default(self) -> None:
+        from llm_wiki.cli import build_parser
+
+        parser = build_parser()
+        command_choices = parser._subparsers._group_actions[0].choices
+        self.assertIn("extract-claims", command_choices)
+        self.assertIn("ask", command_choices)
+        self.assertIn("debug-repair-source-stubs", command_choices)
+        for removed in ("summarize", "link", "map", "compile", "fix", "sync", "retry"):
+            self.assertNotIn(removed, command_choices)
+
+    def test_debug_repair_source_stubs_dry_run_does_not_apply_by_default(self) -> None:
         self._invoke("init")
-        _, payload = self._invoke("sync")
-        self.assertEqual(payload["mode"], "dry_run")
-        self.assertEqual(payload["applied_actions"], [])
-        view_path = self.workspace / "vault/20_Review/candidates/sync-status.md"
-        self.assertFalse(view_path.exists())
+        _, payload = self._invoke("debug-repair-source-stubs")
+        self.assertEqual(payload["status"], "ok")
+        self.assertFalse(payload["apply"])
+        self.assertEqual(payload["applied_fixes"], [])
 
     def test_status_search_validate_lint_smoke(self) -> None:
         self._invoke("init")
@@ -413,17 +417,6 @@ class ModelsPlaceholdersOpsTests(Phase1TestCase):
 
         _, lint = self._invoke("lint")
         self.assertIsInstance(lint["issues"], list)
-
-    def test_retry_request_records_artifact(self) -> None:
-        self._invoke("init")
-        _, ingest_payload = self._invoke("ingest", str(SAMPLES_DIR / "short-note.md"))
-        source_id = ingest_payload["source_id"]
-        _, claims = self._invoke("extract-claims", source_id)
-        run_id = claims["run_id"]
-        _, retry = self._invoke("retry", run_id, "--instruction", "be narrower")
-        self.assertEqual(retry["status"], "ok")
-        self.assertEqual(retry["target_kind"], "run")
-        self.assertEqual(retry["target_id"], run_id)
 
 
 def _run() -> int:

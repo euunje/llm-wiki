@@ -27,7 +27,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "artifacts": "data/artifacts",
         "exports": "data/exports",
         "cache": "data/cache",
-        "settings": "vault/90_Settings/settings.yaml",
+        "settings": "settings.yaml",
     },
     "workspace": {
         "human_vault": "vault",
@@ -35,6 +35,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "embedding": {
         "backend": "fastembed",
+        "model_root": "data/models/embeddings",
         "default_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         "fallback_model": "fallback-hash-v1",
         # fastembed_timeout_seconds: integer >= 1. Values <= 0 are clamped to 1 at runtime.
@@ -56,8 +57,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "endpoint": "",
         "api_key_env": "LLM_WIKI_API_KEY",
         "default_chat_model": "",
-        "default_embedding_model": "",
-        "timeout_seconds": 20,
+        "default_embedding_model": "embedding_default",
+        "timeout_seconds": 300,
         "models": {
             "chat_default": {
                 "id": "chat_default",
@@ -70,20 +71,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             },
             "embedding_default": {
                 "id": "embedding_default",
-                "provider": "generic_openai_compatible",
+                "provider": "local_embedding_folder",
                 "capability": "embedding",
-                "endpoint": "",
-                "api_key_env": "LLM_WIKI_API_KEY",
                 "model_name": "",
-                "request_format": "openai_embeddings",
+                "request_format": "local_embedding_folder",
             },
         },
         "routing": {
             "extract_claims": "chat_default",
-            "summarize": "chat_default",
-            "link": "chat_default",
-            "map": "chat_default",
-            "compile": "chat_default",
             "ask": "chat_default",
         },
     },
@@ -182,9 +177,6 @@ def _resolve_llm_settings(data: dict[str, Any]) -> dict[str, Any]:
 
     llm["endpoint"] = _env_or_yaml("LLM_WIKI_LLM_ENDPOINT", llm.get("endpoint"))
     llm["default_chat_model"] = _env_or_yaml("LLM_WIKI_CHAT_MODEL", llm.get("default_chat_model"))
-    llm["default_embedding_model"] = _env_or_yaml(
-        "LLM_WIKI_EMBEDDING_MODEL", llm.get("default_embedding_model")
-    )
 
     models = llm.get("models")
     if not isinstance(models, dict):
@@ -195,14 +187,10 @@ def _resolve_llm_settings(data: dict[str, Any]) -> dict[str, Any]:
             continue
         model = raw_model
         model["id"] = model.get("id") or model_id
-        model["endpoint"] = _env_or_yaml("LLM_WIKI_LLM_ENDPOINT", model.get("endpoint"))
         capability = model.get("capability")
         if capability == "chat":
+            model["endpoint"] = _env_or_yaml("LLM_WIKI_LLM_ENDPOINT", model.get("endpoint"))
             model["model_name"] = _env_or_yaml("LLM_WIKI_CHAT_MODEL", model.get("model_name"))
-        elif capability == "embedding":
-            model["model_name"] = _env_or_yaml(
-                "LLM_WIKI_EMBEDDING_MODEL", model.get("model_name")
-            )
     return resolved
 
 

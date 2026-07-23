@@ -6,6 +6,7 @@ import pytest
 
 from llm_wiki.bootstrap import ensure_workspace
 from llm_wiki.common import new_id, utc_now
+from llm_wiki.config.settings import load_settings, save_settings
 from llm_wiki.db.schema import connect
 from llm_wiki.workspace import resolve_workspace
 
@@ -21,6 +22,13 @@ def _client(workspace: Path, monkeypatch: pytest.MonkeyPatch):
     client = TestClient(create_app(workspace))
     client.post("/login", data={"password": "admin-pass"})
     return client, paths
+
+
+def _set_fake_home(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    home_dir = workspace.parent / f"{workspace.name}-home"
+    home_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home_dir))
+    return home_dir
 
 
 def test_dashboard_metrics_report_db_and_workspace_status(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -86,3 +94,28 @@ def test_dashboard_metrics_report_db_and_workspace_status(workspace: Path, monke
     wiki = client.get("/api/dashboard/wiki")
     assert wiki.status_code == 200
     assert wiki.json()["concept_count"] == 1
+
+
+def test_dashboard_summary_uses_configured_home_vault(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home_dir = _set_fake_home(workspace, monkeypatch)
+    client, paths = _client(workspace, monkeypatch)
+    human_vault = home_dir / "vault"
+    for folder in [
+        human_vault / "00. Inbox",
+        human_vault / "20. Wiki",
+        human_vault / "30. Queries",
+    ]:
+        folder.mkdir(parents=True, exist_ok=True)
+
+    settings = load_settings(paths.settings_file, resolve_env=False)
+    settings["workspace"] = {"human_vault": "~/vault", "system_data": "data"}
+    settings.setdefault("paths", {})["vault"] = "~/vault"
+    settings["vault"] = {"vault_path": "~/vault", "role_map": {"queries": "~/vault/30. Queries"}}
+    save_settings(paths.settings_file, settings)
+
+    response = client.get("/api/dashboard/summary")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["vault"]["path"] == str(human_vault)
+    assert payload["vault"]["root_folder_count"] == 3
+    assert payload["system"]["vault_path"] == str(human_vault)

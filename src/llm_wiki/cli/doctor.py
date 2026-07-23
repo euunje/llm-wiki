@@ -72,7 +72,7 @@ def run_doctor(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
             "embedding_model": settings.get("embedding", {}).get("default_model"),
             "llm_endpoint_configured": bool(settings.get("llm", {}).get("endpoint")),
             "chat_model_configured": bool(settings.get("llm", {}).get("default_chat_model")),
-            "embedding_model_configured": bool(settings.get("llm", {}).get("default_embedding_model")),
+            "embedding_model_configured": bool(settings.get("embedding", {}).get("default_model")),
         },
     }
     artifact = record_artifact(

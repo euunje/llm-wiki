@@ -91,7 +91,7 @@
 
 {% block scripts %}
   <script type="module">
-    import { loadInbox, bindInboxActions, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}";
+    import { loadInbox, bindInboxActions, bindSideDrawer } from "{{ url_for('static', path='/js/app.js') }}?v=inbox-processing-immediate-20260723";
     document.addEventListener("DOMContentLoaded", () => {
       bindSideDrawer();
       loadInbox();
